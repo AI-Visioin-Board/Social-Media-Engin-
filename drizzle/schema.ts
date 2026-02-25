@@ -166,3 +166,35 @@ export const deliverables = mysqlTable("deliverables", {
 
 export type Deliverable = typeof deliverables.$inferSelect;
 export type InsertDeliverable = typeof deliverables.$inferInsert;
+
+/**
+ * Client access tokens — magic links for client portal login
+ * Each token is tied to an order and the client's email.
+ * Tokens expire after 7 days and can only be used once (or reused within session).
+ */
+export const clientAccessTokens = mysqlTable("client_access_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  token: varchar("token", { length: 128 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ClientAccessToken = typeof clientAccessTokens.$inferSelect;
+export type InsertClientAccessToken = typeof clientAccessTokens.$inferInsert;
+
+/**
+ * Client uploads — documents uploaded by clients (intake forms, logos, credentials, etc.)
+ */
+export const clientUploads = mysqlTable("client_uploads", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  fileUrl: varchar("fileUrl", { length: 1000 }).notNull(),
+  fileKey: varchar("fileKey", { length: 500 }).notNull(),
+  mimeType: varchar("mimeType", { length: 100 }),
+  fileSize: int("fileSize"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type ClientUpload = typeof clientUploads.$inferSelect;
+export type InsertClientUpload = typeof clientUploads.$inferInsert;

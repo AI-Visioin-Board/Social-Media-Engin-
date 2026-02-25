@@ -10,12 +10,17 @@ import {
   createMessage, getMessagesByOrderId, getUnprocessedClientMessages, markMessageProcessed, getUnreadMessageCount,
   getPhaseProgressByOrder, upsertPhaseProgress,
   createDeliverable, getDeliverablesByOrder, deleteDeliverable,
+  createClientAccessToken, getClientAccessToken, deleteClientAccessToken,
+  createClientUpload, getClientUploadsByOrder, deleteClientUpload,
 } from "./db";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
-import { SERVICE_PHASES, SERVICE_TIERS, ORDER_STATUSES } from "../drizzle/schema";
+import { SERVICE_PHASES, SERVICE_TIERS, ORDER_STATUSES, TIER_PHASES } from "../drizzle/schema";
 
 const phaseEnum = z.enum(SERVICE_PHASES as unknown as [string, ...string[]]);
+
+// Cookie name for client portal sessions
+const CLIENT_PORTAL_COOKIE = "sbgpt_client_session";
 
 export const appRouter = router({
   system: systemRouter,
@@ -71,7 +76,6 @@ export const appRouter = router({
           notes: input.notes ?? null,
         });
 
-        // Notify owner of new order
         try {
           await notifyOwner({
             title: `New Order: ${input.businessName}`,
@@ -105,26 +109,37 @@ export const appRouter = router({
         return updateOrder(id, data as any);
       }),
 
-    stats: protectedProcedure.query(async () => {
-      return getOrderStats();
-    }),
+    stats: protectedProcedure.query(async () => getOrderStats()),
+    needingWelcomeEmail: protectedProcedure.query(async () => getOrdersNeedingWelcomeEmail()),
+    pending: protectedProcedure.query(async () => getPendingOrders()),
 
-    needingWelcomeEmail: protectedProcedure.query(async () => {
-      return getOrdersNeedingWelcomeEmail();
-    }),
+    // Generate a magic link token for a client to access their portal
+    generatePortalLink: protectedProcedure
+      .input(z.object({ orderId: z.number(), origin: z.string() }))
+      .mutation(async ({ input }) => {
+        const order = await getOrderById(input.orderId);
+        if (!order) throw new Error("Order not found");
 
-    pending: protectedProcedure.query(async () => {
-      return getPendingOrders();
-    }),
+        const token = nanoid(48);
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+        await createClientAccessToken({
+          orderId: input.orderId,
+          email: order.clientEmail,
+          token,
+          expiresAt,
+        });
+
+        const portalUrl = `${input.origin}/portal/${token}`;
+        return { portalUrl, token, expiresAt };
+      }),
   }),
 
   // ─── Messages ───────────────────────────────────────────────
   messages: router({
     listByOrder: protectedProcedure
       .input(z.object({ orderId: z.number() }))
-      .query(async ({ input }) => {
-        return getMessagesByOrderId(input.orderId);
-      }),
+      .query(async ({ input }) => getMessagesByOrderId(input.orderId)),
 
     create: protectedProcedure
       .input(z.object({
@@ -134,8 +149,6 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const msg = await createMessage(input);
-
-        // Notify owner when client sends a message
         if (input.sender === "client") {
           try {
             const order = await getOrderById(input.orderId);
@@ -147,7 +160,6 @@ export const appRouter = router({
             console.warn("[Messages] Failed to notify owner:", e);
           }
         }
-
         return msg;
       }),
 
@@ -158,22 +170,15 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    unprocessed: protectedProcedure.query(async () => {
-      return getUnprocessedClientMessages();
-    }),
-
-    unreadCount: protectedProcedure.query(async () => {
-      return getUnreadMessageCount();
-    }),
+    unprocessed: protectedProcedure.query(async () => getUnprocessedClientMessages()),
+    unreadCount: protectedProcedure.query(async () => getUnreadMessageCount()),
   }),
 
   // ─── Phase Progress ─────────────────────────────────────────
   phases: router({
     getByOrder: protectedProcedure
       .input(z.object({ orderId: z.number() }))
-      .query(async ({ input }) => {
-        return getPhaseProgressByOrder(input.orderId);
-      }),
+      .query(async ({ input }) => getPhaseProgressByOrder(input.orderId)),
 
     updateQA: protectedProcedure
       .input(z.object({
@@ -185,18 +190,14 @@ export const appRouter = router({
         qaDocument: z.boolean().optional(),
         notes: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        return upsertPhaseProgress(input as any);
-      }),
+      .mutation(async ({ input }) => upsertPhaseProgress(input as any)),
   }),
 
   // ─── Deliverables ──────────────────────────────────────────
   deliverables: router({
     listByOrder: protectedProcedure
       .input(z.object({ orderId: z.number() }))
-      .query(async ({ input }) => {
-        return getDeliverablesByOrder(input.orderId);
-      }),
+      .query(async ({ input }) => getDeliverablesByOrder(input.orderId)),
 
     upload: protectedProcedure
       .input(z.object({
@@ -212,7 +213,6 @@ export const appRouter = router({
         const ext = input.name.split(".").pop() ?? "bin";
         const fileKey = `deliverables/${input.orderId}/${input.phase}/${nanoid()}.${ext}`;
         const { url } = await storagePut(fileKey, buffer, input.mimeType);
-
         return createDeliverable({
           orderId: input.orderId,
           phase: input.phase as any,
@@ -230,6 +230,169 @@ export const appRouter = router({
         await deleteDeliverable(input.id);
         return { success: true };
       }),
+  }),
+
+  // ─── Client Portal ─────────────────────────────────────────
+  // All procedures here validate the magic-link token from the cookie
+  portal: router({
+    // Validate a magic link token and set a session cookie
+    validateToken: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const record = await getClientAccessToken(input.token);
+        if (!record) throw new Error("Invalid or expired link");
+        if (record.expiresAt < new Date()) {
+          await deleteClientAccessToken(record.id);
+          throw new Error("This link has expired. Please request a new one.");
+        }
+
+        // Set a session cookie so client stays logged in
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CLIENT_PORTAL_COOKIE, input.token, {
+          ...cookieOptions,
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+
+        return { success: true, orderId: record.orderId };
+      }),
+
+    // Get the current client's session from cookie
+    me: publicProcedure.query(async ({ ctx }) => {
+      const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
+      if (!token) return null;
+
+      const record = await getClientAccessToken(token);
+      if (!record || record.expiresAt < new Date()) return null;
+
+      const order = await getOrderById(record.orderId);
+      if (!order) return null;
+
+      return {
+        orderId: record.orderId,
+        email: record.email,
+        clientName: order.clientName,
+        businessName: order.businessName,
+      };
+    }),
+
+    // Logout client portal
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CLIENT_PORTAL_COOKIE, { ...cookieOptions, maxAge: -1 });
+      return { success: true };
+    }),
+
+    // Get the client's own order (validates token from cookie)
+    getOrder: publicProcedure.query(async ({ ctx }) => {
+      const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
+      if (!token) throw new Error("Not authenticated");
+
+      const record = await getClientAccessToken(token);
+      if (!record || record.expiresAt < new Date()) throw new Error("Session expired");
+
+      const order = await getOrderById(record.orderId);
+      if (!order) throw new Error("Order not found");
+
+      const phases = await getPhaseProgressByOrder(record.orderId);
+      const delivs = await getDeliverablesByOrder(record.orderId);
+      const msgs = await getMessagesByOrderId(record.orderId);
+      const uploads = await getClientUploadsByOrder(record.orderId);
+
+      // Build phase list for the tier
+      const tierPhases = TIER_PHASES[order.serviceTier] ?? [];
+
+      return {
+        order,
+        tierPhases,
+        phaseProgress: phases,
+        deliverables: delivs,
+        messages: msgs,
+        uploads,
+      };
+    }),
+
+    // Client sends a message
+    sendMessage: publicProcedure
+      .input(z.object({ content: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
+        if (!token) throw new Error("Not authenticated");
+
+        const record = await getClientAccessToken(token);
+        if (!record || record.expiresAt < new Date()) throw new Error("Session expired");
+
+        const msg = await createMessage({
+          orderId: record.orderId,
+          sender: "client",
+          content: input.content,
+        });
+
+        try {
+          const order = await getOrderById(record.orderId);
+          await notifyOwner({
+            title: `New Client Message: ${order?.businessName ?? "Unknown"}`,
+            content: `${order?.clientName ?? "Client"} sent a message: "${input.content.substring(0, 200)}${input.content.length > 200 ? "..." : ""}"`,
+          });
+        } catch (e) {
+          console.warn("[Portal] Failed to notify owner:", e);
+        }
+
+        return msg;
+      }),
+
+    // Client uploads a document
+    uploadDocument: publicProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        fileBase64: z.string(),
+        mimeType: z.string(),
+        fileSize: z.number().max(10 * 1024 * 1024),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
+        if (!token) throw new Error("Not authenticated");
+
+        const record = await getClientAccessToken(token);
+        if (!record || record.expiresAt < new Date()) throw new Error("Session expired");
+
+        const buffer = Buffer.from(input.fileBase64, "base64");
+        const ext = input.name.split(".").pop() ?? "bin";
+        const fileKey = `client-uploads/${record.orderId}/${nanoid()}.${ext}`;
+        const { url } = await storagePut(fileKey, buffer, input.mimeType);
+
+        return createClientUpload({
+          orderId: record.orderId,
+          name: input.name,
+          fileUrl: url,
+          fileKey,
+          mimeType: input.mimeType,
+          fileSize: input.fileSize,
+        });
+      }),
+
+    // Client requests upsell (upgrade from Jumpstart to Dominator)
+    requestUpgrade: publicProcedure.mutation(async ({ ctx }) => {
+      const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
+      if (!token) throw new Error("Not authenticated");
+
+      const record = await getClientAccessToken(token);
+      if (!record || record.expiresAt < new Date()) throw new Error("Session expired");
+
+      const order = await getOrderById(record.orderId);
+      if (!order) throw new Error("Order not found");
+      if (order.serviceTier !== "ai_jumpstart") throw new Error("Already on AI Dominator");
+
+      try {
+        await notifyOwner({
+          title: `Upgrade Request: ${order.businessName}`,
+          content: `${order.clientName} (${order.clientEmail}) wants to upgrade from AI Jumpstart to AI Dominator ($199) for order #${order.id}.`,
+        });
+      } catch (e) {
+        console.warn("[Portal] Failed to notify owner of upgrade request:", e);
+      }
+
+      return { success: true };
+    }),
   }),
 });
 

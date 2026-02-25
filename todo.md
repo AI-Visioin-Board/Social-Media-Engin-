@@ -22,3 +22,20 @@
 - [x] UI: New order creation form
 - [x] UI: DashboardLayout with sidebar navigation
 - [x] Design: Clean functional admin theme with dark sidebar
+- [ ] Fix: Mobile hamburger menu icon color (make darker)
+- [ ] Fix: Mobile hamburger menu right-edge spacing (shift 1px left / add right padding)
+- [ ] Fix: Mobile hamburger dropdown not opening/working
+- [x] DB: clientAccessTokens table (id, orderId, token, email, expiresAt, usedAt)
+- [x] DB: clientUploads table (id, orderId, name, fileUrl, fileKey, mimeType, fileSize, createdAt)
+- [x] Server: magic link generation procedure (admin sends link to client email)
+- [x] Server: magic link validation + session cookie for client
+- [x] Server: client portal procedures (get own order, phases, deliverables, messages, uploads)
+- [x] Server: client upload procedure
+- [x] Server: upsell/upgrade request procedure
+- [x] UI: Client portal login page (/portal/login)
+- [x] UI: Client portal dashboard (/portal/:token) - progress timeline, status
+- [x] UI: Client portal deliverables tab - download files
+- [x] UI: Client portal messaging tab - send/receive messages
+- [x] UI: Client portal uploads tab - upload intake documents
+- [x] UI: Client portal upsell section - upgrade from Jumpstart to Dominator
+- [x] Admin: Send magic link button on order detail page

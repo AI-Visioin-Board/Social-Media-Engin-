@@ -15,6 +15,13 @@
       "when": 1772039229548,
       "tag": "0001_wandering_roughhouse",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1772049144516,
+      "tag": "0002_colossal_sugar_man",
+      "breakpoints": true
     }
   ]
 }

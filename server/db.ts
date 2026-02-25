@@ -273,3 +273,56 @@ export async function deleteDeliverable(id: number) {
   if (!db) throw new Error("Database not available");
   await db.delete(deliverables).where(eq(deliverables.id, id));
 }
+
+// ─── Client Access Token Helpers ────────────────────────────────
+
+import { clientAccessTokens, InsertClientAccessToken, clientUploads, InsertClientUpload } from "../drizzle/schema";
+
+export async function createClientAccessToken(data: InsertClientAccessToken) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Invalidate any existing tokens for this order+email
+  await db.delete(clientAccessTokens).where(
+    and(eq(clientAccessTokens.orderId, data.orderId), eq(clientAccessTokens.email, data.email))
+  );
+  const result = await db.insert(clientAccessTokens).values(data);
+  const insertId = result[0].insertId;
+  const rows = await db.select().from(clientAccessTokens).where(eq(clientAccessTokens.id, insertId)).limit(1);
+  return rows[0];
+}
+
+export async function getClientAccessToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(clientAccessTokens).where(eq(clientAccessTokens.token, token)).limit(1);
+  return result[0] ?? undefined;
+}
+
+export async function deleteClientAccessToken(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(clientAccessTokens).where(eq(clientAccessTokens.id, id));
+}
+
+// ─── Client Upload Helpers ───────────────────────────────────────
+
+export async function createClientUpload(data: InsertClientUpload) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(clientUploads).values(data);
+  const insertId = result[0].insertId;
+  const rows = await db.select().from(clientUploads).where(eq(clientUploads.id, insertId)).limit(1);
+  return rows[0];
+}
+
+export async function getClientUploadsByOrder(orderId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(clientUploads).where(eq(clientUploads.orderId, orderId)).orderBy(clientUploads.createdAt);
+}
+
+export async function deleteClientUpload(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(clientUploads).where(eq(clientUploads.id, id));
+}

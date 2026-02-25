@@ -26,6 +26,8 @@ import {
   AlertTriangle,
   Sparkles,
   Zap,
+  Link2,
+  Copy,
 } from "lucide-react";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useLocation, useParams } from "wouter";
@@ -149,6 +151,17 @@ export default function OrderDetail() {
 
   const [newMessage, setNewMessage] = useState("");
   const [uploadPhase, setUploadPhase] = useState<string>("");
+  const [portalLink, setPortalLink] = useState<string | null>(null);
+  const [showPortalLink, setShowPortalLink] = useState(false);
+
+  const generatePortalLink = trpc.orders.generatePortalLink.useMutation({
+    onSuccess: (data) => {
+      setPortalLink(data.portalUrl);
+      setShowPortalLink(true);
+      toast.success("Portal link generated!");
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -264,7 +277,17 @@ export default function OrderDetail() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 ml-10 sm:ml-0">
+        <div className="flex items-center gap-2 ml-10 sm:ml-0 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+            onClick={() => generatePortalLink.mutate({ orderId, origin: window.location.origin })}
+            disabled={generatePortalLink.isPending}
+          >
+            {generatePortalLink.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+            Send Portal Link
+          </Button>
           <Select
             value={order.status}
             onValueChange={(val) => updateOrder.mutate({ id: orderId, status: val as any })}
@@ -281,6 +304,37 @@ export default function OrderDetail() {
           </Select>
         </div>
       </div>
+
+      {/* Portal link banner */}
+      {showPortalLink && portalLink && (
+        <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3">
+          <Link2 className="h-4 w-4 text-indigo-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-indigo-800 mb-0.5">Client Portal Link (valid 7 days)</p>
+            <p className="text-xs text-indigo-600 truncate font-mono">{portalLink}</p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+            onClick={() => {
+              navigator.clipboard.writeText(portalLink);
+              toast.success("Link copied to clipboard!");
+            }}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copy
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="shrink-0 text-indigo-400 hover:text-indigo-700"
+            onClick={() => setShowPortalLink(false)}
+          >
+            ✕
+          </Button>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="overview" className="space-y-4">
