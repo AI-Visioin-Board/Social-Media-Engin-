@@ -16,6 +16,13 @@ import {
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import { SERVICE_PHASES, SERVICE_TIERS, ORDER_STATUSES, TIER_PHASES } from "../drizzle/schema";
+import Stripe from "stripe";
+import { PRODUCTS } from "./products";
+import { buildWelcomeEmailContent } from "./emailHelper";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
+  apiVersion: "2026-02-25.clover",
+});
 
 const phaseEnum = z.enum(SERVICE_PHASES as unknown as [string, ...string[]]);
 
@@ -63,6 +70,7 @@ export const appRouter = router({
         targetArea: z.string().optional(),
         serviceTier: z.enum(SERVICE_TIERS as unknown as [string, ...string[]]),
         notes: z.string().optional(),
+        origin: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
         const order = await createOrder({
@@ -76,16 +84,49 @@ export const appRouter = router({
           notes: input.notes ?? null,
         });
 
+        if (!order) throw new Error("Failed to create order");
+
+        // Auto-generate portal access token so welcome email can be sent immediately
+        let portalToken: string | null = null;
+        let portalUrl: string | null = null;
+        if (input.origin) {
+          try {
+            const token = nanoid(48);
+            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+            await createClientAccessToken({
+              orderId: order.id,
+              email: order.clientEmail,
+              token,
+              expiresAt,
+            });
+            portalToken = token;
+            portalUrl = `${input.origin}/portal/${token}`;
+          } catch (e) {
+            console.warn("[Orders] Failed to generate portal token:", e);
+          }
+        }
+
+        // Build welcome email content
+        const welcomeEmail = portalUrl
+          ? buildWelcomeEmailContent({
+              clientName: order.clientName,
+              businessName: order.businessName,
+              serviceTier: order.serviceTier,
+              portalUrl,
+              orderId: order.id,
+            })
+          : null;
+
         try {
           await notifyOwner({
             title: `New Order: ${input.businessName}`,
-            content: `New ${input.serviceTier === "ai_dominator" ? "AI Dominator ($199)" : "AI Jumpstart ($99)"} order from ${input.clientName} (${input.clientEmail}) for ${input.businessName}.`,
+            content: `New ${input.serviceTier === "ai_dominator" ? "AI Dominator" : "AI Jumpstart"} order from ${input.clientName} (${input.clientEmail}) for ${input.businessName}. Portal link ready to send.`,
           });
         } catch (e) {
           console.warn("[Orders] Failed to notify owner:", e);
         }
 
-        return order;
+        return { ...order, portalUrl, welcomeEmail };
       }),
 
     update: protectedProcedure
@@ -370,29 +411,52 @@ export const appRouter = router({
         });
       }),
 
-    // Client requests upsell (upgrade from Jumpstart to Dominator)
-    requestUpgrade: publicProcedure.mutation(async ({ ctx }) => {
-      const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
-      if (!token) throw new Error("Not authenticated");
+    // Client initiates Stripe checkout to upgrade from Jumpstart → Dominator
+    createUpgradeCheckout: publicProcedure
+      .input(z.object({ origin: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const token = (ctx.req as any).cookies?.[CLIENT_PORTAL_COOKIE];
+        if (!token) throw new Error("Not authenticated");
 
-      const record = await getClientAccessToken(token);
-      if (!record || record.expiresAt < new Date()) throw new Error("Session expired");
+        const record = await getClientAccessToken(token);
+        if (!record || record.expiresAt < new Date()) throw new Error("Session expired");
 
-      const order = await getOrderById(record.orderId);
-      if (!order) throw new Error("Order not found");
-      if (order.serviceTier !== "ai_jumpstart") throw new Error("Already on AI Dominator");
+        const order = await getOrderById(record.orderId);
+        if (!order) throw new Error("Order not found");
+        if (order.serviceTier !== "ai_jumpstart") throw new Error("Already on AI Dominator");
 
-      try {
-        await notifyOwner({
-          title: `Upgrade Request: ${order.businessName}`,
-          content: `${order.clientName} (${order.clientEmail}) wants to upgrade from AI Jumpstart to AI Dominator ($199) for order #${order.id}.`,
+        const product = PRODUCTS.ai_dominator_upgrade;
+
+        const session = await stripe.checkout.sessions.create({
+          mode: "payment",
+          customer_email: order.clientEmail,
+          allow_promotion_codes: true,
+          line_items: [
+            {
+              price_data: {
+                currency: product.currency,
+                unit_amount: product.unitAmount,
+                product_data: {
+                  name: product.name,
+                  description: product.description,
+                },
+              },
+              quantity: 1,
+            },
+          ],
+          client_reference_id: order.id.toString(),
+          metadata: {
+            order_id: order.id.toString(),
+            user_id: order.id.toString(),
+            customer_email: order.clientEmail,
+            customer_name: order.clientName,
+          },
+          success_url: `${input.origin}/portal?upgrade=success`,
+          cancel_url: `${input.origin}/portal?upgrade=cancelled`,
         });
-      } catch (e) {
-        console.warn("[Portal] Failed to notify owner of upgrade request:", e);
-      }
 
-      return { success: true };
-    }),
+        return { checkoutUrl: session.url };
+      }),
   }),
 });
 

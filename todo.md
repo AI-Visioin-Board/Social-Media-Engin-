@@ -39,3 +39,9 @@
 - [x] UI: Client portal uploads tab - upload intake documents
 - [x] UI: Client portal upsell section - upgrade from Jumpstart to Dominator
 - [x] Admin: Send magic link button on order detail page
+- [x] Stripe: Add stripe feature scaffold
+- [x] Stripe: Server procedure to create Stripe payment link for AI Dominator upgrade
+- [x] Stripe: Stripe webhook to confirm payment and auto-upgrade order tier
+- [x] Stripe: Client portal upsell section shows real Stripe payment button
+- [x] Gmail: Auto-send portal magic link email when new order is created
+- [x] Gmail: Welcome email includes portal link, order summary, and next steps

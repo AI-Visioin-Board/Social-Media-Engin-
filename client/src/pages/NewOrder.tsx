@@ -11,14 +11,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2, Sparkles, Zap } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, Zap, Mail, Copy, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 export default function NewOrder() {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
+  const [welcomeEmailData, setWelcomeEmailData] = useState<{
+    subject: string;
+    body: string;
+    clientEmail: string;
+    portalUrl: string | null;
+    orderId: number;
+  } | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const [form, setForm] = useState({
     clientName: "",
@@ -35,10 +44,18 @@ export default function NewOrder() {
 
   const createOrder = trpc.orders.create.useMutation({
     onSuccess: (order) => {
-      toast.success("Order created successfully!");
+      toast.success("Order created! Welcome email is ready to send.");
       utils.orders.list.invalidate();
       utils.orders.stats.invalidate();
-      if (order) {
+      if (order?.welcomeEmail) {
+        setWelcomeEmailData({
+          subject: order.welcomeEmail.subject,
+          body: order.welcomeEmail.body,
+          clientEmail: order.clientEmail,
+          portalUrl: order.portalUrl ?? null,
+          orderId: order.id,
+        });
+      } else if (order) {
         setLocation(`/orders/${order.id}`);
       } else {
         setLocation("/");
@@ -64,6 +81,7 @@ export default function NewOrder() {
       businessCategory: form.businessCategory || undefined,
       targetArea: form.targetArea || undefined,
       notes: form.notes || undefined,
+      origin: window.location.origin,
     });
   };
 
@@ -264,6 +282,87 @@ export default function NewOrder() {
           </Button>
         </div>
       </form>
+
+      {/* Welcome Email Dialog */}
+      <Dialog open={!!welcomeEmailData} onOpenChange={(open) => {
+        if (!open && welcomeEmailData) {
+          setLocation(`/orders/${welcomeEmailData.orderId}`);
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-indigo-600" />
+              Order Created — Send Welcome Email
+            </DialogTitle>
+            <DialogDescription>
+              The order has been created and a portal link has been generated. Copy the email below and send it to your client, or use the Gmail button to send it directly.
+            </DialogDescription>
+          </DialogHeader>
+
+          {welcomeEmailData && (
+            <div className="space-y-4 mt-2">
+              {welcomeEmailData.portalUrl && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                  <p className="text-xs font-medium text-indigo-800 mb-1">Client Portal Link (7 days)</p>
+                  <p className="text-xs font-mono text-indigo-700 break-all">{welcomeEmailData.portalUrl}</p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-700">Email Preview</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-xs"
+                    onClick={() => {
+                      const full = `To: ${welcomeEmailData.clientEmail}\nSubject: ${welcomeEmailData.subject}\n\n${welcomeEmailData.body}`;
+                      navigator.clipboard.writeText(full);
+                      setEmailCopied(true);
+                      setTimeout(() => setEmailCopied(false), 2000);
+                      toast.success("Email copied to clipboard!");
+                    }}
+                  >
+                    {emailCopied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                    {emailCopied ? "Copied!" : "Copy Email"}
+                  </Button>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-700 whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+                  <p className="font-semibold text-slate-500 mb-2">To: {welcomeEmailData.clientEmail}</p>
+                  <p className="font-semibold text-slate-500 mb-3">Subject: {welcomeEmailData.subject}</p>
+                  {welcomeEmailData.body}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 gap-2"
+                  onClick={() => {
+                    // Open Gmail compose with pre-filled data
+                    const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(welcomeEmailData.clientEmail)}&su=${encodeURIComponent(welcomeEmailData.subject)}&body=${encodeURIComponent(welcomeEmailData.body)}`;
+                    window.open(gmailUrl, "_blank");
+                    toast.success("Gmail opened with pre-filled email!");
+                  }}
+                >
+                  <Mail className="h-4 w-4" />
+                  Open in Gmail
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setLocation(`/orders/${welcomeEmailData.orderId}`)}
+                >
+                  Go to Order
+                </Button>
+              </div>
+
+              <p className="text-xs text-slate-400 text-center">
+                The portal link is already saved. You can resend it anytime from the order detail page.
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

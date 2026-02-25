@@ -76,12 +76,14 @@ export default function ClientPortal() {
     onError: (e) => toast.error(e.message),
   });
 
-  const requestUpgrade = trpc.portal.requestUpgrade.useMutation({
-    onSuccess: () => {
-      setUpgradeRequested(true);
-      toast.success("Upgrade request sent! We'll be in touch shortly.");
+  const createUpgradeCheckout = trpc.portal.createUpgradeCheckout.useMutation({
+    onSuccess: (data) => {
+      if (data.checkoutUrl) {
+        toast.success("Redirecting to secure checkout...");
+        window.open(data.checkoutUrl, "_blank");
+      }
     },
-    onError: (e) => toast.error(e.message),
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Checkout failed"),
   });
 
   const logout = trpc.portal.logout.useMutation({
@@ -389,25 +391,18 @@ export default function ClientPortal() {
                         ))}
                       </div>
                       <div className="flex items-center gap-3 mt-4">
-                        <span className="text-2xl font-bold text-indigo-700">$199</span>
+                        <span className="text-2xl font-bold text-indigo-700">$499</span>
                         <span className="text-slate-400 text-sm">one-time upgrade</span>
                       </div>
-                      {upgradeRequested ? (
-                        <div className="mt-3 flex items-center gap-2 text-green-700 text-sm font-medium">
-                          <CheckCircle2 className="h-4 w-4" />
-                          Request sent! We'll reach out shortly.
-                        </div>
-                      ) : (
-                        <Button
-                          className="mt-3 bg-indigo-600 hover:bg-indigo-700"
-                          onClick={() => requestUpgrade.mutate()}
-                          disabled={requestUpgrade.isPending}
-                        >
-                          {requestUpgrade.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                          Request Upgrade
-                          <ChevronRight className="h-4 w-4 ml-1" />
-                        </Button>
-                      )}
+                      <Button
+                        className="mt-3 bg-indigo-600 hover:bg-indigo-700"
+                        onClick={() => createUpgradeCheckout.mutate({ origin: window.location.origin })}
+                        disabled={createUpgradeCheckout.isPending}
+                      >
+                        {createUpgradeCheckout.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Upgrade Now — $499
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
