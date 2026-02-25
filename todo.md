@@ -1,0 +1,24 @@
+# SuggestedByGPT - Project TODO
+
+- [x] Database schema: orders table (id, clientName, clientEmail, businessName, websiteUrl, serviceTier, status, welcomeEmailSent, currentPhase, createdAt, updatedAt)
+- [x] Database schema: messages table (id, orderId, sender, content, isProcessed, createdAt)
+- [x] Database schema: deliverables table (id, orderId, phase, name, fileUrl, fileKey, createdAt)
+- [x] Database schema: phaseProgress table (id, orderId, phase, qaExecute, qaVerify, qaTest, qaDocument, completedAt)
+- [x] Server: query helpers for orders CRUD
+- [x] Server: query helpers for messages CRUD
+- [x] Server: query helpers for deliverables CRUD
+- [x] Server: query helpers for phase progress CRUD
+- [x] Server: tRPC routers for order management (list, get, create, update status)
+- [x] Server: tRPC routers for messages (list by order, create, mark processed)
+- [x] Server: tRPC routers for deliverables (list by order, upload, delete)
+- [x] Server: tRPC routers for phase progress (get by order, update QA steps, complete phase)
+- [x] Server: owner notification on new orders and client messages
+- [x] Vitest tests for backend procedures
+- [x] UI: Admin dashboard with order list, status filtering, stats cards
+- [x] UI: Order detail page with tabs (Overview, Phases, Messages, Deliverables)
+- [x] UI: Phase tracking with 10-phase protocol and 4-step QA verification
+- [x] UI: Client messaging interface with reply capability
+- [x] UI: Deliverables upload and management per phase
+- [x] UI: New order creation form
+- [x] UI: DashboardLayout with sidebar navigation
+- [x] Design: Clean functional admin theme with dark sidebar
