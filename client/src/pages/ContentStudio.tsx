@@ -362,7 +362,7 @@ function RunDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="max-w-2xl h-[90vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600">
@@ -406,7 +406,7 @@ function RunDetailDialog({
 
           <Separator />
 
-          <ScrollArea className="flex-1 pr-1">
+          <ScrollArea className="flex-1 min-h-0 pr-1">
             <div className="space-y-4">
               {/* Error */}
               {run.status === "failed" && run.errorMessage && (
