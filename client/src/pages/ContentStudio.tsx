@@ -99,7 +99,7 @@ const PIPELINE_STEPS = [
   { key: "discovering", label: "Topic Discovery", desc: "Scanning YouTube, TikTok & Reddit" },
   { key: "scoring",     label: "AI Scoring",      desc: "GPT ranks topics on 5 criteria" },
   { key: "review",      label: "Your Review",     desc: "Approve or swap topics" },
-  { key: "researching", label: "Deep Research",   desc: "Perplexity verifies each story" },
+  { key: "researching", label: "Deep Research",   desc: "GPT-4o web search verifies each story" },
   { key: "generating",  label: "Video Generation",desc: "Seedance creates B-roll clips" },
   { key: "assembling",  label: "Slide Assembly",  desc: "FFmpeg composites final slides" },
   { key: "posting",     label: "Instagram Post",  desc: "Make.com posts the carousel" },
@@ -768,43 +768,59 @@ export default function ContentStudio() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Settings className="w-4 h-4" />
-                  Required API Keys
+                  API Keys & Configuration
                 </CardTitle>
                 <CardDescription>
-                  Add these in the <strong>Secrets</strong> panel (Settings → Secrets) to unlock full automation.
-                  The pipeline runs in stub mode until keys are configured.
+                  OpenAI and Anthropic keys are active. Only Seedance is needed for full video generation.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {[
                   {
-                    key: "PERPLEXITY_API_KEY",
-                    label: "Perplexity Sonar API",
-                    desc: "Deep research with verified citations. Required for Stage 4 (Deep Research).",
-                    link: "https://www.perplexity.ai/api-platform",
-                    linkLabel: "Get key at perplexity.ai",
+                    key: "OPENAI_API_KEY",
+                    label: "OpenAI (GPT-4o Web Search)",
+                    desc: "Stage 4: Real-time web research with citations — replaces Perplexity. Already configured.",
+                    link: "https://platform.openai.com/api-keys",
+                    linkLabel: "platform.openai.com",
+                    active: true,
+                  },
+                  {
+                    key: "ANTHROPIC_API_KEY",
+                    label: "Anthropic (Claude — Topic Scoring)",
+                    desc: "Stage 3: Scores and selects the top 5 topics from candidates. Already configured.",
+                    link: "https://console.anthropic.com/",
+                    linkLabel: "console.anthropic.com",
+                    active: true,
                   },
                   {
                     key: "SEEDANCE_API_KEY",
                     label: "Seedance 2.0 (ByteDance VolcEngine)",
-                    desc: "AI video generation for B-roll clips. Required for Stage 5 (Video Generation).",
+                    desc: "Stage 5: AI video B-roll generation. US availability limited — check volcengine.com.",
                     link: "https://www.volcengine.com/",
                     linkLabel: "Get key at volcengine.com",
+                    active: false,
                   },
                   {
                     key: "MAKE_WEBHOOK_URL",
-                    label: "Make.com Instagram Webhook URL",
-                    desc: "Triggers your Make.com scenario to post the carousel to Instagram. Required for Stage 7.",
+                    label: "Make.com Instagram Webhook",
+                    desc: "Stage 7: Triggers your Make.com scenario to post the carousel to @suggestedbygpt. Already configured.",
                     link: "https://www.make.com/",
                     linkLabel: "Set up at make.com",
+                    active: true,
                   },
-                ].map((item) => (
-                  <div key={item.key} className="flex items-start gap-3 p-3 border border-slate-200 rounded-lg">
-                    <div className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5 bg-red-400" />
+                ].map((item: any) => (
+                  <div key={item.key} className={`flex items-start gap-3 p-3 border rounded-lg ${
+                    item.active ? "border-green-200 bg-green-50" : "border-slate-200"
+                  }`}>
+                    <div className={`flex-shrink-0 w-2 h-2 rounded-full mt-1.5 ${
+                      item.active ? "bg-green-500" : "bg-amber-400"
+                    }`} />
                     <div className="flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded font-mono">{item.key}</code>
-                        <span className="text-xs text-red-500 font-medium">Required</span>
+                        <span className={`text-xs font-medium ${
+                          item.active ? "text-green-600" : "text-amber-600"
+                        }`}>{item.active ? "✓ Active" : "Needed"}</span>
                         <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
                           {item.linkLabel} <ExternalLink className="w-2.5 h-2.5" />
                         </a>

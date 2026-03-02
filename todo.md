@@ -65,3 +65,10 @@
 - [x] UI: Post calendar showing Mon/Fri schedule
 - [x] UI: Published topics exclusion list viewer
 - [x] Vitest: tests for scoring agent and no-repeat logic
+
+## API & Pipeline Improvements
+- [ ] Secrets: Add OPENAI_API_KEY and ANTHROPIC_API_KEY
+- [ ] Pipeline: Replace Perplexity with GPT-4o web search tool for Stage 4 deep research
+- [ ] Pipeline: Use Claude Opus (Anthropic) for Stage 2 topic scoring instead of GPT-4o
+- [ ] Pipeline: Set Instagram page name to "suggestedbygpt" in Make.com webhook payload
+- [ ] Setup Guide: Update UI to show OpenAI/Anthropic keys instead of Perplexity
