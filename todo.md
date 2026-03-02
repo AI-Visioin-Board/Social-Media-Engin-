@@ -83,3 +83,7 @@
 - [x] Upgrade: multi-query GPT-4o web search (6 targeted queries) for 30-50 topic candidates
 - [x] Upgrade: Reddit JSON API scraper (r/artificial, r/MachineLearning, r/singularity, r/ChatGPT)
 - [x] Upgrade: improved scoring agent prompt with audience profile and variety rules for larger candidate pool
+- [x] Upgrade: Add NewsAPI.org for real-time AI headlines with strict date filtering (last 7 days Monday, 3 days Friday)
+- [x] Upgrade: Reduce GPT-4o queries from 6 to 3 with explicit current date injection and recency enforcement
+- [x] Upgrade: Monday run = "this week in AI" (7-day window), Friday run = "last 48-72 hours in AI" (3-day window)
+- [x] Upgrade: Pass runSlot to discoverTopics so correct recency window is applied per run type

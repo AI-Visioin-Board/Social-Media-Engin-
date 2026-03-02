@@ -64,39 +64,102 @@ export interface ResearchedTopic {
  * Fetch trending AI topics from YouTube, TikTok, Reddit simultaneously
  * Uses Manus built-in Data APIs (no extra cost)
  */
-export async function discoverTopics(): Promise<RawTopic[]> {
-  const topics: RawTopic[] = [];
-
-  // Parallel discovery across all sources
-  const [ytTopics, ttTopics, redditTopics] = await Promise.allSettled([
-    discoverFromYouTube(),
-    discoverFromTikTok(),
-    discoverFromReddit(),
+export async function discoverTopics(runType: "monday" | "friday" = "monday"): Promise<RawTopic[]> {
+  console.log(`[ContentPipeline] Starting multi-source topic discovery for ${runType} run...`);
+  // Run all sources in parallel: NewsAPI + Reddit + 3x GPT-4o web search
+  const [newsApiResult, redditResult, ...gptResults] = await Promise.allSettled([
+    discoverFromNewsAPI(runType),
+    discoverFromRedditJSON(),
+    ...buildGPT4oSearchQueries(runType).map((q) => runSingleGPT4oSearch(q, process.env.OPENAI_API_KEY ?? "")),
   ]);
-
-  if (ytTopics.status === "fulfilled") topics.push(...ytTopics.value);
-  if (ttTopics.status === "fulfilled") topics.push(...ttTopics.value);
-  if (redditTopics.status === "fulfilled") topics.push(...redditTopics.value);
-
-  // If all APIs failed, use GPT-4o web search as primary discovery
-  if (topics.length === 0) {
-    console.warn("[ContentPipeline] All social APIs unavailable — using GPT-4o web search for topic discovery");
-    const gptTopics = await discoverWithGPT4oWebSearch();
-    topics.push(...gptTopics);
+  const topics: RawTopic[] = [];
+  if (newsApiResult.status === "fulfilled") {
+    console.log(`[ContentPipeline] NewsAPI: ${newsApiResult.value.length} articles`);
+    topics.push(...newsApiResult.value);
   }
-  console.log(`[ContentPipeline] Discovered ${topics.length} raw topics`);
+  if (redditResult.status === "fulfilled") {
+    console.log(`[ContentPipeline] Reddit: ${redditResult.value.length} posts`);
+    topics.push(...redditResult.value);
+  }
+  for (let i = 0; i < gptResults.length; i++) {
+    const r = gptResults[i];
+    if (r.status === "fulfilled") {
+      console.log(`[ContentPipeline] GPT-4o query ${i + 1}: ${r.value.length} topics`);
+      topics.push(...r.value);
+    }
+  }
+  console.log(`[ContentPipeline] Total discovered: ${topics.length} raw topics from all sources`);
+  // Last resort: static fallback
+  if (topics.length < 5) {
+    console.warn("[ContentPipeline] Low topic count — adding static fallback topics");
+    topics.push(...getStaticFallbackTopics());
+  }
   return topics;
 }
 
-// 6 targeted search queries — each focuses on a different angle for maximum coverage
-const GPT4O_SEARCH_QUERIES = [
-  `Search the web for the 6 most significant NEW AI model releases or major AI product launches from the last 7 days (GPT, Claude, Gemini, Grok, Llama, Mistral, or any notable AI). Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
-  `Search the web for the 6 most viral or surprising AI news stories from the last 7 days that would shock or amaze everyday people — AI doing something humans couldn't, AI beating records, AI changing daily life. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
-  `Search the web for the 6 most important AI news stories for small business owners from the last 7 days — new AI productivity tools, AI automating business tasks, AI cost savings, AI for marketing or customer service. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
-  `Search the web for the 6 most significant AI regulation, policy, or ethics news stories from the last 7 days — government actions, AI safety concerns, lawsuits, bans, major policy changes. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
-  `Search the web for the 6 most impressive AI research breakthroughs or scientific discoveries from the last 7 days — AI in medicine, AI in science, AI solving hard problems, new AI capabilities. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
-  `Search the web for the 6 most talked-about AI news stories on social media and tech forums right now — what is the AI community most excited or concerned about this week? Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
-];
+async function discoverFromNewsAPI(runType: "monday" | "friday"): Promise<RawTopic[]> {
+  const apiKey = process.env.NEWS_API_KEY;
+  if (!apiKey) {
+    console.warn("[ContentPipeline] No NEWS_API_KEY — skipping NewsAPI");
+    return [];
+  }
+  // Monday: last 7 days. Friday: last 3 days (fresher content)
+  const daysBack = runType === "friday" ? 3 : 7;
+  const from = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const queries = [
+    "artificial intelligence",
+    "AI model release",
+    "machine learning breakthrough",
+  ];
+  const results: RawTopic[] = [];
+  await Promise.allSettled(
+    queries.map(async (q) => {
+      try {
+        const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&from=${from}&sortBy=popularity&pageSize=10&language=en&apiKey=${apiKey}`;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json() as any;
+        if (data.status !== "ok") return;
+        for (const article of (data.articles ?? [])) {
+          if (article.title && !article.title.includes("[Removed]")) {
+            results.push({
+              title: article.title.slice(0, 120),
+              source: "news" as const,
+              url: article.url ?? "",
+              publishedAt: article.publishedAt,
+            });
+          }
+        }
+      } catch { /* skip */ }
+    })
+  );
+  console.log(`[ContentPipeline] NewsAPI discovered ${results.length} articles (from ${from})`);
+  return results;
+}
+
+// 3 focused GPT-4o web search queries with dynamic date injection to prevent stale results
+// Date is injected at runtime so GPT knows exactly what "recent" means
+function buildGPT4oSearchQueries(runType: "monday" | "friday"): string[] {
+  const today = new Date();
+  const todayStr = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const cutoffDate = new Date(today.getTime() - (runType === "friday" ? 3 : 7) * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const window = runType === "friday" ? "last 48-72 hours" : "last 7 days";
+  const focus = runType === "friday"
+    ? "what just happened in AI this week — breaking news, just-released tools, announcements from the last 2-3 days"
+    : "this week in AI — the most significant stories from the past 7 days";
+
+  return [
+    // Query 1: Major AI news & product launches
+    `Today is ${todayStr}. Search the web for the 6 most significant AI news stories published AFTER ${cutoffStr} (${window}). Focus on: ${focus}. Include new AI model releases, major product launches, and viral AI moments. CRITICAL: Only include stories published after ${cutoffStr}. If you cannot find recent stories, say so — do NOT return old news. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url or empty string", "source": "news"}]`,
+
+    // Query 2: Business & consumer AI impact
+    `Today is ${todayStr}. Search the web for the 6 most impactful AI stories for business owners and everyday consumers published AFTER ${cutoffStr} (${window}). Focus on: new AI tools that save time or money, AI automating jobs or tasks, AI changing how people work or shop, AI regulation affecting businesses. CRITICAL: Only stories published after ${cutoffStr} — no older news. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url or empty string", "source": "news"}]`,
+
+    // Query 3: Viral, surprising, or controversial AI
+    `Today is ${todayStr}. Search the web for the 6 most surprising, controversial, or viral AI stories published AFTER ${cutoffStr} (${window}). Focus on: AI doing something shocking or unexpected, AI safety concerns, AI vs humans moments, AI art/creativity controversies, anything the internet is buzzing about. CRITICAL: Only stories published after ${cutoffStr}. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url or empty string", "source": "news"}]`,
+  ];
+}
 
 async function runSingleGPT4oSearch(query: string, openAiKey: string): Promise<RawTopic[]> {
   try {
@@ -159,30 +222,7 @@ async function discoverFromRedditJSON(): Promise<RawTopic[]> {
   return results;
 }
 
-async function discoverWithGPT4oWebSearch(): Promise<RawTopic[]> {
-  const openAiKey = process.env.OPENAI_API_KEY;
-  if (!openAiKey) {
-    console.warn("[ContentPipeline] No OpenAI key for discovery");
-    return getStaticFallbackTopics();
-  }
-  try {
-    console.log("[ContentPipeline] Running 6 parallel GPT-4o web searches + Reddit JSON API...");
-    const [redditResult, ...searchResults] = await Promise.allSettled([
-      discoverFromRedditJSON(),
-      ...GPT4O_SEARCH_QUERIES.map((q) => runSingleGPT4oSearch(q, openAiKey)),
-    ]);
-    const allTopics: RawTopic[] = [];
-    if (redditResult.status === "fulfilled") allTopics.push(...redditResult.value);
-    for (const r of searchResults) {
-      if (r.status === "fulfilled") allTopics.push(...r.value);
-    }
-    console.log(`[ContentPipeline] Total discovered: ${allTopics.length} topics from 7 sources`);
-    return allTopics.length >= 5 ? allTopics : [...allTopics, ...getStaticFallbackTopics().slice(0, 12 - allTopics.length)];
-  } catch (err) {
-    console.error("[ContentPipeline] Multi-source discovery failed:", err);
-    return getStaticFallbackTopics();
-  }
-}
+// discoverWithGPT4oWebSearch removed — logic merged into discoverTopics() above
 
 function getStaticFallbackTopics(): RawTopic[] {
   // Last-resort static topics — will be replaced by real research in Stage 4
@@ -895,7 +935,7 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
   try {
     // Stage 1: Discover topics
     await db.update(contentRuns).set({ status: "discovering" }).where(eq(contentRuns.id, runId));
-    const rawTopics = await discoverTopics();
+    const rawTopics = await discoverTopics(options.runSlot);
 
     await db.update(contentRuns).set({
       topicsRaw: JSON.stringify(rawTopics),
