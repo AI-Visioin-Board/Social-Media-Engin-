@@ -23,6 +23,8 @@ import {
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
+import { generateImage } from "./_core/imageGeneration";
+import { ENV } from "./_core/env";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -764,87 +766,160 @@ Return just the prompt, no explanation.`,
     "Cinematic shot of a futuristic AI interface with glowing data streams, clean minimal design, 4K quality";
 }
 
-// ─── Stage 5: Seedance Video Generation ───────────────────────────────────────
+/**
+ * Generate a single Nano Banana image prompt that visually synthesizes all 5 topic headlines
+ * into one cinematic cover scene. Used for the cover slide (index 0).
+ */
+async function generateCoverImagePrompt(headlines: string[]): Promise<string> {
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: "You create stunning, cinematic image prompts for Nano Banana (Google Imagen). Each prompt describes a single photorealistic still image.",
+      },
+      {
+        role: "user",
+        content: `Create a single SCROLL-STOPPING, cinematic image prompt for the cover slide of an Instagram AI news carousel. This is the THUMBNAIL — it must make someone stop mid-scroll and feel compelled to swipe.
+
+This week's AI topics to synthesize visually:
+${headlines.map((h, i) => `${i + 1}. ${h}`).join("\n")}
+
+STYLE GUIDELINES (non-negotiable):
+- EDGY and MODERN — not corporate, not safe, not generic
+- SCI-FI aesthetic: think Blade Runner 2049, Ex Machina, Ghost in the Shell, Westworld
+- Hyper-cinematic: anamorphic lens flares, volumetric light rays, god rays, chromatic aberration
+- Color palette: deep blacks, neon electric blue (#00f0ff), hot magenta (#ff00aa), molten gold — high contrast
+- Dramatic tension: something feels like it's about to change the world
+- Could include: a humanoid AI face emerging from data, a cracked digital mirror showing a robot eye, glowing neural pathways inside a human silhouette, a city skyline being rewritten by code
+- Composition: rule of thirds, strong foreground subject, depth layers, 9:16 vertical portrait
+- Photorealistic, 8K quality, hyperdetailed
+- NO text, NO logos, NO watermarks in the image
+- The image should feel like a movie poster for the future of AI
+
+Return ONLY the image prompt, no explanation, no preamble.`,
+      },
+    ],
+  });
+
+  const raw = response?.choices?.[0]?.message?.content;
+  const text = typeof raw === "string" ? raw : "";
+  return text.trim() ||
+    "Hyper-cinematic 8K portrait: a humanoid AI face half-emerging from a shattered digital mirror, one eye glowing neon electric blue, the other a deep void of cascading code, surrounded by volumetric light rays and chromatic aberration, deep black background with neon magenta and gold accents, anamorphic lens flare, Blade Runner 2049 aesthetic, rule of thirds composition, 9:16 vertical, photorealistic hyperdetailed";
+}
+
+// ─── Stage 5: Video / Image Generation ──────────────────────────────────────
+// Primary: Kling 2.5 Turbo (text-to-video, ~$0.14/clip)
+// Fallback: Nano Banana / Imagen (free, built-in, still image)
+
+/** Generate a JWT token for Kling API authentication */
+function generateKlingJWT(accessKey: string, secretKey: string): string {
+  const jwt = require("jsonwebtoken");
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: accessKey,
+    exp: now + 1800, // 30 min expiry
+    nbf: now - 5,
+  };
+  return jwt.sign(payload, secretKey, { algorithm: "HS256", header: { alg: "HS256", typ: "JWT" } });
+}
 
 /**
- * Generate B-roll video clips using Seedance 2.0 API
- * Stub: returns placeholder until API key is configured
+ * Generate a 5-second video clip using Kling 2.5 Turbo API.
+ * Returns the video URL on success, null on failure.
  */
-export async function generateVideo(
+export async function generateKlingVideo(
   prompt: string,
-  seedanceApiKey?: string
+  accessKey: string,
+  secretKey: string
 ): Promise<string | null> {
-  if (!seedanceApiKey) {
-    console.log("[ContentPipeline] Seedance API key not configured — skipping video generation");
-    return null;
-  }
-
   try {
-    // Seedance 2.0 via ByteDance VolcEngine API
-    const response = await fetch("https://visual.volcengineapi.com/", {
+    const token = generateKlingJWT(accessKey, secretKey);
+    const baseUrl = "https://api-singapore.klingai.com";
+
+    // Submit task
+    const submitRes = await fetch(`${baseUrl}/v1/videos/text2video`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${seedanceApiKey}`,
+        "Authorization": `Bearer ${token}`,
       },
       body: JSON.stringify({
-        Action: "CVSubmitTask",
-        Version: "2024-01-01",
-        req_key: "seedance_video_t2v_v1",
+        model_name: "kling-v2-5-turbo",
         prompt,
-        duration: 6,
-        resolution: "1080x1920",
-        watermark: false,
+        negative_prompt: "text, watermark, blurry, low quality, distorted",
+        cfg_scale: 0.5,
+        mode: "std",
+        duration: "5",
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Seedance API error: ${response.status}`);
+    if (!submitRes.ok) {
+      const err = await submitRes.text();
+      throw new Error(`Kling submit error ${submitRes.status}: ${err}`);
     }
 
-    const data = await response.json() as any;
-    const taskId = data?.data?.task_id;
-    if (!taskId) throw new Error("No task ID returned");
+    const submitData = await submitRes.json() as any;
+    if (submitData.code !== 0) throw new Error(`Kling error: ${submitData.message}`);
+    const taskId = submitData.data?.task_id;
+    if (!taskId) throw new Error("No task_id returned from Kling");
 
-    // Poll for completion (max 3 minutes)
-    return await pollSeedanceTask(taskId, seedanceApiKey);
+    console.log(`[ContentPipeline] Kling task submitted: ${taskId}`);
+
+    // Poll for completion (max 4 minutes, every 8 seconds)
+    const maxAttempts = 30;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 8000));
+
+      // Refresh JWT for each poll (avoid expiry)
+      const pollToken = generateKlingJWT(accessKey, secretKey);
+      const pollRes = await fetch(`${baseUrl}/v1/videos/text2video/${taskId}`, {
+        headers: { "Authorization": `Bearer ${pollToken}` },
+      });
+
+      if (!pollRes.ok) continue;
+      const pollData = await pollRes.json() as any;
+      const status = pollData.data?.task_status;
+
+      if (status === "succeed") {
+        const videoUrl = pollData.data?.task_result?.videos?.[0]?.url;
+        if (videoUrl) {
+          console.log(`[ContentPipeline] Kling video ready: ${videoUrl}`);
+          return videoUrl;
+        }
+      }
+      if (status === "failed") {
+        throw new Error(`Kling task failed: ${pollData.data?.task_status_msg ?? "unknown"}`);
+      }
+
+      console.log(`[ContentPipeline] Kling polling... attempt ${i + 1}/${maxAttempts} (status: ${status})`);
+    }
+
+    throw new Error("Kling task timed out after 4 minutes");
   } catch (err) {
-    console.error("[ContentPipeline] Seedance generation failed:", err);
+    console.error("[ContentPipeline] Kling video generation failed:", err);
     return null;
   }
 }
 
-async function pollSeedanceTask(taskId: string, apiKey: string): Promise<string | null> {
-  const maxAttempts = 36; // 36 * 5s = 3 minutes
-  for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 5000));
-
-    const res = await fetch("https://visual.volcengineapi.com/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        Action: "CVGetResult",
-        Version: "2024-01-01",
-        req_key: "seedance_video_t2v_v1",
-        task_id: taskId,
-      }),
-    });
-
-    const data = await res.json() as any;
-    const status = data?.data?.status;
-
-    if (status === "done") {
-      return data?.data?.video_url ?? null;
-    }
-    if (status === "failed") {
-      throw new Error("Seedance task failed");
-    }
+/**
+ * Generate a cinematic still image using Nano Banana (Manus built-in Imagen).
+ * Used as fallback when Kling is unavailable.
+ */
+export async function generateSlideImage(
+  prompt: string
+): Promise<string | null> {
+  try {
+    console.log(`[ContentPipeline] Generating Nano Banana image for prompt: "${prompt.slice(0, 80)}..."`);
+    const { url } = await generateImage({ prompt });
+    if (!url) throw new Error("No URL returned from image generation");
+    console.log(`[ContentPipeline] Nano Banana image generated → ${url}`);
+    return url;
+  } catch (err) {
+    console.error("[ContentPipeline] Nano Banana image generation failed:", err);
+    return null;
   }
-  throw new Error("Seedance task timed out");
 }
+
 
 // ─── Stage 7: Make.com Instagram Webhook ──────────────────────────────────────
 
@@ -923,7 +998,8 @@ Requirements:
 export interface PipelineOptions {
   runSlot: "monday" | "friday";
   perplexityApiKey?: string;
-  seedanceApiKey?: string;
+  klingAccessKey?: string;
+  klingSecretKey?: string;
   makeWebhookUrl?: string;
   requireAdminApproval?: boolean;
 }
@@ -1027,12 +1103,14 @@ export async function continueAfterApproval(
     }
 
     // Create slide records
-    // Cover slide (index 0)
+    // Cover slide (index 0) — generate a synthesizing image from all 5 topics
+    const coverImagePrompt = await generateCoverImagePrompt(researched.map((t) => t.headline));
     await db.insert(generatedSlides).values({
       runId,
       slideIndex: 0,
       headline: `Here's the biggest AI news of the last 7 days`,
       summary: researched.map((t) => t.headline).join(" • "),
+      videoPrompt: coverImagePrompt, // used to generate the cover image
       status: "pending",
     });
 
@@ -1050,24 +1128,35 @@ export async function continueAfterApproval(
       });
     }
 
-    // Stage 5: Video Generation
+    // Stage 5: Video / Image Generation (Kling primary, Nano Banana fallback)
     await db.update(contentRuns).set({ status: "generating" }).where(eq(contentRuns.id, runId));
-
     const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+    const klingAK = options.klingAccessKey || ENV.klingAccessKey;
+    const klingSK = options.klingSecretKey || ENV.klingSecretKey;
+    const hasKling = !!(klingAK && klingSK);
 
     for (const slide of slides) {
-      if (slide.slideIndex === 0 || !slide.videoPrompt) continue;
-
+      if (!slide.videoPrompt) continue;
       await db.update(generatedSlides)
         .set({ status: "generating_video" })
         .where(eq(generatedSlides.id, slide.id));
 
-      const videoUrl = await generateVideo(slide.videoPrompt, options.seedanceApiKey);
+      let mediaUrl: string | null = null;
+
+      if (hasKling) {
+        console.log(`[ContentPipeline] Using Kling 2.5 Turbo for slide ${slide.slideIndex}`);
+        mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
+      }
+
+      if (!mediaUrl) {
+        console.log(`[ContentPipeline] Kling unavailable — falling back to Nano Banana for slide ${slide.slideIndex}`);
+        mediaUrl = await generateSlideImage(slide.videoPrompt);
+      }
 
       await db.update(generatedSlides)
         .set({
-          videoUrl: videoUrl ?? undefined,
-          status: videoUrl ? "assembling" : "ready", // skip assembly if no video
+          videoUrl: mediaUrl ?? undefined,
+          status: mediaUrl ? "assembling" : "ready",
         })
         .where(eq(generatedSlides.id, slide.id));
     }

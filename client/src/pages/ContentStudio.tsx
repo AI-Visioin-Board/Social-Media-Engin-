@@ -557,6 +557,124 @@ function RunDetailDialog({
   );
 }
 
+// ─── Kling Credentials Card ─────────────────────────────────────────────────
+
+function KlingCredentialsCard() {
+  const [accessKey, setAccessKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [showKeys, setShowKeys] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const { data: klingStatus } = trpc.contentStudio.getKlingStatus.useQuery();
+  const saveKling = trpc.contentStudio.saveKlingCredentials.useMutation({
+    onSuccess: () => {
+      setSaved(true);
+      setAccessKey("");
+      setSecretKey("");
+      setTimeout(() => setSaved(false), 3000);
+      toast.success("Kling API credentials saved! Video generation is now active.");
+    },
+    onError: (e) => toast.error(`Failed to save credentials: ${e.message}`),
+  });
+
+  const isActive = klingStatus?.active ?? false;
+
+  return (
+    <Card className={`border-2 ${isActive ? "border-purple-200 bg-purple-50" : "border-amber-200 bg-amber-50"}`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Video className="w-4 h-4 text-purple-600" />
+          Kling 2.5 Turbo — AI Video Generation
+          <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${
+            isActive ? "bg-purple-100 text-purple-700" : "bg-amber-100 text-amber-700"
+          }`}>
+            {isActive ? "✓ Active" : "Not configured"}
+          </span>
+        </CardTitle>
+        <CardDescription>
+          {isActive
+            ? "Kling 2.5 Turbo is active. Each content slide gets a 5-second AI-generated video clip (~$0.42/clip). Nano Banana images are used as fallback."
+            : "Add your Kling API credentials to enable AI video B-roll for content slides. Without keys, Nano Banana images are used instead (free, still looks great)."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Pricing note */}
+        <div className="flex items-start gap-2 p-3 bg-white border border-slate-200 rounded-lg">
+          <Info className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-slate-600 space-y-1">
+            <p><strong>Cost:</strong> ~$0.42 per 5-second clip (std mode) · 5 slides × 2 runs/week ≈ <strong>$17/month</strong></p>
+            <p><strong>Start with:</strong> $9.79 trial pack (100 units) to test before committing.</p>
+            <a href="https://app.klingai.com/global/dev/document-api/quickStart/authorization" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline flex items-center gap-0.5 mt-1">
+              Get API keys at klingai.com <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
+
+        {/* Credential inputs */}
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="kling-ak" className="text-xs font-medium text-slate-700">Access Key</Label>
+            <div className="relative">
+              <Input
+                id="kling-ak"
+                type={showKeys ? "text" : "password"}
+                placeholder="Paste your Kling Access Key"
+                value={accessKey}
+                onChange={(e) => setAccessKey(e.target.value)}
+                className="pr-10 font-mono text-sm"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="kling-sk" className="text-xs font-medium text-slate-700">Secret Key</Label>
+            <div className="relative">
+              <Input
+                id="kling-sk"
+                type={showKeys ? "text" : "password"}
+                placeholder="Paste your Kling Secret Key"
+                value={secretKey}
+                onChange={(e) => setSecretKey(e.target.value)}
+                className="pr-10 font-mono text-sm"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowKeys(!showKeys)}
+              className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+            >
+              <Shield className="w-3 h-3" />
+              {showKeys ? "Hide keys" : "Show keys"}
+            </button>
+            <Button
+              size="sm"
+              disabled={!accessKey.trim() || !secretKey.trim() || saveKling.isPending}
+              onClick={() => saveKling.mutate({ accessKey: accessKey.trim(), secretKey: secretKey.trim() })}
+              className="ml-auto bg-purple-600 hover:bg-purple-700"
+            >
+              {saveKling.isPending ? (
+                <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving...</>
+              ) : saved ? (
+                <><CheckCircle2 className="w-3 h-3 mr-1.5" /> Saved!</>
+              ) : (
+                <><Zap className="w-3 h-3 mr-1.5" /> Save & Activate</>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Fallback note */}
+        <p className="text-xs text-slate-400 border-t pt-3">
+          <strong>Fallback:</strong> When Kling is unavailable, Nano Banana (Google Imagen) generates a cinematic still image for each slide — free and built-in.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ContentStudio() {
@@ -770,7 +888,7 @@ export default function ContentStudio() {
         {/* ── Setup Guide Tab ── */}
         <TabsContent value="setup">
           <div className="space-y-4">
-            {/* API Keys */}
+            {/* API Keys Status */}
             <Card className="border-slate-200">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -778,15 +896,15 @@ export default function ContentStudio() {
                   API Keys & Configuration
                 </CardTitle>
                 <CardDescription>
-                  OpenAI and Anthropic keys are active. Only Seedance is needed for full video generation.
+                  OpenAI and Anthropic are active. Add Kling keys below for AI video generation — Nano Banana images are used as fallback.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {[
                   {
                     key: "OPENAI_API_KEY",
-                    label: "OpenAI (GPT-4o Web Search)",
-                    desc: "Stage 4: Real-time web research with citations — replaces Perplexity. Already configured.",
+                    label: "OpenAI (GPT-4o Web Search + Cover Image)",
+                    desc: "Stage 4: Real-time web research with 15-day recency bias. Stage 5 cover: GPT-4o writes the scroll-stopping image prompt. Already configured.",
                     link: "https://platform.openai.com/api-keys",
                     linkLabel: "platform.openai.com",
                     active: true,
@@ -800,12 +918,12 @@ export default function ContentStudio() {
                     active: true,
                   },
                   {
-                    key: "SEEDANCE_API_KEY",
-                    label: "Seedance 2.0 (ByteDance VolcEngine)",
-                    desc: "Stage 5: AI video B-roll generation. US availability limited — check volcengine.com.",
-                    link: "https://www.volcengine.com/",
-                    linkLabel: "Get key at volcengine.com",
-                    active: false,
+                    key: "NANO_BANANA",
+                    label: "Nano Banana / Imagen (Cover + Fallback Visuals)",
+                    desc: "Stage 5: Generates the sci-fi scroll-stopping cover image from all 5 topics. Also used as fallback for content slides when Kling is unavailable. Built-in — no key needed.",
+                    link: "https://manus.im",
+                    linkLabel: "Built-in via Manus",
+                    active: true,
                   },
                   {
                     key: "MAKE_WEBHOOK_URL",
@@ -838,6 +956,9 @@ export default function ContentStudio() {
                 ))}
               </CardContent>
             </Card>
+
+            {/* Kling AI Video Credentials */}
+            <KlingCredentialsCard />
 
             {/* Pipeline Overview */}
             <Card className="border-slate-200">

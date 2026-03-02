@@ -89,3 +89,29 @@
 - [x] Upgrade: Pass runSlot to discoverTopics so correct recency window is applied per run type
 - [x] Upgrade: Stage 4 deep research prompt — inject today's date + 15-day cutoff to enforce recency bias
 - [x] UX: Swap topic dialog — add clarification text that research runs after Approve All
+
+## Stage 5 Visual Generation — Nano Banana Images
+- [ ] Stage 5: Replace Seedance video stub with Manus built-in generateImage() (Nano Banana Pro)
+- [ ] Stage 5: Update image prompts to be cinematic still-image prompts (not video prompts)
+- [ ] Stage 6: Update FFmpeg compositor to accept image input for bottom half of slide (instead of video)
+- [ ] Stage 4: Update research prompt to generate "imagePrompt" instead of "videoPrompt"
+
+## Stage 5 — Kling 2.5 Video Generation
+- [ ] Stage 5: Add Kling 2.5 API integration (text-to-video, 5-second clips, 1080x1920 vertical)
+- [ ] Stage 5: Use Kling as primary, Nano Banana image as fallback if Kling fails/no key
+- [ ] Secrets: Add KLING_API_KEY and KLING_API_SECRET environment variables
+- [ ] UI: Update Setup Guide to show Kling API key status (active/inactive)
+- [ ] FFmpeg: Update compositor to handle both video (Kling) and image (Nano Banana) in bottom panel
+
+## Kling API Credentials UI
+- [ ] Add KLING_ACCESS_KEY and KLING_SECRET_KEY to server env and pipeline options
+- [ ] Add tRPC mutation to save/update Kling credentials securely (stored in DB, not exposed to frontend)
+- [ ] Add tRPC query to check if Kling credentials are configured (returns boolean only)
+- [ ] Add Kling credentials input section in Content Studio setup UI (masked password fields)
+
+## FFmpeg Assembly Fixes
+- [x] Fix: Cover slide crashes with "line_spacing not supported" in FFmpeg 4.4 — removed line_spacing, switched to sequential numbered node chain
+- [x] Fix: Content slides crash with "Error initializing complex filters" — fixed filter chain escaping and node naming
+- [x] Fix: Cover slide node renaming logic produced broken [withhl] node — rewrote with explicit n0/n1/n2... sequential nodes
+- [x] Add: KlingCredentialsCard component in Setup Guide tab with masked input fields, pricing info, and active/inactive status
+- [x] Add: getKlingStatus and saveKlingCredentials tRPC procedures

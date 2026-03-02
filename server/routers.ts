@@ -1,3 +1,4 @@
+import { ENV } from "./_core/env";
 import { COOKIE_NAME } from "@shared/const";
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -472,7 +473,8 @@ export const appRouter = router({
         const runId = await runContentPipeline({
           runSlot: input.runSlot,
           perplexityApiKey: process.env.PERPLEXITY_API_KEY,
-          seedanceApiKey: process.env.SEEDANCE_API_KEY,
+          klingAccessKey: ENV.klingAccessKey,
+          klingSecretKey: ENV.klingSecretKey,
           makeWebhookUrl: process.env.MAKE_WEBHOOK_URL,
           requireAdminApproval: input.requireApproval,
         });
@@ -541,7 +543,8 @@ export const appRouter = router({
         const { continueAfterApproval } = await import("./contentPipeline");
         continueAfterApproval(input.runId, input.selectedTopics, {
           perplexityApiKey: process.env.PERPLEXITY_API_KEY,
-          seedanceApiKey: process.env.SEEDANCE_API_KEY,
+          klingAccessKey: ENV.klingAccessKey,
+          klingSecretKey: ENV.klingSecretKey,
           makeWebhookUrl: process.env.MAKE_WEBHOOK_URL,
         }).catch(console.error);
 
@@ -562,6 +565,33 @@ export const appRouter = router({
         return db.select().from(publishedTopics)
           .where(gte(publishedTopics.publishedAt, cutoff))
           .orderBy(desc(publishedTopics.publishedAt));
+      }),
+
+    // Get Kling API status
+    getKlingStatus: adminProcedure
+      .query(async () => {
+        const active = !!(ENV.klingAccessKey && ENV.klingSecretKey);
+        return { active };
+      }),
+
+    // Save Kling API credentials (stored as env vars via platform secrets)
+    saveKlingCredentials: adminProcedure
+      .input(z.object({
+        accessKey: z.string().min(1),
+        secretKey: z.string().min(1),
+      }))
+      .mutation(async ({ input }) => {
+        // Credentials are managed via platform secrets (Settings → Secrets)
+        // This endpoint validates the format and confirms they're received
+        if (!input.accessKey.trim() || !input.secretKey.trim()) {
+          throw new Error("Both Access Key and Secret Key are required");
+        }
+        // Log that credentials were submitted (actual storage is via platform secrets UI)
+        console.log("[Kling] Credentials submitted — update KLING_ACCESS_KEY and KLING_SECRET_KEY in Settings → Secrets");
+        return { 
+          success: true, 
+          message: "Credentials received. To activate, paste these values into Settings → Secrets as KLING_ACCESS_KEY and KLING_SECRET_KEY, then redeploy."
+        };
       }),
 
     // Swap a topic in a pending run
