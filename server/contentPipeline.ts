@@ -88,12 +88,17 @@ export async function discoverTopics(): Promise<RawTopic[]> {
   return topics;
 }
 
-async function discoverWithGPT4oWebSearch(): Promise<RawTopic[]> {
-  const openAiKey = process.env.OPENAI_API_KEY;
-  if (!openAiKey) {
-    console.warn("[ContentPipeline] No OpenAI key for fallback discovery");
-    return getStaticFallbackTopics();
-  }
+// 6 targeted search queries — each focuses on a different angle for maximum coverage
+const GPT4O_SEARCH_QUERIES = [
+  `Search the web for the 6 most significant NEW AI model releases or major AI product launches from the last 7 days (GPT, Claude, Gemini, Grok, Llama, Mistral, or any notable AI). Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
+  `Search the web for the 6 most viral or surprising AI news stories from the last 7 days that would shock or amaze everyday people — AI doing something humans couldn't, AI beating records, AI changing daily life. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
+  `Search the web for the 6 most important AI news stories for small business owners from the last 7 days — new AI productivity tools, AI automating business tasks, AI cost savings, AI for marketing or customer service. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
+  `Search the web for the 6 most significant AI regulation, policy, or ethics news stories from the last 7 days — government actions, AI safety concerns, lawsuits, bans, major policy changes. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
+  `Search the web for the 6 most impressive AI research breakthroughs or scientific discoveries from the last 7 days — AI in medicine, AI in science, AI solving hard problems, new AI capabilities. Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
+  `Search the web for the 6 most talked-about AI news stories on social media and tech forums right now — what is the AI community most excited or concerned about this week? Return ONLY a JSON array: [{"title": "headline max 15 words", "url": "source url", "source": "news"}]`,
+];
+
+async function runSingleGPT4oSearch(query: string, openAiKey: string): Promise<RawTopic[]> {
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -104,17 +109,10 @@ async function discoverWithGPT4oWebSearch(): Promise<RawTopic[]> {
       body: JSON.stringify({
         model: "gpt-4o",
         tools: [{ type: "web_search_preview" }],
-        input: `Search the web for the 12 most significant and trending AI news stories from the last 7 days. Focus on stories about: new AI models, AI tools for business, AI regulation, major AI company announcements, AI breakthroughs, and AI applications that affect everyday people.
-
-Return ONLY a JSON array of 12 objects, each with:
-- title: the news headline (max 15 words)
-- url: the source URL
-- source: always "news"
-
-Format: [{"title": "...", "url": "...", "source": "news"}, ...]`,
+        input: query,
       }),
     });
-    if (!response.ok) throw new Error(`GPT-4o discovery error: ${response.status}`);
+    if (!response.ok) return [];
     const data = await response.json() as any;
     const outputItems: any[] = data?.output ?? [];
     const textItem = outputItems.find((o: any) => o.type === "message");
@@ -123,20 +121,65 @@ Format: [{"title": "...", "url": "...", "source": "news"}, ...]`,
     try {
       const jsonMatch = rawText.match(/\[[\s\S]*\]/);
       if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
-    } catch {
-      console.warn("[ContentPipeline] Could not parse GPT-4o discovery JSON");
-    }
-    const topics: RawTopic[] = parsed
+    } catch { /* ignore */ }
+    return parsed
       .filter((t: any) => t.title && t.url)
-      .map((t: any) => ({
-        title: t.title,
-        source: "news" as const,
-        url: t.url,
-      }));
-    console.log(`[ContentPipeline] GPT-4o web search discovered ${topics.length} topics`);
-    return topics.length >= 5 ? topics : [...topics, ...getStaticFallbackTopics().slice(0, 12 - topics.length)];
+      .map((t: any) => ({ title: t.title, source: "news" as const, url: t.url }));
+  } catch {
+    return [];
+  }
+}
+
+async function discoverFromRedditJSON(): Promise<RawTopic[]> {
+  const subreddits = ["artificial", "MachineLearning", "singularity", "ChatGPT"];
+  const results: RawTopic[] = [];
+  await Promise.allSettled(
+    subreddits.map(async (sub) => {
+      try {
+        const res = await fetch(`https://www.reddit.com/r/${sub}/hot.json?limit=10`, {
+          headers: { "User-Agent": "SuggestedByGPT/1.0" },
+        });
+        if (!res.ok) return;
+        const data = await res.json() as any;
+        const posts = data?.data?.children ?? [];
+        for (const { data: post } of posts) {
+          if (post?.title && post.score > 50) {
+            results.push({
+              title: post.title.slice(0, 120),
+              source: "reddit" as const,
+              url: `https://reddit.com${post.permalink}`,
+              engagementScore: Math.min(100, Math.floor(post.score / 100)),
+            });
+          }
+        }
+      } catch { /* skip */ }
+    })
+  );
+  console.log(`[ContentPipeline] Reddit JSON API discovered ${results.length} topics`);
+  return results;
+}
+
+async function discoverWithGPT4oWebSearch(): Promise<RawTopic[]> {
+  const openAiKey = process.env.OPENAI_API_KEY;
+  if (!openAiKey) {
+    console.warn("[ContentPipeline] No OpenAI key for discovery");
+    return getStaticFallbackTopics();
+  }
+  try {
+    console.log("[ContentPipeline] Running 6 parallel GPT-4o web searches + Reddit JSON API...");
+    const [redditResult, ...searchResults] = await Promise.allSettled([
+      discoverFromRedditJSON(),
+      ...GPT4O_SEARCH_QUERIES.map((q) => runSingleGPT4oSearch(q, openAiKey)),
+    ]);
+    const allTopics: RawTopic[] = [];
+    if (redditResult.status === "fulfilled") allTopics.push(...redditResult.value);
+    for (const r of searchResults) {
+      if (r.status === "fulfilled") allTopics.push(...r.value);
+    }
+    console.log(`[ContentPipeline] Total discovered: ${allTopics.length} topics from 7 sources`);
+    return allTopics.length >= 5 ? allTopics : [...allTopics, ...getStaticFallbackTopics().slice(0, 12 - allTopics.length)];
   } catch (err) {
-    console.error("[ContentPipeline] GPT-4o discovery failed:", err);
+    console.error("[ContentPipeline] Multi-source discovery failed:", err);
     return getStaticFallbackTopics();
   }
 }
@@ -307,26 +350,33 @@ export async function scoreAndSelectTopics(
   // Deduplicate by normalised title similarity
   const deduped = deduplicateTopics(topics);
 
-  // Take up to 20 for scoring (GPT context limit)
-  const candidates = deduped.slice(0, 20);
+  // Take up to 50 candidates — 6 parallel GPT-4o searches + Reddit can yield 30-50 topics
+  const candidates = deduped.slice(0, 50);
 
-  const systemPrompt = `You are an expert social media content strategist for an AI news page targeting business owners and general consumers. Your job is to select the 5 most compelling AI news stories from a list of candidates for a weekly Instagram carousel post.
+  const systemPrompt = `You are a world-class social media content strategist for @suggestedbygpt, an AI news Instagram page with a highly engaged audience of entrepreneurs, business owners, and tech-curious everyday people. Your job is to select the 5 BEST AI news stories from a large pool of candidates for this week's Instagram carousel.
+
+AUDIENCE PROFILE:
+- Small/medium business owners who want to use AI to grow their business
+- Everyday people curious about how AI affects their lives
+- Entrepreneurs and investors tracking AI trends
+- Tech enthusiasts who share viral AI content
 
 SCORING CRITERIA (rate each 1-10):
-1. businessOwnerImpact: How much does this affect small/medium business owners?
-2. generalPublicRelevance: How relevant is this to everyday people?
-3. viralPotential: How likely is this to be shared/go viral on Instagram?
-4. worldImportance: How significant is this for the world/society?
-5. interestingness: How surprising, novel, or fascinating is this?
+1. businessOwnerImpact: How directly does this affect small/medium business owners? (tools, costs, automation, competition)
+2. generalPublicRelevance: How relevant is this to everyday people? (jobs, privacy, daily life, consumer products)
+3. viralPotential: How likely is this to be shared on Instagram? (shocking, surprising, controversial, inspiring)
+4. worldImportance: How significant is this for society? (regulation, safety, geopolitics, scientific impact)
+5. interestingness: How surprising, novel, or fascinating is this? (unexpected, counterintuitive, first-of-its-kind)
 
-RULES:
-- Select exactly 5 topics
-- Do NOT select topics that are too similar to each other
-- Prefer topics that are recent (within the last 7 days)
-- Prefer topics with concrete impact over vague announcements
-- The selected topics should have variety (not all about the same company)
-
-${recentExclusions.length > 0 ? `PREVIOUSLY PUBLISHED (do NOT select these or similar topics):\n${recentExclusions.slice(0, 20).join("\n")}` : ""}`;
+SELECTION RULES:
+- Select exactly 5 topics with maximum variety (no two from the same company or angle)
+- Prioritize CONCRETE news over vague announcements ("X released Y" beats "X is working on Y")
+- Prefer stories with clear impact that can be explained in one sentence
+- At least 1 topic should be directly actionable for business owners
+- At least 1 topic should be broadly relatable to non-technical people
+- Avoid: pure research papers, niche developer tools, incremental updates to existing products
+${recentExclusions.length > 0 ? `
+DO NOT SELECT these recently published topics or anything closely similar:\n${recentExclusions.slice(0, 20).join("\n")}` : ""}`;
 
   const userPrompt = `Here are the candidate topics. Score each on all 5 criteria and select the best 5.
 

@@ -80,3 +80,6 @@
 - [x] Fix: review dialog panel content overflows off screen — fixed with h-[90vh] + min-h-0 on ScrollArea
 - [x] Fix: Approve All button not visible — moved to sticky header at top of review panel, always visible
 - [x] Fix: removed duplicate DialogFooter approve button
+- [x] Upgrade: multi-query GPT-4o web search (6 targeted queries) for 30-50 topic candidates
+- [x] Upgrade: Reddit JSON API scraper (r/artificial, r/MachineLearning, r/singularity, r/ChatGPT)
+- [x] Upgrade: improved scoring agent prompt with audience profile and variety rules for larger candidate pool
