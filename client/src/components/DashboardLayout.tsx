@@ -22,6 +22,7 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
+  Instagram,
   LayoutDashboard,
   LogOut,
   PanelLeft,
@@ -36,6 +37,7 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
   { icon: Plus, label: "New Order", path: "/orders/new" },
+  { icon: Instagram, label: "Content Studio", path: "/content-studio" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

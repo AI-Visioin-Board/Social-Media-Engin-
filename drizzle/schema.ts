@@ -198,3 +198,88 @@ export const clientUploads = mysqlTable("client_uploads", {
 });
 export type ClientUpload = typeof clientUploads.$inferSelect;
 export type InsertClientUpload = typeof clientUploads.$inferInsert;
+
+// ─────────────────────────────────────────────
+// CONTENT STUDIO — Social Media Automation
+// ─────────────────────────────────────────────
+
+/**
+ * Content pipeline run — one run = one carousel post (Mon or Fri)
+ */
+export const contentRuns = mysqlTable("content_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  /** "monday" or "friday" — which slot this run is for */
+  runSlot: mysqlEnum("runSlot", ["monday", "friday"]).notNull(),
+  /** Overall pipeline status */
+  status: mysqlEnum("status", [
+    "pending",        // just created, not started
+    "discovering",    // fetching topics from APIs
+    "scoring",        // GPT scoring agent running
+    "researching",    // Perplexity deep research
+    "generating",     // Seedance video generation
+    "assembling",     // FFmpeg compositing slides
+    "review",         // awaiting admin topic approval
+    "posting",        // sending to Instagram via Make.com
+    "completed",      // done
+    "failed",         // error occurred
+  ]).default("pending").notNull(),
+  /** Raw topics discovered (JSON array of {title, source, url}) */
+  topicsRaw: text("topicsRaw"),
+  /** Shortlisted 12 topics after dedup/no-repeat filter (JSON) */
+  topicsShortlisted: text("topicsShortlisted"),
+  /** Final 5 selected topics with scores (JSON) */
+  topicsSelected: text("topicsSelected"),
+  /** Error message if status = failed */
+  errorMessage: text("errorMessage"),
+  /** Whether admin has approved the topic selection */
+  adminApproved: boolean("adminApproved").default(false).notNull(),
+  /** Make.com webhook response / Instagram post ID after posting */
+  instagramPostId: varchar("instagramPostId", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ContentRun = typeof contentRuns.$inferSelect;
+export type InsertContentRun = typeof contentRuns.$inferInsert;
+
+/**
+ * Published topics — used for no-repeat logic across Mon/Fri runs
+ */
+export const publishedTopics = mysqlTable("published_topics", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("runId").notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  summary: text("summary"),
+  /** Normalized title for fuzzy dedup matching */
+  titleNormalized: varchar("titleNormalized", { length: 500 }).notNull(),
+  publishedAt: timestamp("publishedAt").defaultNow().notNull(),
+});
+
+export type PublishedTopic = typeof publishedTopics.$inferSelect;
+export type InsertPublishedTopic = typeof publishedTopics.$inferInsert;
+
+/**
+ * Generated slides — one row per slide per run (cover + 5 content slides)
+ */
+export const generatedSlides = mysqlTable("generated_slides", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("runId").notNull(),
+  slideIndex: int("slideIndex").notNull(), // 0 = cover, 1-5 = content
+  headline: varchar("headline", { length: 500 }),
+  summary: text("summary"),
+  /** Research citations from Perplexity (JSON array of {source, url}) */
+  citations: text("citations"),
+  /** Seedance-generated B-roll video URL (S3) */
+  videoUrl: varchar("videoUrl", { length: 1000 }),
+  /** Assembled final slide MP4 URL (S3) — output of FFmpeg compositor */
+  assembledUrl: varchar("assembledUrl", { length: 1000 }),
+  /** Seedance video prompt used */
+  videoPrompt: text("videoPrompt"),
+  status: mysqlEnum("status", [
+    "pending", "researching", "generating_video", "assembling", "ready", "failed"
+  ]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GeneratedSlide = typeof generatedSlides.$inferSelect;
+export type InsertGeneratedSlide = typeof generatedSlides.$inferInsert;

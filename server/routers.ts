@@ -455,9 +455,143 @@ export const appRouter = router({
           cancel_url: `${input.origin}/portal?upgrade=cancelled`,
         });
 
-        return { checkoutUrl: session.url };
+         return { checkoutUrl: session.url };
+      }),
+  }),
+
+  // ─── Content Studio ─────────────────────────────────────────
+  contentStudio: router({
+    // Trigger a new pipeline run
+    triggerRun: adminProcedure
+      .input(z.object({
+        runSlot: z.enum(["monday", "friday"]),
+        requireApproval: z.boolean().default(true),
+      }))
+      .mutation(async ({ input }) => {
+        const { runContentPipeline } = await import("./contentPipeline");
+        const runId = await runContentPipeline({
+          runSlot: input.runSlot,
+          perplexityApiKey: process.env.PERPLEXITY_API_KEY,
+          seedanceApiKey: process.env.SEEDANCE_API_KEY,
+          makeWebhookUrl: process.env.MAKE_WEBHOOK_URL,
+          requireAdminApproval: input.requireApproval,
+        });
+        return { runId };
+      }),
+
+    // Get all runs (paginated)
+    getRuns: adminProcedure
+      .input(z.object({ limit: z.number().default(20) }).optional())
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns, generatedSlides } = await import("../drizzle/schema");
+        const { desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return db.select().from(contentRuns).orderBy(desc(contentRuns.createdAt)).limit(input?.limit ?? 20);
+      }),
+
+    // Get a single run with its slides
+    getRun: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns, generatedSlides } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, input.runId));
+        return run ? { ...run, slides } : null;
+      }),
+
+    // Approve topics and continue pipeline
+    approveTopics: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        selectedTopics: z.array(z.object({
+          title: z.string(),
+          summary: z.string(),
+          source: z.string(),
+          url: z.string(),
+          scores: z.object({
+            businessOwnerImpact: z.number(),
+            generalPublicRelevance: z.number(),
+            viralPotential: z.number(),
+            worldImportance: z.number(),
+            interestingness: z.number(),
+            total: z.number(),
+          }),
+        })),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        await db.update(contentRuns).set({
+          topicsSelected: JSON.stringify(input.selectedTopics),
+          adminApproved: true,
+          status: "researching",
+        }).where(eq(contentRuns.id, input.runId));
+
+        // Continue pipeline async
+        const { continueAfterApproval } = await import("./contentPipeline");
+        continueAfterApproval(input.runId, input.selectedTopics, {
+          perplexityApiKey: process.env.PERPLEXITY_API_KEY,
+          seedanceApiKey: process.env.SEEDANCE_API_KEY,
+          makeWebhookUrl: process.env.MAKE_WEBHOOK_URL,
+        }).catch(console.error);
+
+        return { success: true };
+      }),
+
+    // Get published topics (for no-repeat visibility)
+    getPublishedTopics: adminProcedure
+      .input(z.object({ days: z.number().default(30) }).optional())
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { publishedTopics } = await import("../drizzle/schema");
+        const { gte, desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        const days = input?.days ?? 30;
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        return db.select().from(publishedTopics)
+          .where(gte(publishedTopics.publishedAt, cutoff))
+          .orderBy(desc(publishedTopics.publishedAt));
+      }),
+
+    // Swap a topic in a pending run
+    swapTopic: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        topicIndex: z.number(),
+        newTopic: z.object({
+          title: z.string(),
+          summary: z.string(),
+          source: z.string(),
+          url: z.string(),
+        }),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        if (!run) throw new Error("Run not found");
+        const topics = JSON.parse(run.topicsSelected ?? "[]");
+        topics[input.topicIndex] = {
+          ...input.newTopic,
+          scores: { businessOwnerImpact: 5, generalPublicRelevance: 5, viralPotential: 5, worldImportance: 5, interestingness: 5, total: 25 },
+        };
+        await db.update(contentRuns).set({ topicsSelected: JSON.stringify(topics) }).where(eq(contentRuns.id, input.runId));
+        return { success: true };
       }),
   }),
 });
-
 export type AppRouter = typeof appRouter;

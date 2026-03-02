@@ -45,3 +45,23 @@
 - [x] Stripe: Client portal upsell section shows real Stripe payment button
 - [x] Gmail: Auto-send portal magic link email when new order is created
 - [x] Gmail: Welcome email includes portal link, order summary, and next steps
+
+## Content Studio - Social Media Automation Pipeline
+- [x] DB: contentRuns table (id, runType, status, topicsRaw, topicsSelected, createdAt)
+- [x] DB: publishedTopics table (id, title, summary, publishedAt, runId) - no-repeat logic
+- [x] DB: generatedSlides table (id, runId, slideIndex, headline, summary, videoUrl, status)
+- [x] Server: topic discovery - YouTube API, TikTok API, Reddit API scrapers
+- [x] Server: GPT scoring agent - score 12 topics on 5 criteria, pick top 5
+- [x] Server: no-repeat logic - exclude topics published in last 14 days
+- [x] Server: Perplexity Sonar deep research stub (API key placeholder)
+- [x] Server: Seedance video generation stub (API key placeholder)
+- [x] Server: FFmpeg split-screen compositor (text card top + video bottom)
+- [x] Server: Make.com webhook trigger for Instagram posting
+- [x] Server: tRPC procedures for content studio (triggerRun, getRun, getRuns, approveTopics, swapTopic, getPublishedTopics)
+- [x] UI: Content Studio page in admin dashboard sidebar
+- [x] UI: Pipeline command center - trigger run, live status, progress steps
+- [x] UI: Topic review panel - approve/swap topics before video generation
+- [x] UI: Run history table with status and slide previews
+- [x] UI: Post calendar showing Mon/Fri schedule
+- [x] UI: Published topics exclusion list viewer
+- [x] Vitest: tests for scoring agent and no-repeat logic

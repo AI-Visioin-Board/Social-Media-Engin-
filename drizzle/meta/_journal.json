@@ -22,6 +22,13 @@
       "when": 1772049144516,
       "tag": "0002_colossal_sugar_man",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1772473672519,
+      "tag": "0003_modern_anthem",
+      "breakpoints": true
     }
   ]
 }

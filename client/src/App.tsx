@@ -10,6 +10,7 @@ import OrderDetail from "./pages/OrderDetail";
 import NewOrder from "./pages/NewOrder";
 import ClientPortal from "./pages/ClientPortal";
 import ClientPortalLogin from "./pages/ClientPortalLogin";
+import ContentStudio from "./pages/ContentStudio";
 
 // Admin routes — wrapped in DashboardLayout
 function AdminRouter() {
@@ -19,6 +20,7 @@ function AdminRouter() {
         <Route path="/" component={Home} />
         <Route path="/orders/new" component={NewOrder} />
         <Route path="/orders/:id" component={OrderDetail} />
+        <Route path="/content-studio" component={ContentStudio} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
