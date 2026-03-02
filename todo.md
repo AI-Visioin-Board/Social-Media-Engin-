@@ -78,3 +78,5 @@
 - [x] Fix: topic review panel shows "Needs Review" status but no topics are visible in the UI — added empty state message and guard in continueAfterApproval to load topics from DB
 - [x] Fix: Remove orders/client/portal dashboard — Content Studio is now the only page, all old routes removed from App.tsx and DashboardLayout nav
 - [x] Fix: review dialog panel content overflows off screen — fixed with h-[90vh] + min-h-0 on ScrollArea
+- [x] Fix: Approve All button not visible — moved to sticky header at top of review panel, always visible
+- [x] Fix: removed duplicate DialogFooter approve button

@@ -442,23 +442,31 @@ function RunDetailDialog({
               {/* Topics for review */}
               {run.status === "review" && selectedTopics.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Eye className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold text-slate-800">Review Selected Topics</h3>
-                    <span className="text-xs text-slate-500">— Approve or swap before research begins</span>
+                  {/* Sticky approve bar — always visible at top */}
+                  <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border border-indigo-100 rounded-xl p-3 mb-4 flex items-center justify-between gap-3 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-amber-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{selectedTopics.length} topics ready for review</p>
+                        <p className="text-xs text-slate-500">Swap any topic or approve all to start deep research</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => approveTopics.mutate({ runId: run.id, selectedTopics })}
+                      disabled={approveTopics.isPending}
+                      className="bg-indigo-600 hover:bg-indigo-700 flex-shrink-0"
+                      size="sm"
+                    >
+                      {approveTopics.isPending
+                        ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        : <ThumbsUp className="w-4 h-4 mr-2" />}
+                      Approve All
+                    </Button>
                   </div>
                   <div className="space-y-3">
                     {selectedTopics.map((topic, i) => (
                       <TopicCard key={i} topic={topic} index={i} showScores={true} onSwap={handleSwap} />
                     ))}
-                  </div>
-                  <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-start gap-2">
-                    <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-blue-700">
-                      These 5 topics were selected by GPT-4o from{" "}
-                      {run.topicsRaw ? JSON.parse(run.topicsRaw).length : "?"} discovered stories.
-                      Click <strong>Swap</strong> on any topic to replace it, then approve to continue.
-                    </p>
                   </div>
                 </div>
               )}
@@ -530,21 +538,9 @@ function RunDetailDialog({
             </div>
           </ScrollArea>
 
-          {run.status === "review" && (
-            <DialogFooter className="pt-2 border-t">
-              <Button variant="outline" onClick={onClose}>Close</Button>
-              <Button
-                onClick={() => approveTopics.mutate({ runId: run.id, selectedTopics })}
-                disabled={approveTopics.isPending}
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                {approveTopics.isPending
-                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  : <ThumbsUp className="w-4 h-4 mr-2" />}
-                Approve All &amp; Continue Pipeline
-              </Button>
-            </DialogFooter>
-          )}
+          <DialogFooter className="pt-2 border-t">
+            <Button variant="outline" onClick={onClose}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
