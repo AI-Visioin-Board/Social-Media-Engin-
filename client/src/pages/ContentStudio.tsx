@@ -231,7 +231,7 @@ function SwapTopicDialog({
         <DialogHeader>
           <DialogTitle>Swap Topic #{(topicIndex ?? 0) + 1}</DialogTitle>
           <DialogDescription>
-            Replace this topic with a custom one. The pipeline will use your replacement for research and slide generation.
+            Replace this AI-selected topic with your own idea. Your custom topic will go through the full pipeline — GPT-4o will research it using recent sources (last 15 days), then generate a video slide and post it to Instagram, just like any other topic.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">

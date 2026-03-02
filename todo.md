@@ -87,3 +87,5 @@
 - [x] Upgrade: Reduce GPT-4o queries from 6 to 3 with explicit current date injection and recency enforcement
 - [x] Upgrade: Monday run = "this week in AI" (7-day window), Friday run = "last 48-72 hours in AI" (3-day window)
 - [x] Upgrade: Pass runSlot to discoverTopics so correct recency window is applied per run type
+- [x] Upgrade: Stage 4 deep research prompt — inject today's date + 15-day cutoff to enforce recency bias
+- [x] UX: Swap topic dialog — add clarification text that research runs after Approve All

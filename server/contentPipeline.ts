@@ -569,6 +569,12 @@ async function researchWithGPT4oWebSearch(
   topic: ScoredTopic,
   apiKey: string
 ): Promise<ResearchedTopic> {
+  // Inject today's date and 15-day cutoff for strict recency bias
+  const today = new Date();
+  const todayStr = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const cutoffDate = new Date(today.getTime() - 15 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
   // OpenAI Responses API with built-in web_search_preview tool
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -579,14 +585,17 @@ async function researchWithGPT4oWebSearch(
     body: JSON.stringify({
       model: "gpt-4o",
       tools: [{ type: "web_search_preview" }],
-      input: `Research this AI news topic using web search. Provide a JSON response with:
-1. headline: punchy max-8-word headline (no clickbait)
-2. summary: 2-sentence plain-English explanation of what happened and why it matters to business owners
+      input: `Today is ${todayStr}. Research this AI news topic using web search.
+
+CRITICAL RECENCY RULE: Only use sources and information published AFTER ${cutoffStr} (last 15 days). If you cannot find recent sources on this topic, say so clearly — do NOT use older articles or background information as if it were current news.
+
+Provide a JSON response with:
+1. headline: punchy max-8-word headline based on the MOST RECENT development (no clickbait)
+2. summary: 2-sentence plain-English explanation of what JUST happened and why it matters to business owners today
 3. videoPrompt: Seedance AI video prompt (5-8 second cinematic clip showing this tech in action, specific visuals, no text overlays)
-4. sources: array of {title, url} for the top 2-3 sources you found
+4. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
 
 Topic: "${topic.title}"
-
 Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,
     }),
   });
