@@ -428,6 +428,17 @@ function RunDetailDialog({
                 </div>
               )}
 
+              {/* Topics for review — empty state */}
+              {run.status === "review" && selectedTopics.length === 0 && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                  <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">Topic discovery returned 0 results</p>
+                    <p className="text-xs text-amber-700 mt-1">This run had no topics to review. Please start a new run — the pipeline now uses GPT-4o web search as a fallback to find trending AI topics automatically.</p>
+                  </div>
+                </div>
+              )}
+
               {/* Topics for review */}
               {run.status === "review" && selectedTopics.length > 0 && (
                 <div>

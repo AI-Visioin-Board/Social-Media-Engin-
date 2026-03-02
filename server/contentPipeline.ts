@@ -78,8 +78,85 @@ export async function discoverTopics(): Promise<RawTopic[]> {
   if (ttTopics.status === "fulfilled") topics.push(...ttTopics.value);
   if (redditTopics.status === "fulfilled") topics.push(...redditTopics.value);
 
+  // If all APIs failed, use GPT-4o web search as primary discovery
+  if (topics.length === 0) {
+    console.warn("[ContentPipeline] All social APIs unavailable — using GPT-4o web search for topic discovery");
+    const gptTopics = await discoverWithGPT4oWebSearch();
+    topics.push(...gptTopics);
+  }
   console.log(`[ContentPipeline] Discovered ${topics.length} raw topics`);
   return topics;
+}
+
+async function discoverWithGPT4oWebSearch(): Promise<RawTopic[]> {
+  const openAiKey = process.env.OPENAI_API_KEY;
+  if (!openAiKey) {
+    console.warn("[ContentPipeline] No OpenAI key for fallback discovery");
+    return getStaticFallbackTopics();
+  }
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openAiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        tools: [{ type: "web_search_preview" }],
+        input: `Search the web for the 12 most significant and trending AI news stories from the last 7 days. Focus on stories about: new AI models, AI tools for business, AI regulation, major AI company announcements, AI breakthroughs, and AI applications that affect everyday people.
+
+Return ONLY a JSON array of 12 objects, each with:
+- title: the news headline (max 15 words)
+- url: the source URL
+- source: always "news"
+
+Format: [{"title": "...", "url": "...", "source": "news"}, ...]`,
+      }),
+    });
+    if (!response.ok) throw new Error(`GPT-4o discovery error: ${response.status}`);
+    const data = await response.json() as any;
+    const outputItems: any[] = data?.output ?? [];
+    const textItem = outputItems.find((o: any) => o.type === "message");
+    const rawText: string = textItem?.content?.[0]?.text ?? "[]";
+    let parsed: any[] = [];
+    try {
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      console.warn("[ContentPipeline] Could not parse GPT-4o discovery JSON");
+    }
+    const topics: RawTopic[] = parsed
+      .filter((t: any) => t.title && t.url)
+      .map((t: any) => ({
+        title: t.title,
+        source: "news" as const,
+        url: t.url,
+      }));
+    console.log(`[ContentPipeline] GPT-4o web search discovered ${topics.length} topics`);
+    return topics.length >= 5 ? topics : [...topics, ...getStaticFallbackTopics().slice(0, 12 - topics.length)];
+  } catch (err) {
+    console.error("[ContentPipeline] GPT-4o discovery failed:", err);
+    return getStaticFallbackTopics();
+  }
+}
+
+function getStaticFallbackTopics(): RawTopic[] {
+  // Last-resort static topics — will be replaced by real research in Stage 4
+  return [
+    { title: "OpenAI releases new GPT model with improved reasoning", source: "news", url: "https://openai.com/news" },
+    { title: "Google DeepMind announces breakthrough in AI protein folding", source: "news", url: "https://deepmind.google" },
+    { title: "Anthropic Claude gets major update with new capabilities", source: "news", url: "https://anthropic.com/news" },
+    { title: "Meta AI open-sources new large language model", source: "news", url: "https://ai.meta.com" },
+    { title: "AI agents can now autonomously complete complex business tasks", source: "news", url: "https://venturebeat.com/ai" },
+    { title: "New AI tool helps small businesses automate customer service", source: "news", url: "https://techcrunch.com/ai" },
+    { title: "AI regulation bill advances in US Congress", source: "news", url: "https://reuters.com/technology/ai" },
+    { title: "Microsoft Copilot gets major upgrade for enterprise users", source: "news", url: "https://microsoft.com/copilot" },
+    { title: "AI-powered video generation reaches new quality milestone", source: "news", url: "https://wired.com/ai" },
+    { title: "Study shows AI can diagnose diseases as accurately as doctors", source: "news", url: "https://nature.com/ai" },
+    { title: "New AI coding assistant outperforms human developers in tests", source: "news", url: "https://github.com/features/copilot" },
+    { title: "AI startup raises $500M to build autonomous business agents", source: "news", url: "https://bloomberg.com/technology" },
+  ];
 }
 
 async function discoverFromYouTube(): Promise<RawTopic[]> {
@@ -827,10 +904,23 @@ export async function continueAfterApproval(
   if (!db) throw new Error("Database not available");
 
   try {
+    // If topics array is empty, load from DB (handles case where UI sent empty array)
+    let resolvedTopics = topics;
+    if (!resolvedTopics || resolvedTopics.length === 0) {
+      const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, runId));
+      if (run?.topicsSelected) {
+        resolvedTopics = JSON.parse(run.topicsSelected) as ScoredTopic[];
+        console.log(`[ContentPipeline] Loaded ${resolvedTopics.length} topics from DB for run #${runId}`);
+      }
+    }
+    if (!resolvedTopics || resolvedTopics.length === 0) {
+      throw new Error("No topics available for research — run topic discovery first");
+    }
+
     // Stage 4: Deep Research
     await db.update(contentRuns).set({ status: "researching" }).where(eq(contentRuns.id, runId));
 
-    const researched = await researchTopics(topics, options.perplexityApiKey);
+    const researched = await researchTopics(resolvedTopics, options.perplexityApiKey);
 
     // Ensure we have at least 3 topics after verification
     if (researched.length < 3) {

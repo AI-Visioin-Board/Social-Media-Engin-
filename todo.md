@@ -72,3 +72,8 @@
 - [ ] Pipeline: Use Claude Opus (Anthropic) for Stage 2 topic scoring instead of GPT-4o
 - [ ] Pipeline: Set Instagram page name to "suggestedbygpt" in Make.com webhook payload
 - [ ] Setup Guide: Update UI to show OpenAI/Anthropic keys instead of Perplexity
+
+## Bug Fixes
+- [x] Fix: pipeline fails with "Only 0 topics passed verification (need at least 3)" — added GPT-4o web search fallback for topic discovery when all social APIs are unavailable
+- [x] Fix: topic review panel shows "Needs Review" status but no topics are visible in the UI — added empty state message and guard in continueAfterApproval to load topics from DB
+- [x] Fix: Remove orders/client/portal dashboard — Content Studio is now the only page, all old routes removed from App.tsx and DashboardLayout nav

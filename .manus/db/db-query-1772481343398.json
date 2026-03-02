@@ -1,0 +1,23 @@
+{
+  "query": "SELECT id, runSlot, status, errorMessage, adminApproved, \n  CHAR_LENGTH(topicsRaw) as topicsRawLen,\n  CHAR_LENGTH(topicsShortlisted) as topicsShortlistedLen,\n  CHAR_LENGTH(topicsSelected) as topicsSelectedLen,\n  LEFT(topicsSelected, 200) as topicsSelectedPreview,\n  createdAt, updatedAt\nFROM content_runs ORDER BY createdAt DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, runSlot, status, errorMessage, adminApproved, \n  CHAR_LENGTH(topicsRaw) as topicsRawLen,\n  CHAR_LENGTH(topicsShortlisted) as topicsShortlistedLen,\n  CHAR_LENGTH(topicsSelected) as topicsSelectedLen,\n  LEFT(topicsSelected, 200) as topicsSelectedPreview,\n  createdAt, updatedAt\nFROM content_runs ORDER BY createdAt DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "1",
+      "runSlot": "monday",
+      "status": "failed",
+      "errorMessage": "Only 0 topics passed verification (need at least 3)",
+      "adminApproved": "1",
+      "topicsRawLen": "2",
+      "topicsShortlistedLen": "2",
+      "topicsSelectedLen": "2",
+      "topicsSelectedPreview": "[]",
+      "createdAt": "2026-03-02 19:51:23",
+      "updatedAt": "2026-03-02 19:51:59"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\trunSlot\tstatus\terrorMessage\tadminApproved\ttopicsRawLen\ttopicsShortlistedLen\ttopicsSelectedLen\ttopicsSelectedPreview\tcreatedAt\tupdatedAt\n1\tmonday\tfailed\tOnly 0 topics passed verification (need at least 3)\t1\t2\t2\t2\t[]\t2026-03-02 19:51:23\t2026-03-02 19:51:59\n",
+  "stderr": "",
+  "execution_time_ms": 479
+}

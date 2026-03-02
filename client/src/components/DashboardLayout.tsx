@@ -23,10 +23,8 @@ import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   Instagram,
-  LayoutDashboard,
   LogOut,
   PanelLeft,
-  Plus,
   Sparkles,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -35,9 +33,7 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Plus, label: "New Order", path: "/orders/new" },
-  { icon: Instagram, label: "Content Studio", path: "/content-studio" },
+  { icon: Instagram, label: "Content Studio", path: "/" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -76,8 +72,7 @@ export default function DashboardLayout({
               </h1>
             </div>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Client service management portal. Sign in to access your
-              dashboard.
+              AI-powered social media content pipeline. Sign in to manage your Instagram automation.
             </p>
           </div>
           <Button
