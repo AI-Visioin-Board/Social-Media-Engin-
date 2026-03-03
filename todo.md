@@ -138,3 +138,10 @@
 - [x] Click-to-enlarge lightbox with video playback controls
 - [x] Thumbnail strip navigation with active highlight
 - [x] Visible scrollbar / swipe support
+
+## Canva Pipeline Integration (evolving.ai style)
+- [x] Build canvaCompositor.ts (upload asset to Canva → generate-design → create-from-candidate → export PNG)
+- [x] Replace Stage 6 FFmpeg assembly with canvaCompositor in contentPipeline.ts
+- [x] Update GPT prompts to generate provocative ALL-CAPS evolving.ai-style headlines
+- [x] Handle video slides: upload Kling MP4 to Canva, export as MP4
+- [x] Graceful fallback to FFmpeg if Canva MCP call fails

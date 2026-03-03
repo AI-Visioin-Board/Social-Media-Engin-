@@ -592,14 +592,14 @@ async function researchWithGPT4oWebSearch(
 CRITICAL RECENCY RULE: Only use sources and information published AFTER ${cutoffStr} (last 15 days). If you cannot find recent sources on this topic, say so clearly — do NOT use older articles or background information as if it were current news.
 
 Provide a JSON response with:
-1. headline: punchy max-8-word headline based on the MOST RECENT development (no clickbait)
+1. headline: Write a VIRAL, PROVOCATIVE, ALL-CAPS Instagram headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts, be shocking or surprising, examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS", "OPENAI JUST RELEASED A MODEL THAT CODES BETTER THAN 99% OF ENGINEERS"
 2. summary: 2-sentence plain-English explanation of what JUST happened and why it matters to business owners today
-3. videoPrompt: Seedance AI video prompt (5-8 second cinematic clip showing this tech in action, specific visuals, no text overlays)
+3. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. Describe a dramatic, high-impact visual: real photo of AI leaders OR AI-generated cinematic scene. Specific, vivid, photorealistic. No text overlays. Examples: "Dramatic close-up of Sam Altman in dark suit against glowing server room", "Humanoid robot hand reaching toward human hand, cinematic lighting, photorealistic"
 4. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
 
 Topic: "${topic.title}"
-Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,
-    }),
+
+Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,    }),
   });
 
   if (!response.ok) {
@@ -677,9 +677,9 @@ Topic: "${topic.title}"
 Context: ${topic.summary}
 
 Provide:
-1. A punchy headline (max 8 words, no clickbait)
-2. A 2-sentence plain-English explanation of what happened and why it matters to businesses
-3. A Seedance AI video generation prompt (describe a 5-second cinematic clip showing this technology in action, be specific about visuals)
+1. headline: A VIRAL, PROVOCATIVE, ALL-CAPS headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts. Examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS"
+2. summary: A 2-sentence plain-English explanation of what happened and why it matters to businesses
+3. videoPrompt: A cinematic image/video prompt for Nano Banana or Kling AI. Dramatic, high-impact visual. Specific, vivid, photorealistic. No text overlays.
 
 Format as JSON: { "headline": "...", "summary": "...", "videoPrompt": "..." }`,
       },
@@ -1195,33 +1195,68 @@ async function _runPipelineStages(
         .where(eq(generatedSlides.id, slide.id));
     }
 
-    // Stage 6: Assembly (FFmpeg) — composites split-screen slides
+    // Stage 6: Assembly — Canva compositor (primary) with FFmpeg fallback
     await db.update(contentRuns).set({ status: "assembling" }).where(eq(contentRuns.id, runId));
     const slidesForAssembly = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+    let assemblySucceeded = false;
+
+    // Primary: Canva MCP-based assembly (@evolving.ai style full-bleed slides)
     try {
-      const { assembleSlides } = await import("./ffmpegCompositor");
-      const assembled = await assembleSlides(
+      console.log(`[ContentPipeline] Stage 6: Canva assembly for run #${runId}...`);
+      const { assembleSlides: canvaAssemble } = await import("./canvaCompositor");
+      const assembled = await canvaAssemble(
         slidesForAssembly.map((s) => ({
           slideIndex: s.slideIndex,
           headline: s.headline ?? "",
           summary: s.summary ?? undefined,
-          videoUrl: s.videoUrl ?? undefined,
-          iscover: s.slideIndex === 0,
+          mediaUrl: s.videoUrl ?? undefined,
+          isVideo: !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
+          isCover: s.slideIndex === 0,
         }))
       );
-      // Persist assembled URLs back to DB
+      let successCount = 0;
       for (const result of assembled) {
         const matchingSlide = slidesForAssembly.find((s) => s.slideIndex === result.slideIndex);
-        if (matchingSlide) {
+        if (matchingSlide && result.assembledUrl) {
           await db.update(generatedSlides)
             .set({ assembledUrl: result.assembledUrl, status: "ready" })
             .where(eq(generatedSlides.id, matchingSlide.id));
+          successCount++;
         }
       }
-    } catch (assemblyErr: any) {
-      console.warn(`[ContentPipeline] FFmpeg assembly failed (non-fatal): ${assemblyErr?.message}`);
-      // Mark slides as ready even without assembled video so pipeline can continue
-      await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.runId, runId));
+      console.log(`[ContentPipeline] Canva assembly: ${successCount}/${slidesForAssembly.length} slides assembled`);
+      assemblySucceeded = successCount > 0;
+    } catch (canvaErr: any) {
+      console.warn(`[ContentPipeline] Canva assembly failed, falling back to FFmpeg: ${canvaErr?.message}`);
+    }
+
+    // Fallback: FFmpeg split-screen compositor (only if Canva produced 0 slides)
+    if (!assemblySucceeded) {
+      console.log(`[ContentPipeline] Stage 6 fallback: FFmpeg assembly for run #${runId}...`);
+      try {
+        const { assembleSlides: ffmpegAssemble } = await import("./ffmpegCompositor");
+        const assembled = await ffmpegAssemble(
+          slidesForAssembly.map((s) => ({
+            slideIndex: s.slideIndex,
+            headline: s.headline ?? "",
+            summary: s.summary ?? undefined,
+            videoUrl: s.videoUrl ?? undefined,
+            iscover: s.slideIndex === 0,
+          }))
+        );
+        for (const result of assembled) {
+          const matchingSlide = slidesForAssembly.find((s) => s.slideIndex === result.slideIndex);
+          if (matchingSlide) {
+            await db.update(generatedSlides)
+              .set({ assembledUrl: result.assembledUrl, status: "ready" })
+              .where(eq(generatedSlides.id, matchingSlide.id));
+          }
+        }
+      } catch (ffmpegErr: any) {
+        console.warn(`[ContentPipeline] FFmpeg fallback also failed: ${ffmpegErr?.message}`);
+        // Mark slides as ready even without assembled URL so pipeline can continue
+        await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.runId, runId));
+      }
     }
 
     // Stage 7: Generate caption and wait for admin approval before posting
