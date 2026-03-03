@@ -11,9 +11,9 @@ import { toast } from "sonner";
 import {
   Play, CheckCircle2, Clock, AlertCircle, Loader2,
   Calendar, BarChart3, Eye, ThumbsUp, Globe, Zap,
-  ChevronRight, RotateCcw, Instagram, Sparkles, BookOpen,
+  ChevronRight, ChevronLeft, RotateCcw, Instagram, Sparkles, BookOpen,
   TrendingUp, Shield, Video, Layers, Send, Settings, Info,
-  ExternalLink, Download
+  ExternalLink, Download, Maximize2, X
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
@@ -323,6 +323,8 @@ function RunDetailDialog({
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [swapTopicIndex, setSwapTopicIndex] = useState<number | null>(null);
   const [editCaption, setEditCaption] = useState<string | null>(null);
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [lightboxSlide, setLightboxSlide] = useState<number | null>(null);
 
   const { data: run, refetch } = trpc.contentStudio.getRun.useQuery(
     { runId: runId! },
@@ -516,54 +518,176 @@ function RunDetailDialog({
                     </div>
                   </div>
 
-                  {/* Carousel preview — Instagram phone mockup */}
+                  {/* Carousel preview — Interactive with arrows, dots, and lightbox */}
                   {slides.length > 0 && (
                     <div>
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Carousel Slides ({slides.length})</p>
-                      <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
-                        {slides.map((slide) => (
-                          <div key={slide.id} className="flex-shrink-0 snap-start w-56">
-                            {/* Phone frame */}
-                            <div className="relative w-56 h-[396px] bg-black rounded-2xl overflow-hidden border-2 border-slate-700 shadow-lg">
-                              {slide.assembledUrl ? (
-                                <video
-                                  src={slide.assembledUrl}
-                                  className="w-full h-full object-cover"
-                                  autoPlay
-                                  muted
-                                  loop
-                                  playsInline
-                                />
-                              ) : slide.videoUrl ? (
-                                <video
-                                  src={slide.videoUrl}
-                                  className="w-full h-full object-cover"
-                                  autoPlay
-                                  muted
-                                  loop
-                                  playsInline
-                                />
-                              ) : (
-                                <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center p-3 gap-2">
-                                  <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center">
-                                    <span className="text-indigo-400 text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Carousel Slides ({slides.length})</p>
+                        <p className="text-xs text-slate-400">{activeSlide === 0 ? "Cover" : `Slide ${activeSlide}`} · Click any slide to enlarge</p>
+                      </div>
+
+                      {/* Main featured slide */}
+                      <div className="relative flex items-center gap-3 mb-4">
+                        {/* Prev arrow */}
+                        <button
+                          onClick={() => setActiveSlide(Math.max(0, activeSlide - 1))}
+                          disabled={activeSlide === 0}
+                          className="flex-shrink-0 w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center transition-colors"
+                        >
+                          <ChevronLeft className="w-5 h-5 text-slate-700" />
+                        </button>
+
+                        {/* Featured slide — large */}
+                        <div
+                          className="flex-1 flex justify-center cursor-zoom-in"
+                          onClick={() => setLightboxSlide(activeSlide)}
+                          title="Click to enlarge"
+                        >
+                          {(() => {
+                            const slide = slides[activeSlide];
+                            const src = slide?.assembledUrl || slide?.videoUrl;
+                            return (
+                              <div className="relative w-[220px] h-[390px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
+                                {src ? (
+                                  <video
+                                    key={src}
+                                    src={src}
+                                    className="w-full h-full object-cover"
+                                    autoPlay
+                                    muted
+                                    loop
+                                    playsInline
+                                  />
+                                ) : (
+                                  <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center p-4 gap-2">
+                                    <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                                      <span className="text-indigo-400 text-sm font-bold">{slide?.slideIndex === 0 ? "C" : slide?.slideIndex}</span>
+                                    </div>
+                                    <p className="text-white text-xs text-center font-medium leading-tight">{slide?.headline}</p>
                                   </div>
-                                  <p className="text-white text-xs text-center font-medium leading-tight line-clamp-4">{slide.headline}</p>
+                                )}
+                                {/* Enlarge icon */}
+                                <div className="absolute top-2 left-2 bg-black/50 rounded-full p-1">
+                                  <Maximize2 className="w-3 h-3 text-white" />
+                                </div>
+                                {/* Slide badge */}
+                                <div className="absolute top-2 right-2 w-6 h-6 bg-black/60 rounded-full flex items-center justify-center">
+                                  <span className="text-white text-xs font-bold">{slide?.slideIndex === 0 ? "C" : slide?.slideIndex}</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Next arrow */}
+                        <button
+                          onClick={() => setActiveSlide(Math.min(slides.length - 1, activeSlide + 1))}
+                          disabled={activeSlide === slides.length - 1}
+                          className="flex-shrink-0 w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center transition-colors"
+                        >
+                          <ChevronRight className="w-5 h-5 text-slate-700" />
+                        </button>
+                      </div>
+
+                      {/* Dot indicators */}
+                      <div className="flex justify-center gap-1.5 mb-3">
+                        {slides.map((_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setActiveSlide(i)}
+                            className={`w-2 h-2 rounded-full transition-all ${
+                              i === activeSlide ? "bg-indigo-500 w-4" : "bg-slate-300 hover:bg-slate-400"
+                            }`}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Thumbnail strip */}
+                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                        {slides.map((slide, i) => {
+                          const src = slide.assembledUrl || slide.videoUrl;
+                          return (
+                            <button
+                              key={slide.id}
+                              onClick={() => setActiveSlide(i)}
+                              className={`flex-shrink-0 relative w-16 h-[113px] rounded-lg overflow-hidden border-2 transition-all ${
+                                i === activeSlide ? "border-indigo-500 shadow-md" : "border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100"
+                              }`}
+                            >
+                              {src ? (
+                                <video src={src} className="w-full h-full object-cover" muted playsInline />
+                              ) : (
+                                <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+                                  <span className="text-white text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
                                 </div>
                               )}
-                              {/* Slide number badge */}
-                              <div className="absolute top-2 right-2 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center">
-                                <span className="text-white text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
-                              </div>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-1 text-center truncate">
-                              {slide.slideIndex === 0 ? "Cover" : `Slide ${slide.slideIndex}`}
-                            </p>
-                          </div>
-                        ))}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
+
+                  {/* Lightbox */}
+                  {lightboxSlide !== null && (() => {
+                    const slide = slides[lightboxSlide];
+                    const src = slide?.assembledUrl || slide?.videoUrl;
+                    return (
+                      <div
+                        className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
+                        onClick={() => setLightboxSlide(null)}
+                      >
+                        <div className="relative" onClick={(e) => e.stopPropagation()}>
+                          {/* Close */}
+                          <button
+                            onClick={() => setLightboxSlide(null)}
+                            className="absolute -top-10 right-0 text-white/80 hover:text-white text-sm flex items-center gap-1"
+                          >
+                            <X className="w-4 h-4" /> Close
+                          </button>
+                          {/* Prev */}
+                          <button
+                            onClick={() => setLightboxSlide(Math.max(0, lightboxSlide - 1))}
+                            disabled={lightboxSlide === 0}
+                            className="absolute left-[-52px] top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"
+                          >
+                            <ChevronLeft className="w-6 h-6 text-white" />
+                          </button>
+                          {/* Slide */}
+                          <div className="w-[360px] h-[640px] bg-black rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
+                            {src ? (
+                              <video
+                                key={src}
+                                src={src}
+                                className="w-full h-full object-cover"
+                                autoPlay
+                                controls
+                                loop
+                                playsInline
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center p-6 gap-3">
+                                <span className="text-indigo-400 text-2xl font-bold">{slide?.slideIndex === 0 ? "Cover" : `Slide ${slide?.slideIndex}`}</span>
+                                <p className="text-white text-sm text-center leading-relaxed">{slide?.headline}</p>
+                              </div>
+                            )}
+                          </div>
+                          {/* Next */}
+                          <button
+                            onClick={() => setLightboxSlide(Math.min(slides.length - 1, lightboxSlide + 1))}
+                            disabled={lightboxSlide === slides.length - 1}
+                            className="absolute right-[-52px] top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 flex items-center justify-center"
+                          >
+                            <ChevronRight className="w-6 h-6 text-white" />
+                          </button>
+                          {/* Label */}
+                          <p className="text-center text-white/60 text-sm mt-3">
+                            {slide?.slideIndex === 0 ? "Cover" : `Slide ${slide?.slideIndex}`} · {lightboxSlide + 1} of {slides.length}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Caption editor */}
                   <div>

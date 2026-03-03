@@ -131,3 +131,10 @@
 - [x] Force-fail stuck runs #30001 and #60001
 - [x] Add 30-minute timeout: auto-fail runs stuck in assembling/generating stage
 - [x] Add timeout check on pipeline start and via periodic DB check
+
+## Interactive Carousel Preview
+- [x] Prev/next arrow navigation buttons
+- [x] Active slide dot indicator
+- [x] Click-to-enlarge lightbox with video playback controls
+- [x] Thumbnail strip navigation with active highlight
+- [x] Visible scrollbar / swipe support
