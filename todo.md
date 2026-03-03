@@ -126,3 +126,8 @@
 - [ ] UI: Caption display with hashtags below the carousel preview
 - [ ] UI: Approve to Post button (green) + Edit Caption inline before approving
 - [ ] UI: Show "Pending Your Approval" badge on runs that are assembled but not yet posted
+
+## Pipeline Timeout
+- [x] Force-fail stuck runs #30001 and #60001
+- [x] Add 30-minute timeout: auto-fail runs stuck in assembling/generating stage
+- [x] Add timeout check on pipeline start and via periodic DB check

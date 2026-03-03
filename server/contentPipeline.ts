@@ -1070,6 +1070,9 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
   }
 }
 
+/** Maximum time a pipeline run is allowed before auto-failing (30 minutes) */
+const PIPELINE_TIMEOUT_MS = 30 * 60 * 1000;
+
 export async function continueAfterApproval(
   runId: number,
   topics: ScoredTopic[],
@@ -1078,6 +1081,37 @@ export async function continueAfterApproval(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Auto-fail if the pipeline hangs for more than 30 minutes
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`Pipeline timed out after 30 minutes — run #${runId} auto-failed`));
+    }, PIPELINE_TIMEOUT_MS);
+  });
+
+  try {
+    await Promise.race([
+      _runPipelineStages(runId, topics, options, db),
+      timeoutPromise,
+    ]);
+  } catch (err: any) {
+    await db.update(contentRuns).set({
+      status: "failed",
+      errorMessage: err?.message ?? "Unknown error",
+    }).where(eq(contentRuns.id, runId));
+    console.error(`[ContentPipeline] Run #${runId} failed:`, err?.message);
+    throw err;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
+async function _runPipelineStages(
+  runId: number,
+  topics: ScoredTopic[],
+  options: Omit<PipelineOptions, "runSlot" | "requireAdminApproval">,
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>
+): Promise<void> {
   try {
     // If topics array is empty, load from DB (handles case where UI sent empty array)
     let resolvedTopics = topics;

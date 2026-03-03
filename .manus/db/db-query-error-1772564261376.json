@@ -1,0 +1,8 @@
+{
+  "query": "UPDATE content_runs SET pipeline_status = 'failed', error_message = 'Run timed out — manually cancelled', updated_at = NOW() WHERE id IN (30001, 60001) AND pipeline_status = 'assembling';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute UPDATE content_runs SET pipeline_status = 'failed', error_message = 'Run timed out — manually cancelled', updated_at = NOW() WHERE id IN (30001, 60001) AND pipeline_status = 'assembling';",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'pipeline_status' in 'where clause'"
+  ]
+}

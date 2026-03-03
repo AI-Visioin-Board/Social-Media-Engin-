@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, runSlot, status, createdAt FROM content_runs ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, runSlot, status, createdAt FROM content_runs ORDER BY id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "90001",
+      "runSlot": "monday",
+      "status": "review",
+      "createdAt": "2026-03-03 18:56:05"
+    },
+    {
+      "id": "60001",
+      "runSlot": "monday",
+      "status": "failed",
+      "createdAt": "2026-03-03 06:22:24"
+    },
+    {
+      "id": "30001",
+      "runSlot": "monday",
+      "status": "failed",
+      "createdAt": "2026-03-03 05:10:09"
+    },
+    {
+      "id": "2",
+      "runSlot": "monday",
+      "status": "failed",
+      "createdAt": "2026-03-02 20:04:11"
+    },
+    {
+      "id": "1",
+      "runSlot": "monday",
+      "status": "failed",
+      "createdAt": "2026-03-02 19:51:23"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\trunSlot\tstatus\tcreatedAt\n90001\tmonday\treview\t2026-03-03 18:56:05\n60001\tmonday\tfailed\t2026-03-03 06:22:24\n30001\tmonday\tfailed\t2026-03-03 05:10:09\n2\tmonday\tfailed\t2026-03-02 20:04:11\n1\tmonday\tfailed\t2026-03-02 19:51:23\n",
+  "stderr": "",
+  "execution_time_ms": 357
+}
