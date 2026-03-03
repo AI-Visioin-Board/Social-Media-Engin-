@@ -55,21 +55,27 @@ export interface CanvaSlideResult {
  * Call a Canva MCP tool and return the parsed JSON result.
  * Throws on non-success status.
  */
-async function callCanvaTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
-  const inputJson = JSON.stringify(input).replace(/'/g, "'\\''");
+async function callCanvaTool(toolName: string, input: Record<string, unknown>, retries = 1): Promise<unknown> {
+  const inputJson = JSON.stringify(input).replace(/'/g, "'\\''")
   const cmd = `manus-mcp-cli tool call ${toolName} --server canva --input '${inputJson}'`;
-  const { stdout, stderr } = await execAsync(cmd, { timeout: 120_000 });
-  // The CLI prints "Tool execution result:" followed by JSON
-  const match = stdout.match(/Tool execution result:\s*\n([\s\S]+)/);
-  if (!match) {
-    throw new Error(`Canva MCP ${toolName}: no result in output. stderr: ${stderr}`);
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const { stdout, stderr } = await execAsync(cmd, { timeout: 180_000 });
+      const match = stdout.match(/Tool execution result:\s*\n([\s\S]+)/);
+      if (!match) throw new Error(`Canva MCP ${toolName}: no result in output. stderr: ${stderr}`);
+      const resultText = match[1].trim();
+      if (resultText.startsWith("Error:")) throw new Error(`Canva MCP ${toolName} error: ${resultText}`);
+      return JSON.parse(resultText);
+    } catch (err: any) {
+      lastErr = err;
+      if (attempt < retries) {
+        console.warn(`[CanvaCompositor] ${toolName} attempt ${attempt + 1} failed, retrying: ${err?.message}`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
   }
-  const resultText = match[1].trim();
-  // Check for error responses
-  if (resultText.startsWith("Error:")) {
-    throw new Error(`Canva MCP ${toolName} error: ${resultText}`);
-  }
-  return JSON.parse(resultText);
+  throw lastErr;
 }
 
 // ─── Download helper ──────────────────────────────────────────────────────────
@@ -144,15 +150,35 @@ export async function assembleSlideWithCanva(
 
     if (mediaUrl) {
       console.log(`[CanvaCompositor] Uploading asset for slide ${slideIndex}: ${mediaUrl.slice(0, 80)}...`);
+
+      // Canva requires a direct HTTP 200 URL (no redirects).
+      // If the URL is not already on our CDN/S3, download it and re-upload to S3 first.
+      let directUrl = mediaUrl;
+      if (!mediaUrl.includes("cloudfront.net") && !mediaUrl.includes("amazonaws.com")) {
+        try {
+          const ext = isVideo ? "mp4" : "png";
+          const tmpFile = await downloadToTemp(mediaUrl, ext);
+          const fileBuffer = fs.readFileSync(tmpFile);
+          fs.unlink(tmpFile, () => {});
+          const contentType = isVideo ? "video/mp4" : "image/png";
+          const s3Key = `canva-assets/slide-${slideIndex}-${Date.now()}.${ext}`;
+          const { url: s3Url } = await storagePut(s3Key, fileBuffer, contentType);
+          directUrl = s3Url;
+          console.log(`[CanvaCompositor] Pre-uploaded to S3 for direct Canva access: ${s3Url.slice(0, 80)}...`);
+        } catch (preUploadErr: any) {
+          console.warn(`[CanvaCompositor] Pre-upload to S3 failed, using original URL: ${preUploadErr?.message}`);
+        }
+      }
+
       const uploadResult = await callCanvaTool("upload-asset-from-url", {
         name: `sbgpt-slide-${slideIndex}-${Date.now()}`,
-        url: mediaUrl,
+        url: directUrl,
         user_intent: `Upload AI-generated ${isVideo ? "video" : "image"} for SuggestedByGPT Instagram slide ${slideIndex}`,
       }) as any;
 
       if (uploadResult?.job?.status === "success" && uploadResult?.job?.asset?.id) {
         assetId = uploadResult.job.asset.id;
-        console.log(`[CanvaCompositor] Asset uploaded: ${assetId}`);
+        console.log(`[CanvaCompositor] Asset uploaded to Canva: ${assetId}`);
       } else {
         console.warn(`[CanvaCompositor] Asset upload failed for slide ${slideIndex}:`, JSON.stringify(uploadResult));
         // Continue without asset — Canva will use a stock image
