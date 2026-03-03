@@ -380,7 +380,7 @@ function RunDetailDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="max-w-2xl h-[90vh] flex flex-col overflow-hidden">
+        <DialogContent className="max-w-5xl w-[90vw] h-[90vh] flex flex-col overflow-hidden">
           <DialogHeader>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-sm font-bold text-slate-600">
@@ -519,9 +519,9 @@ function RunDetailDialog({
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Carousel Slides ({slides.length})</p>
                       <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
                         {slides.map((slide) => (
-                          <div key={slide.id} className="flex-shrink-0 snap-start w-40">
+                          <div key={slide.id} className="flex-shrink-0 snap-start w-56">
                             {/* Phone frame */}
-                            <div className="relative w-40 h-[284px] bg-black rounded-2xl overflow-hidden border-2 border-slate-700 shadow-lg">
+                            <div className="relative w-56 h-[396px] bg-black rounded-2xl overflow-hidden border-2 border-slate-700 shadow-lg">
                               {slide.assembledUrl ? (
                                 <video
                                   src={slide.assembledUrl}
