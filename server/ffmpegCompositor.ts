@@ -166,7 +166,8 @@ export async function generateCoverSlide(params: {
     const ctaY = Math.round(SLIDE_HEIGHT * 0.88);
     filters.push(`[n${nodeIdx - 1}]drawtext=text='SWIPE FOR MORE':fontsize=32:fontcolor=white@0.8:x=(w-text_w)/2:y=${ctaY}:font=sans[out]`);
 
-    const filterComplex = filters.join("\n");
+    // Join with semicolons (NOT newlines) — FFmpeg needs a single continuous filter string
+    const filterComplex = filters.map(f => f.replace(/;\s*$/, '')).join(';');
 
     const cmd = [
       "ffmpeg -y",
@@ -321,7 +322,8 @@ export async function generateContentSlide(params: {
     const lastIdx = filters.length - 1;
     filters[lastIdx] = filters[lastIdx].replace(/\[([^\]]+)\];?$/, "[out]");
 
-    const filterComplex = filters.join("\n");
+    // Join with semicolons (NOT newlines) — FFmpeg needs a single continuous filter string
+    const filterComplex = filters.map(f => f.replace(/;\s*$/, '')).join(';');
 
     const cmd = [
       "ffmpeg -y",

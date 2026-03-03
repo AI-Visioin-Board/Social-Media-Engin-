@@ -1,0 +1,31 @@
+{
+  "query": "SELECT id, status, createdAt, updatedAt, errorMessage FROM content_runs ORDER BY id DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, status, createdAt, updatedAt, errorMessage FROM content_runs ORDER BY id DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "30001",
+      "status": "assembling",
+      "createdAt": "2026-03-03 05:10:09",
+      "updatedAt": "2026-03-03 05:15:22",
+      "errorMessage": "NULL"
+    },
+    {
+      "id": "2",
+      "status": "failed",
+      "createdAt": "2026-03-02 20:04:11",
+      "updatedAt": "2026-03-03 05:11:16",
+      "errorMessage": "NULL"
+    },
+    {
+      "id": "1",
+      "status": "failed",
+      "createdAt": "2026-03-02 19:51:23",
+      "updatedAt": "2026-03-02 19:51:59",
+      "errorMessage": "Only 0 topics passed verification (need at least 3)"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\tcreatedAt\tupdatedAt\terrorMessage\n30001\tassembling\t2026-03-03 05:10:09\t2026-03-03 05:15:22\tNULL\n2\tfailed\t2026-03-02 20:04:11\t2026-03-03 05:11:16\tNULL\n1\tfailed\t2026-03-02 19:51:23\t2026-03-02 19:51:59\tOnly 0 topics passed verification (need at least 3)\n",
+  "stderr": "",
+  "execution_time_ms": 469
+}
