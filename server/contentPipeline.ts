@@ -368,7 +368,7 @@ export async function filterNoRepeat(topics: RawTopic[]): Promise<RawTopic[]> {
   });
 }
 
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
 }
 
@@ -1190,42 +1190,24 @@ export async function continueAfterApproval(
       await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.runId, runId));
     }
 
-    // Stage 7: Post to Instagram
+    // Stage 7: Generate caption and wait for admin approval before posting
+    console.log(`[ContentPipeline] Stage 7: Generating Instagram caption for run #${runId}`);
     const finalSlides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
     const caption = await generateCaption(researched);
 
-    const posted = await triggerInstagramPost(
-      runId,
-      finalSlides.filter((s) => s.assembledUrl).map((s) => ({
-        assembledUrl: s.assembledUrl!,
-        headline: s.headline ?? "",
-      })),
-      caption,
-      options.makeWebhookUrl
-    );
-
-    // Save published topics for no-repeat logic
-    for (const topic of researched) {
-      await db.insert(publishedTopics).values({
-        runId,
-        title: topic.title,
-        summary: topic.summary,
-        titleNormalized: normalizeTitle(topic.title),
-      });
-    }
-
+    // Save caption and set status to pending_post — admin must approve before posting
     await db.update(contentRuns).set({
-      status: posted ? "completed" : "assembling",
+      instagramCaption: caption,
+      status: "pending_post",
     }).where(eq(contentRuns.id, runId));
 
+    // Notify owner that slides are ready for review
     await notifyOwner({
-      title: `Content Studio: ${posted ? "Post Published!" : "Slides Ready"}`,
-      content: posted
-        ? `Your carousel was posted to Instagram successfully.`
-        : `Your carousel slides are assembled and ready. Configure Make.com webhook to enable auto-posting.`,
+      title: `Content Studio: Carousel Ready for Review!`,
+      content: `Run #${runId} slides are assembled and the caption is ready. Open Content Studio to preview and approve the post before it goes to Instagram.`,
     });
 
-    console.log(`[ContentPipeline] Run #${runId} completed`);
+    console.log(`[ContentPipeline] Run #${runId} is pending_post — awaiting admin approval`);
   } catch (err: any) {
     await db.update(contentRuns).set({
       status: "failed",

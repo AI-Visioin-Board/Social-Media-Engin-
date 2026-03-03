@@ -115,3 +115,14 @@
 - [x] Fix: Cover slide node renaming logic produced broken [withhl] node — rewrote with explicit n0/n1/n2... sequential nodes
 - [x] Add: KlingCredentialsCard component in Setup Guide tab with masked input fields, pricing info, and active/inactive status
 - [x] Add: getKlingStatus and saveKlingCredentials tRPC procedures
+
+## Stage 7 — Instagram Preview & Approval Gate
+- [ ] Pipeline: Add Stage 7 caption generation (GPT-4o writes Instagram caption with hashtags from the 5 topics)
+- [ ] DB: Add caption and postApproved columns to content_runs table
+- [ ] Pipeline: Gate Make.com webhook — only fire after admin approves post (not automatically after assembly)
+- [ ] Server: tRPC getRunPreview procedure — returns slides (videoUrl array) + caption + status
+- [ ] Server: tRPC approvePost procedure — marks approved, fires Make.com webhook with slides + caption
+- [ ] UI: Instagram-style carousel preview panel in run detail view (swipeable slides, phone mockup frame)
+- [ ] UI: Caption display with hashtags below the carousel preview
+- [ ] UI: Approve to Post button (green) + Edit Caption inline before approving
+- [ ] UI: Show "Pending Your Approval" badge on runs that are assembled but not yet posted

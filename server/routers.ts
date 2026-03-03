@@ -567,6 +567,100 @@ export const appRouter = router({
           .orderBy(desc(publishedTopics.publishedAt));
       }),
 
+    // Get full run preview: slides + caption for Instagram preview UI
+    getRunPreview: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns, generatedSlides } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        if (!run) return null;
+        const slides = await db.select().from(generatedSlides)
+          .where(eq(generatedSlides.runId, input.runId))
+          .orderBy(generatedSlides.slideIndex as any);
+        return {
+          run,
+          slides,
+          caption: run.instagramCaption ?? null,
+          status: run.status,
+          postApproved: run.postApproved,
+        };
+      }),
+
+    // Approve post — update caption (optional edit) then fire Make.com webhook
+    approvePost: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        caption: z.string(), // allow edited caption
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns, generatedSlides, publishedTopics } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        if (!run) throw new Error("Run not found");
+        if (run.status !== "pending_post") throw new Error(`Run is not pending post approval (status: ${run.status})`);
+
+        // Save final caption and mark approved
+        await db.update(contentRuns).set({
+          instagramCaption: input.caption,
+          postApproved: true,
+          status: "posting",
+        }).where(eq(contentRuns.id, input.runId));
+
+        // Get assembled slides
+        const slides = await db.select().from(generatedSlides)
+          .where(eq(generatedSlides.runId, input.runId))
+          .orderBy(generatedSlides.slideIndex as any);
+
+        const readySlides = slides.filter((s) => s.assembledUrl).map((s) => ({
+          assembledUrl: s.assembledUrl!,
+          headline: s.headline ?? "",
+        }));
+
+        // Fire Make.com webhook
+        const { triggerInstagramPost } = await import("./contentPipeline");
+        const posted = await triggerInstagramPost(
+          input.runId,
+          readySlides,
+          input.caption,
+          process.env.MAKE_WEBHOOK_URL
+        );
+
+        // Save published topics for no-repeat logic
+        const topicsSelected = JSON.parse(run.topicsSelected ?? "[]");
+        const { normalizeTitle } = await import("./contentPipeline");
+        for (const topic of topicsSelected) {
+          await db.insert(publishedTopics).values({
+            runId: input.runId,
+            title: topic.title,
+            summary: topic.summary ?? "",
+            titleNormalized: normalizeTitle(topic.title),
+          });
+        }
+
+        await db.update(contentRuns).set({
+          status: posted ? "completed" : "pending_post",
+          postApproved: posted,
+        }).where(eq(contentRuns.id, input.runId));
+
+        const { notifyOwner } = await import("./_core/notification");
+        await notifyOwner({
+          title: posted ? "Instagram Post Published!" : "Post Failed — Webhook Error",
+          content: posted
+            ? `Run #${input.runId} carousel was posted to Instagram successfully.`
+            : `Run #${input.runId} approval was set but Make.com webhook failed. Check your webhook URL.`,
+        });
+
+        return { success: true, posted };
+      }),
+
     // Get Kling API status
     getKlingStatus: adminProcedure
       .query(async () => {

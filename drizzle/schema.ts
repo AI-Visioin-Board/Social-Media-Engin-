@@ -219,6 +219,7 @@ export const contentRuns = mysqlTable("content_runs", {
     "generating",     // Seedance video generation
     "assembling",     // FFmpeg compositing slides
     "review",         // awaiting admin topic approval
+    "pending_post",   // assembled, awaiting admin post approval
     "posting",        // sending to Instagram via Make.com
     "completed",      // done
     "failed",         // error occurred
@@ -233,6 +234,10 @@ export const contentRuns = mysqlTable("content_runs", {
   errorMessage: text("errorMessage"),
   /** Whether admin has approved the topic selection */
   adminApproved: boolean("adminApproved").default(false).notNull(),
+  /** GPT-4o generated Instagram caption with hashtags */
+  instagramCaption: text("instagramCaption"),
+  /** Whether admin has approved the post to be sent to Instagram */
+  postApproved: boolean("postApproved").default(false).notNull(),
   /** Make.com webhook response / Instagram post ID after posting */
   instagramPostId: varchar("instagramPostId", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

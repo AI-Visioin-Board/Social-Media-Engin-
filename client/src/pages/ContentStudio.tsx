@@ -29,7 +29,7 @@ import {
 
 type RunStatus =
   | "pending" | "discovering" | "scoring" | "researching"
-  | "generating" | "assembling" | "review" | "posting"
+  | "generating" | "assembling" | "review" | "pending_post" | "posting"
   | "completed" | "failed";
 
 interface ContentRun {
@@ -40,6 +40,8 @@ interface ContentRun {
   topicsShortlisted: string | null;
   topicsSelected: string | null;
   adminApproved: boolean;
+  instagramCaption: string | null;
+  postApproved: boolean;
   instagramPostId: string | null;
   errorMessage: string | null;
   createdAt: Date;
@@ -89,8 +91,9 @@ const STATUS_CONFIG: Record<RunStatus, { label: string; color: string; icon: Rea
   researching: { label: "Researching",  color: "bg-amber-100 text-amber-700",   icon: <Loader2 className="w-3 h-3 animate-spin" />, progress: 50 },
   generating:  { label: "Generating",   color: "bg-orange-100 text-orange-700", icon: <Loader2 className="w-3 h-3 animate-spin" />, progress: 65 },
   assembling:  { label: "Assembling",   color: "bg-cyan-100 text-cyan-700",     icon: <Loader2 className="w-3 h-3 animate-spin" />, progress: 80 },
-  review:      { label: "Needs Review", color: "bg-yellow-100 text-yellow-800", icon: <Eye className="w-3 h-3" />,        progress: 40 },
-  posting:     { label: "Posting",      color: "bg-indigo-100 text-indigo-700", icon: <Loader2 className="w-3 h-3 animate-spin" />, progress: 90 },
+  review:      { label: "Needs Review",  color: "bg-yellow-100 text-yellow-800",  icon: <Eye className="w-3 h-3" />,         progress: 40 },
+  pending_post:{ label: "Ready to Post", color: "bg-purple-100 text-purple-700",  icon: <Instagram className="w-3 h-3" />,   progress: 90 },
+  posting:     { label: "Posting",       color: "bg-indigo-100 text-indigo-700", icon: <Loader2 className="w-3 h-3 animate-spin" />, progress: 95 },
   completed:   { label: "Completed",    color: "bg-green-100 text-green-700",   icon: <CheckCircle2 className="w-3 h-3" />, progress: 100 },
   failed:      { label: "Failed",       color: "bg-red-100 text-red-700",       icon: <AlertCircle className="w-3 h-3" />, progress: 0 },
 };
@@ -102,6 +105,7 @@ const PIPELINE_STEPS = [
   { key: "researching", label: "Deep Research",   desc: "GPT-4o web search verifies each story" },
   { key: "generating",  label: "Video Generation",desc: "Seedance creates B-roll clips" },
   { key: "assembling",  label: "Slide Assembly",  desc: "FFmpeg composites final slides" },
+  { key: "pending_post",label: "Your Approval",   desc: "Preview & approve before posting" },
   { key: "posting",     label: "Instagram Post",  desc: "Make.com posts the carousel" },
 ];
 
@@ -318,6 +322,7 @@ function RunDetailDialog({
 }) {
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [swapTopicIndex, setSwapTopicIndex] = useState<number | null>(null);
+  const [editCaption, setEditCaption] = useState<string | null>(null);
 
   const { data: run, refetch } = trpc.contentStudio.getRun.useQuery(
     { runId: runId! },
@@ -325,10 +330,23 @@ function RunDetailDialog({
       enabled: !!runId,
       refetchInterval: (data) => {
         const status = (data as any)?.status;
-        return status && !["completed", "failed", "review"].includes(status) ? 3000 : false;
+        return status && !["completed", "failed", "review", "pending_post"].includes(status) ? 3000 : false;
       },
     }
   );
+
+  const approvePost = trpc.contentStudio.approvePost.useMutation({
+    onSuccess: (data) => {
+      if (data.posted) {
+        toast.success("Posted to Instagram! 🎉");
+      } else {
+        toast.error("Webhook failed — check your Make.com URL in Setup Guide");
+      }
+      setEditCaption(null);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const approveTopics = trpc.contentStudio.approveTopics.useMutation({
     onSuccess: () => {
@@ -480,6 +498,112 @@ function RunDetailDialog({
                       <TopicCard key={i} topic={topic} index={i} showScores={false} />
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Instagram Preview & Approval — pending_post status */}
+              {run.status === "pending_post" && (
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center gap-2 p-3 bg-purple-50 border border-purple-200 rounded-xl">
+                    <Instagram className="w-5 h-5 text-purple-600 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-purple-900">Carousel ready for your review</p>
+                      <p className="text-xs text-purple-700">Preview all slides and the caption below. Edit the caption if needed, then approve to post.</p>
+                    </div>
+                  </div>
+
+                  {/* Carousel preview — Instagram phone mockup */}
+                  {slides.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Carousel Slides ({slides.length})</p>
+                      <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+                        {slides.map((slide) => (
+                          <div key={slide.id} className="flex-shrink-0 snap-start w-40">
+                            {/* Phone frame */}
+                            <div className="relative w-40 h-[284px] bg-black rounded-2xl overflow-hidden border-2 border-slate-700 shadow-lg">
+                              {slide.assembledUrl ? (
+                                <video
+                                  src={slide.assembledUrl}
+                                  className="w-full h-full object-cover"
+                                  autoPlay
+                                  muted
+                                  loop
+                                  playsInline
+                                />
+                              ) : slide.videoUrl ? (
+                                <video
+                                  src={slide.videoUrl}
+                                  className="w-full h-full object-cover"
+                                  autoPlay
+                                  muted
+                                  loop
+                                  playsInline
+                                />
+                              ) : (
+                                <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center p-3 gap-2">
+                                  <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center">
+                                    <span className="text-indigo-400 text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
+                                  </div>
+                                  <p className="text-white text-xs text-center font-medium leading-tight line-clamp-4">{slide.headline}</p>
+                                </div>
+                              )}
+                              {/* Slide number badge */}
+                              <div className="absolute top-2 right-2 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-1 text-center truncate">
+                              {slide.slideIndex === 0 ? "Cover" : `Slide ${slide.slideIndex}`}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Caption editor */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Instagram Caption</p>
+                      <button
+                        onClick={() => setEditCaption(editCaption !== null ? null : (run.instagramCaption ?? ""))}
+                        className="text-xs text-indigo-600 hover:underline"
+                      >
+                        {editCaption !== null ? "Cancel edit" : "Edit caption"}
+                      </button>
+                    </div>
+                    {editCaption !== null ? (
+                      <Textarea
+                        value={editCaption}
+                        onChange={(e) => setEditCaption(e.target.value)}
+                        className="text-sm font-mono min-h-[120px] resize-y"
+                        placeholder="Write your Instagram caption..."
+                      />
+                    ) : (
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                          {run.instagramCaption ?? "Caption not generated yet."}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Approve to Post button */}
+                  <Button
+                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-3 text-base"
+                    disabled={approvePost.isPending}
+                    onClick={() => approvePost.mutate({
+                      runId: run.id,
+                      caption: editCaption !== null ? editCaption : (run.instagramCaption ?? ""),
+                    })}
+                  >
+                    {approvePost.isPending ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Posting to Instagram...</>
+                    ) : (
+                      <><Instagram className="w-4 h-4 mr-2" /> Approve & Post to Instagram</>
+                    )}
+                  </Button>
                 </div>
               )}
 
