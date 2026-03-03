@@ -360,6 +360,9 @@ function RunDetailDialog({
     return (
       <Dialog open={open} onOpenChange={onClose}>
         <DialogContent className="max-w-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Loading run details</DialogTitle>
+          </DialogHeader>
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
           </div>
