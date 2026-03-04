@@ -588,7 +588,8 @@ async function researchWithGPT4oWebSearch(
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      tools: [{ type: "web_search_preview" }],      content: `Today is ${todayStr}. Research this AI news topic using web search.
+      tools: [{ type: "web_search_preview" }],
+      input: `Today is ${todayStr}. Research this AI news topic using web search.
 
 CRITICAL RECENCY RULE: Only use sources and information published AFTER ${cutoffStr} (last 15 days). If you cannot find recent sources on this topic, say so clearly — do NOT use older articles or background information as if it were current news.
 
@@ -603,7 +604,9 @@ Provide a JSON response with:
 
 Topic: "${topic.title}"
 
-Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,    }),  });
+Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,
+    }),
+  });
 
   if (!response.ok) {
     const errText = await response.text();

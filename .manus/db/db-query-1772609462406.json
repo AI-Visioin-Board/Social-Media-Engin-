@@ -1,0 +1,20 @@
+{
+  "query": "SELECT `key`, `value`, `updatedAt` FROM appSettings WHERE `key` IN ('kling_access_key', 'kling_secret_key');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT `key`, `value`, `updatedAt` FROM appSettings WHERE `key` IN ('kling_access_key', 'kling_secret_key');",
+  "rows": [
+    {
+      "key": "kling_access_key",
+      "value": "AmdgQmr9D8baECKpJBbG8Qtmn8BCnnDa",
+      "updatedAt": "2026-03-04 07:02:57"
+    },
+    {
+      "key": "kling_secret_key",
+      "value": "4gegJpeTK3YfAJaDY4RMyeMEeydJJJP9",
+      "updatedAt": "2026-03-04 07:02:57"
+    }
+  ],
+  "messages": [],
+  "stdout": "key\tvalue\tupdatedAt\nkling_access_key\tAmdgQmr9D8baECKpJBbG8Qtmn8BCnnDa\t2026-03-04 07:02:57\nkling_secret_key\t4gegJpeTK3YfAJaDY4RMyeMEeydJJJP9\t2026-03-04 07:02:57\n",
+  "stderr": "",
+  "execution_time_ms": 422
+}
