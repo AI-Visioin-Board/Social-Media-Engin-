@@ -170,18 +170,22 @@ export async function assembleSlideWithCanva(
         }
       }
 
-      const uploadResult = await callCanvaTool("upload-asset-from-url", {
-        name: `sbgpt-slide-${slideIndex}-${Date.now()}`,
-        url: directUrl,
-        user_intent: `Upload AI-generated ${isVideo ? "video" : "image"} for SuggestedByGPT Instagram slide ${slideIndex}`,
-      }) as any;
+      try {
+        const uploadResult = await callCanvaTool("upload-asset-from-url", {
+          name: `sbgpt-slide-${slideIndex}-${Date.now()}`,
+          url: directUrl,
+          user_intent: `Upload AI-generated ${isVideo ? "video" : "image"} for SuggestedByGPT Instagram slide ${slideIndex}`,
+        }) as any;
 
-      if (uploadResult?.job?.status === "success" && uploadResult?.job?.asset?.id) {
-        assetId = uploadResult.job.asset.id;
-        console.log(`[CanvaCompositor] Asset uploaded to Canva: ${assetId}`);
-      } else {
-        console.warn(`[CanvaCompositor] Asset upload failed for slide ${slideIndex}:`, JSON.stringify(uploadResult));
-        // Continue without asset — Canva will use a stock image
+        if (uploadResult?.job?.status === "success" && uploadResult?.job?.asset?.id) {
+          assetId = uploadResult.job.asset.id;
+          console.log(`[CanvaCompositor] Asset uploaded to Canva: ${assetId}`);
+        } else {
+          console.warn(`[CanvaCompositor] Asset upload returned non-success for slide ${slideIndex}:`, JSON.stringify(uploadResult));
+        }
+      } catch (uploadErr: any) {
+        // Canva returns "already exists" if the same URL was uploaded before — safe to continue without asset
+        console.warn(`[CanvaCompositor] Asset upload error for slide ${slideIndex}: ${uploadErr?.message?.slice(0, 120)} — continuing without asset`);
       }
     }
 

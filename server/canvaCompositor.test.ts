@@ -11,7 +11,7 @@
  * 6. assembleSlideWithCanva() full end-to-end returns an S3 URL
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import { exec } from "child_process";
 import { promisify } from "util";
 
@@ -29,10 +29,11 @@ async function callCanvaTool(toolName: string, input: Record<string, unknown>): 
   return JSON.parse(resultText);
 }
 
-// ─── Test image URL (public, stable, direct 200 — no redirects) ─────────────────
-// Unsplash direct CDN URL returns HTTP 200 directly, which Canva requires
+// ─── Test image URL (public, stable, direct HTTP 200 — no redirects) ─────────────────
+// Unsplash CDN with auto=format returns HTTP 200 directly (no redirect).
+// Append a unique cache-buster so Canva never rejects it as "already exists".
 const TEST_IMAGE_URL =
-  "https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1080&h=1350&fit=crop";
+  `https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1080&h=1350&fit=crop&auto=format&t=${Date.now()}`;
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,9 @@ describe("Canva MCP: upload-asset-from-url", () => {
 });
 
 describe("Canva MCP: generate-design → create-from-candidate → export", () => {
+  // Wait 10s before this suite to avoid Canva rate limiting from the previous upload test
+  beforeAll(() => new Promise((r) => setTimeout(r, 10_000)));
+
   it("generates a design, converts candidate, and exports as PNG", async () => {
     // Step 1: Upload asset
     const uploadResult = await callCanvaTool("upload-asset-from-url", {
