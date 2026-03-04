@@ -281,17 +281,28 @@ export async function assembleSlideWithCanva(
 export async function assembleSlides(
   slides: CanvaSlideInput[]
 ): Promise<CanvaSlideResult[]> {
+  // Process slides SEQUENTIALLY with a pause between each to avoid Canva rate limits.
+  // Parallel calls cause "context deadline exceeded" errors on generate-design.
+  console.log(`[CanvaCompositor] Assembling ${slides.length} slides sequentially...`);
   const results: CanvaSlideResult[] = [];
-
-  // Process slides sequentially to avoid Canva rate limits
-  for (const slide of slides) {
-    const assembledUrl = await assembleSlideWithCanva(slide);
-    if (assembledUrl) {
-      results.push({ slideIndex: slide.slideIndex, assembledUrl });
-    } else {
-      console.warn(`[CanvaCompositor] Slide ${slide.slideIndex} failed — will be skipped`);
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    try {
+      const assembledUrl = await assembleSlideWithCanva(slide);
+      if (assembledUrl) {
+        results.push({ slideIndex: slide.slideIndex, assembledUrl });
+        console.log(`[CanvaCompositor] Slide ${slide.slideIndex} done (${i + 1}/${slides.length})`);
+      } else {
+        console.warn(`[CanvaCompositor] Slide ${slide.slideIndex} returned null URL — skipping`);
+      }
+    } catch (err: any) {
+      console.warn(`[CanvaCompositor] Slide ${slide.slideIndex} failed: ${err?.message?.slice(0, 100)}`);
+    }
+    // Pause between slides to stay under Canva rate limits
+    if (i < slides.length - 1) {
+      await new Promise((r) => setTimeout(r, 5000));
     }
   }
-
+  console.log(`[CanvaCompositor] Sequential assembly complete: ${results.length}/${slides.length} slides succeeded`);
   return results;
 }

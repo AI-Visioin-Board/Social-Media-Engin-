@@ -411,7 +411,7 @@ SCORING CRITERIA (rate each 1-10):
 5. interestingness: How surprising, novel, or fascinating is this? (unexpected, counterintuitive, first-of-its-kind)
 
 SELECTION RULES:
-- Select exactly 5 topics with maximum variety (no two from the same company or angle)
+- Select exactly 4 topics with maximum variety (no two from the same company or angle)
 - Prioritize CONCRETE news over vague announcements ("X released Y" beats "X is working on Y")
 - Prefer stories with clear impact that can be explained in one sentence
 - At least 1 topic should be directly actionable for business owners
@@ -425,7 +425,7 @@ DO NOT SELECT these recently published topics or anything closely similar:\n${re
 CANDIDATES:
 ${candidates.map((t, i) => `${i + 1}. "${t.title}" (source: ${t.source})`).join("\n")}
 
-Return a JSON array of exactly 5 objects with this structure:
+Return a JSON array of exactly 4 objects with this structure:
 {
   "title": "original title from the list",
   "summary": "1-sentence plain English explanation of why this matters",
@@ -495,11 +495,11 @@ Return a JSON array of exactly 5 objects with this structure:
     if (!content) throw new Error("No response from LLM");
 
     const parsed = JSON.parse(content);
-    return (parsed.topics ?? []).slice(0, 5) as ScoredTopic[];
+    return (parsed.topics ?? []).slice(0, 4) as ScoredTopic[];
   } catch (err) {
     console.error("[ContentPipeline] Scoring failed:", err);
     // Fallback: return first 5 as-is with default scores
-    return candidates.slice(0, 5).map((t) => ({
+    return candidates.slice(0, 4).map((t) => ({
       title: t.title,
       summary: "AI news update",
       source: t.source,
@@ -973,14 +973,14 @@ export async function generateCaption(topics: ResearchedTopic[]): Promise<string
       },
       {
         role: "user",
-        content: `Write an Instagram caption for a carousel post covering these 5 AI news stories:
+        content: `Write an Instagram caption for a carousel post covering these 4 AI news stories:
 ${topics.map((t, i) => `${i + 1}. ${t.headline}`).join("\n")}
 
 Requirements:
 - Start with 2-3 relevant emojis
 - One punchy hook sentence (max 10 words)
 - Brief teaser mentioning the stories
-- End with "Swipe to see all 5 →"
+- End with "Swipe to see all 4 →"
 - 3-5 relevant hashtags at the end
 - Keep it under 150 words total`,
       },
@@ -990,7 +990,7 @@ Requirements:
   const raw = response?.choices?.[0]?.message?.content;
   const text = typeof raw === "string" ? raw : "";
   return text.trim() ||
-    "🤖🔥 AI is moving fast — here's what you missed this week. Swipe to see all 5 →\n\n#AI #ArtificialIntelligence #AINews #TechNews #BusinessAI";
+    "🤖🔥 AI is moving fast — here's what you missed this week. Swipe to see all 4 →\n\n#AI #ArtificialIntelligence #AINews #TechNews #BusinessAI";
 }
 
 // ─── Main Pipeline Orchestrator ───────────────────────────────────────────────
@@ -1051,7 +1051,7 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
       await db.update(contentRuns).set({ status: "review" }).where(eq(contentRuns.id, runId));
       await notifyOwner({
         title: "Content Studio: Topics Ready for Review",
-        content: `Your ${options.runSlot} carousel has 5 topics selected and is waiting for your approval. Open the Content Studio to review and approve.`,
+        content: `Your ${options.runSlot} carousel has 4 topics selected and is waiting for your approval. Open the Content Studio to review and approve.`,
       });
       console.log(`[ContentPipeline] Run #${runId} paused for admin approval`);
       return runId;
@@ -1137,7 +1137,7 @@ async function _runPipelineStages(
     }
 
     // Create slide records
-    // Cover slide (index 0) — generate a synthesizing image from all 5 topics
+    // Cover slide (index 0) — generate a synthesizing image from all 4 topics
     const coverImagePrompt = await generateCoverImagePrompt(researched.map((t) => t.headline));
     await db.insert(generatedSlides).values({
       runId,
@@ -1148,7 +1148,7 @@ async function _runPipelineStages(
       status: "pending",
     });
 
-    // Content slides (index 1-5)
+    // Content slides (index 1-4)
     for (let i = 0; i < researched.length; i++) {
       const topic = researched[i];
       await db.insert(generatedSlides).values({
