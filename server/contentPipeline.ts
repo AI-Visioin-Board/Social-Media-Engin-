@@ -25,6 +25,7 @@ import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
 import { generateImage } from "./_core/imageGeneration";
 import { ENV } from "./_core/env";
+import jwt from "jsonwebtoken";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -813,7 +814,6 @@ Return ONLY the image prompt, no explanation, no preamble.`,
 
 /** Generate a JWT token for Kling API authentication */
 function generateKlingJWT(accessKey: string, secretKey: string): string {
-  const jwt = require("jsonwebtoken");
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: accessKey,

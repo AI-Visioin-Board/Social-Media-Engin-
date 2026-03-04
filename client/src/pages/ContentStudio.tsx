@@ -955,7 +955,15 @@ export default function ContentStudio() {
 
   const { data: runs = [], refetch: refetchRuns, isLoading } = trpc.contentStudio.getRuns.useQuery(
     { limit: 30 },
-    { refetchInterval: 10000 }
+    {
+      refetchInterval: (data) => {
+        const list = Array.isArray(data) ? data : [];
+        const hasActive = list.some((r: any) =>
+          !["completed", "failed", "review", "pending_post"].includes(r.status)
+        );
+        return hasActive ? 3000 : 10000;
+      },
+    }
   );
 
   const { data: publishedTopics = [] } = trpc.contentStudio.getPublishedTopics.useQuery(
@@ -1353,7 +1361,11 @@ export default function ContentStudio() {
       <RunDetailDialog
         runId={selectedRunId}
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={() => {
+          setDialogOpen(false);
+          // Immediately refresh the list so status badges are accurate after closing
+          refetchRuns();
+        }}
       />
     </div>
   );
