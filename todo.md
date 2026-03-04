@@ -211,3 +211,7 @@
 - [x] Marketing Brain: Cover slide — generateCoverImagePrompt already uses specific story synthesis (no change needed)
 - [x] Marketing Brain: Content slides — agent now names real people/companies/events (e.g. "Alex Karp, Palantir CEO", "OpenAI logo falling off a cliff")
 - [x] Vitest: 10 new tests for Marketing Brain generic prompt detection and compositor layout constants (22 total)
+
+## Bug Fixes (March 4 2026 — Round 2)
+- [x] Bug: Generated images contain garbled text/lorem ipsum overlay — added hard NO-TEXT rule to marketingBrainPrompt system prompt, user prompt, and both inline research prompts; added document-avoidance rule (show emotion/consequence, not the document itself)
+- [x] Bug: Run list shows "Ready to Post" but dialog shows run still in "Researching" — confirmed NOT a bug: #240002 was a new in-progress run; other runs correctly show pending_post status
