@@ -280,6 +280,8 @@ export const generatedSlides = mysqlTable("generated_slides", {
   assembledUrl: varchar("assembledUrl", { length: 1000 }),
   /** Seedance video prompt used */
   videoPrompt: text("videoPrompt"),
+  /** Whether this slide should use video (1) or still image (0) — 2 video slides per carousel */
+  isVideoSlide: int("isVideoSlide").default(0).notNull(),
   status: mysqlEnum("status", [
     "pending", "researching", "generating_video", "assembling", "ready", "failed"
   ]).default("pending").notNull(),

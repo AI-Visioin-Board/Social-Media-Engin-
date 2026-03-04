@@ -1,0 +1,1 @@
+ALTER TABLE `generated_slides` ADD `isVideoSlide` int DEFAULT 0 NOT NULL;

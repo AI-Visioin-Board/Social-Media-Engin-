@@ -1106,6 +1106,34 @@ export async function continueAfterApproval(
   }
 }
 
+/**
+ * Generate a provocative, ALL-CAPS cover headline for the carousel.
+ * Modelled after @airesearches and @evolving.ai — designed to stop scrolling.
+ */
+async function generateCoverHeadline(headlines: string[], slot: "monday" | "friday"): Promise<string> {
+  try {
+    const response = await invokeLLM({
+      messages: [
+        {
+          role: "system",
+          content: "You write viral Instagram carousel cover headlines. Your style is EXACTLY like @airesearches and @evolving.ai on Instagram — provocative, ALL-CAPS, 8-12 words max, designed to make someone stop scrolling.",
+        },
+        {
+          role: "user",
+          content: `Write ONE cover headline for an Instagram AI news carousel. This week's topics:\n${headlines.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n\nRules:\n- ALL CAPS\n- 8-12 words max\n- Provocative and curiosity-driven (e.g. "THE AI REVOLUTION JUST CHANGED EVERYTHING THIS WEEK")\n- Hint at multiple shocking stories without revealing them\n- Use words like: JUST, NOW, FINALLY, EXPOSED, SHOCKING, CHANGED, NEVER, EVERY\n- Do NOT use quotation marks\n- Return ONLY the headline, nothing else`,
+        },
+      ],
+    });
+    const raw = (response as any)?.choices?.[0]?.message?.content?.trim() ?? "";
+    const headline = raw.replace(/^"|"$/g, "").trim().toUpperCase();
+    if (headline && headline.length > 5) return headline;
+  } catch (err) {
+    console.warn("[ContentPipeline] Cover headline generation failed:", err);
+  }
+  // Fallback
+  return slot === "friday" ? "AI JUST CHANGED EVERYTHING — HERE'S WHAT YOU MISSED THIS WEEK" : "THE BIGGEST AI STORIES OF THE WEEK — SWIPE TO SEE THEM ALL";
+}
+
 async function _runPipelineStages(
   runId: number,
   topics: ScoredTopic[],
@@ -1137,27 +1165,36 @@ async function _runPipelineStages(
     }
 
     // Create slide records
-    // Cover slide (index 0) — generate a synthesizing image from all 4 topics
+    // Cover slide (index 0) — edgy, eye-catching cover image with provocative headline
     const coverImagePrompt = await generateCoverImagePrompt(researched.map((t) => t.headline));
+    // Read runSlot from DB since _runPipelineStages doesn't receive it directly
+    const [runRecord] = await db.select({ runSlot: contentRuns.runSlot }).from(contentRuns).where(eq(contentRuns.id, runId));
+    const runSlot = runRecord?.runSlot ?? "monday";
+    const coverHeadline = await generateCoverHeadline(researched.map((t) => t.headline), runSlot);
     await db.insert(generatedSlides).values({
       runId,
       slideIndex: 0,
-      headline: `Here's the biggest AI news of the last 7 days`,
+      headline: coverHeadline,
       summary: researched.map((t) => t.headline).join(" • "),
-      videoPrompt: coverImagePrompt, // used to generate the cover image
+      videoPrompt: coverImagePrompt,
+      isVideoSlide: 0, // cover is always a still image
       status: "pending",
     });
 
     // Content slides (index 1-4)
+    // Slides 1 and 3 are video slides, slides 2 and 4 are still images — mixed carousel
+    const videoSlideIndices = new Set([1, 3]);
     for (let i = 0; i < researched.length; i++) {
       const topic = researched[i];
+      const slideIndex = i + 1;
       await db.insert(generatedSlides).values({
         runId,
-        slideIndex: i + 1,
+        slideIndex,
         headline: topic.headline,
         summary: topic.summary,
         citations: JSON.stringify(topic.citations),
         videoPrompt: topic.videoPrompt,
+        isVideoSlide: videoSlideIndices.has(slideIndex) ? 1 : 0,
         status: "pending",
       });
     }
@@ -1176,14 +1213,23 @@ async function _runPipelineStages(
         .where(eq(generatedSlides.id, slide.id));
 
       let mediaUrl: string | null = null;
+      const wantsVideo = slide.isVideoSlide === 1;
 
-      if (hasKling) {
-        console.log(`[ContentPipeline] Using Kling 2.5 Turbo for slide ${slide.slideIndex}`);
-        mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
-      }
-
-      if (!mediaUrl) {
-        console.log(`[ContentPipeline] Kling unavailable — falling back to Nano Banana for slide ${slide.slideIndex}`);
+      if (wantsVideo) {
+        // Video slide: try Kling first, fall back to Nano Banana video gen
+        if (hasKling) {
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Kling 2.5 Turbo video generation`);
+          mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
+        }
+        if (!mediaUrl) {
+          // Nano Banana doesn't generate video — generate a still image for now
+          // When Kling keys are added, this will become a real video
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: video slide — Kling unavailable, using Nano Banana still image`);
+          mediaUrl = await generateSlideImage(slide.videoPrompt);
+        }
+      } else {
+        // Image slide: always use Nano Banana still image
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: still image via Nano Banana`);
         mediaUrl = await generateSlideImage(slide.videoPrompt);
       }
 
@@ -1209,7 +1255,9 @@ async function _runPipelineStages(
           headline: s.headline ?? "",
           summary: s.summary ?? undefined,
           mediaUrl: s.videoUrl ?? null,
-          isVideo: !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
+          // A slide is treated as video if: (a) isVideoSlide flag is set AND it has an MP4 URL
+          // Without Kling keys, video slides fall back to still images (no .mp4 URL) so they get composited
+          isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
           isCover: s.slideIndex === 0,
         }))
       );

@@ -1,13 +1,16 @@
 /**
  * sharpCompositor.ts
  *
- * Assembles @evolving.ai-style Instagram carousel slides using Sharp.
- * - Full-bleed background image (1080×1350 portrait)
- * - Dark gradient overlay on the bottom 50%
- * - Bold ALL-CAPS white headline text (Bebas Neue / Oswald Bold)
+ * Assembles @airesearches/@evolving.ai-style Instagram carousel slides using Sharp.
+ *
+ * Design spec (matching @airesearches 1.1M followers):
+ * - Full-bleed background image (1080×1350 portrait, 4:5 ratio)
+ * - Heavy dark gradient: starts at 45% height, fully black at bottom 30%
+ * - Anton font (bold condensed, matching the @airesearches look)
+ * - ALL-CAPS white headline, 1-2 key words highlighted in CYAN (#00E5FF)
+ * - "SWIPE FOR MORE →" call-to-action at very bottom
  * - Small "SuggestedByGPT" watermark bottom-left
- * - "SWIPE →" hint on non-cover slides
- * - For video slides: returns the original video URL unchanged (Instagram plays it natively)
+ * - For video slides: returns the original video URL unchanged (Instagram plays natively)
  * - Runs in <3 seconds per slide, zero external API calls
  */
 
@@ -29,16 +32,23 @@ const __dirname = path.dirname(__filename);
 const SLIDE_W = 1080;
 const SLIDE_H = 1350; // 4:5 Instagram portrait ratio
 
+// Cyan accent color matching @airesearches
+const CYAN = "#00E5FF";
+
 // Font paths — bundled in server/fonts/
 const FONTS_DIR = path.join(__dirname, "fonts");
-const BEBAS_FONT = path.join(FONTS_DIR, "BebasNeue.ttf");
+const ANTON_FONT = path.join(FONTS_DIR, "Anton-Regular.ttf");
 const OSWALD_FONT = path.join(FONTS_DIR, "Oswald-Bold.ttf");
 
 // Pick the best available font
-function getBestFont(): string {
-  if (fs.existsSync(BEBAS_FONT) && fs.statSync(BEBAS_FONT).size > 10000) return BEBAS_FONT;
-  if (fs.existsSync(OSWALD_FONT) && fs.statSync(OSWALD_FONT).size > 10000) return OSWALD_FONT;
-  return ""; // fall back to system sans-serif
+function getBestFont(): { path: string; name: string } {
+  if (fs.existsSync(ANTON_FONT) && fs.statSync(ANTON_FONT).size > 10000) {
+    return { path: ANTON_FONT, name: "Anton" };
+  }
+  if (fs.existsSync(OSWALD_FONT) && fs.statSync(OSWALD_FONT).size > 10000) {
+    return { path: OSWALD_FONT, name: "Oswald" };
+  }
+  return { path: "", name: "Impact, 'Arial Black', sans-serif" };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -97,80 +107,172 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
   return lines;
 }
 
-/** Build the SVG overlay: gradient + headline + watermark + swipe hint */
+/**
+ * Identify which words/phrases to highlight in cyan.
+ * Strategy: highlight the last 2-3 words of the headline (the "punchline")
+ * OR any word that is a number, percentage, or a power word.
+ */
+function getHighlightedWords(headline: string): Set<string> {
+  const upper = headline.toUpperCase();
+  const words = upper.split(" ");
+  const highlighted = new Set<string>();
+
+  // Power words that should be highlighted
+  const powerWords = new Set([
+    "ILLEGAL", "SECRET", "BANNED", "EXPOSED", "LEAKED", "SHOCKING",
+    "INSANE", "WILD", "MASSIVE", "BIGGEST", "WORST", "BEST", "FIRST",
+    "NEVER", "ALWAYS", "EVERY", "ALL", "ZERO", "100%", "99%", "95%",
+    "DEAD", "ALIVE", "DANGEROUS", "POWERFUL", "REVOLUTIONARY", "HISTORIC",
+    "UNPRECEDENTED", "BREAKING", "URGENT", "CRITICAL", "EXTREME",
+    "DESTROYED", "REPLACED", "ELIMINATED", "SURPASSED", "DEFEATED",
+    "GOD", "GENIUS", "PERFECT", "IMPOSSIBLE", "UNSTOPPABLE",
+  ]);
+
+  // Highlight power words
+  for (const word of words) {
+    const clean = word.replace(/[^A-Z0-9%]/g, "");
+    if (powerWords.has(clean)) {
+      highlighted.add(word);
+    }
+    // Highlight percentages and large numbers
+    if (/^\d+(\.\d+)?%$/.test(clean) || /^\d{2,}$/.test(clean)) {
+      highlighted.add(word);
+    }
+  }
+
+  // If nothing highlighted, highlight the last 2 words (the punchline)
+  if (highlighted.size === 0 && words.length >= 3) {
+    highlighted.add(words[words.length - 1]);
+    highlighted.add(words[words.length - 2]);
+  }
+
+  return highlighted;
+}
+
+/**
+ * Build SVG tspan elements for a line, with cyan highlighting on certain words.
+ * Returns SVG tspan content for a <text> element.
+ */
+function buildHighlightedLine(
+  line: string,
+  highlightedWords: Set<string>,
+  fontSize: number,
+  fontFamily: string,
+  yPos: number,
+  xCenter: number
+): string {
+  const words = line.split(" ");
+  const hasHighlight = words.some(w => highlightedWords.has(w));
+
+  if (!hasHighlight) {
+    // Plain white line
+    return `<tspan x="${xCenter}" y="${yPos}" fill="white">${escapeXml(line)}</tspan>`;
+  }
+
+  // Build word-by-word with color switching
+  // Use xml:space="preserve" on the parent text element and include literal spaces
+  const parts: string[] = [];
+  words.forEach((word, i) => {
+    const color = highlightedWords.has(word) ? CYAN : "white";
+    if (i === 0) {
+      parts.push(`<tspan fill="${color}">${escapeXml(word)}</tspan>`);
+    } else {
+      // Encode space as &#x20; which SVG renderers preserve
+      parts.push(`<tspan fill="white">&#x20;</tspan><tspan fill="${color}">${escapeXml(word)}</tspan>`);
+    }
+  });
+
+  return `<tspan x="${xCenter}" y="${yPos}" xml:space="preserve">${parts.join("")}</tspan>`;
+}
+
+/** Build the full SVG overlay: gradient + headline (with cyan highlights) + watermark + swipe hint */
 function buildOverlaySvg(
   headline: string,
   isCover: boolean,
-  fontPath: string
+  font: { path: string; name: string }
 ): string {
   const upper = headline.toUpperCase();
-  // Wrap at ~18 chars per line for large font
-  const lines = wrapText(upper, 18);
-  const fontSize = lines.length <= 2 ? 110 : lines.length <= 3 ? 90 : 75;
-  const lineHeight = fontSize * 1.1;
+  // Wrap at ~16 chars per line for large bold font (Anton is wide)
+  const lines = wrapText(upper, 16);
+  const fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
+  const lineHeight = fontSize * 1.15;
   const totalTextHeight = lines.length * lineHeight;
 
-  // Position text in the lower third
-  const textStartY = SLIDE_H - 220 - totalTextHeight;
+  // Text block sits 160px from bottom (above watermark + swipe hint)
+  const textBlockBottom = SLIDE_H - 160;
+  const textStartY = textBlockBottom - totalTextHeight;
 
-  // Build tspan elements for each line
-  const tspans = lines.map((line, i) => {
+  // Highlighted words
+  const highlightedWords = getHighlightedWords(upper);
+
+  // Font family CSS string
+  const fontFamily = font.name.includes(",")
+    ? font.name
+    : `'${font.name}', Impact, 'Arial Black', sans-serif`;
+
+  // Build tspan lines with highlighting
+  const textLines = lines.map((line, i) => {
+    const y = textStartY + i * lineHeight + fontSize;
+    return buildHighlightedLine(line, highlightedWords, fontSize, fontFamily, y, SLIDE_W / 2);
+  }).join("\n    ");
+
+  // Shadow text (offset by 3px, black semi-transparent)
+  const shadowLines = lines.map((line, i) => {
     const y = textStartY + i * lineHeight + fontSize;
     return `<tspan x="${SLIDE_W / 2}" y="${y}">${escapeXml(line)}</tspan>`;
   }).join("\n    ");
 
-  // Font family string
-  const fontFamily = fontPath
-    ? `'${path.basename(fontPath, path.extname(fontPath))}'`
-    : "Impact, 'Arial Black', sans-serif";
+  // Swipe hint
+  const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 52}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
 
-  // Swipe hint for non-cover slides
-  const swipeHint = !isCover
-    ? `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 48}" font-family="${fontFamily}" font-size="32" fill="white" fill-opacity="0.7" text-anchor="middle" letter-spacing="4">SWIPE FOR MORE →</text>`
+  // Font-face declaration
+  const fontFace = font.path
+    ? `<style>@font-face { font-family: '${font.name}'; src: url('${font.path}'); }</style>`
     : "";
 
+  // Gradient: starts at 30% height, fully black at bottom 40% — @evolving.ai style
   return `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
+    ${fontFace}
     <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="black" stop-opacity="0"/>
-      <stop offset="40%" stop-color="black" stop-opacity="0.15"/>
-      <stop offset="100%" stop-color="black" stop-opacity="0.88"/>
+      <stop offset="0%"   stop-color="black" stop-opacity="0"/>
+      <stop offset="30%"  stop-color="black" stop-opacity="0"/>
+      <stop offset="48%"  stop-color="black" stop-opacity="0.6"/>
+      <stop offset="62%"  stop-color="black" stop-opacity="0.88"/>
+      <stop offset="100%" stop-color="black" stop-opacity="0.98"/>
     </linearGradient>
-    ${fontPath ? `<style>@font-face { font-family: '${path.basename(fontPath, path.extname(fontPath))}'; src: url('${fontPath}'); }</style>` : ""}
   </defs>
 
-  <!-- Dark gradient overlay covering bottom 65% -->
-  <rect x="0" y="${SLIDE_H * 0.35}" width="${SLIDE_W}" height="${SLIDE_H * 0.65}" fill="url(#grad)"/>
+  <!-- Heavy dark gradient covering bottom 70% -->
+  <rect x="0" y="${SLIDE_H * 0.30}" width="${SLIDE_W}" height="${SLIDE_H * 0.70}" fill="url(#grad)"/>
 
-  <!-- Thin accent line above text -->
-  <rect x="60" y="${textStartY - 18}" width="120" height="6" fill="#6366f1" rx="3"/>
-
-  <!-- Headline text with drop shadow -->
+  <!-- Drop shadow for headline -->
   <text
     font-family="${fontFamily}"
     font-size="${fontSize}"
     font-weight="bold"
     fill="black"
-    fill-opacity="0.4"
+    fill-opacity="0.5"
     text-anchor="middle"
-    letter-spacing="2"
-    transform="translate(3,3)"
+    letter-spacing="1"
+    transform="translate(4,4)"
   >
-    ${tspans}
+    ${shadowLines}
   </text>
+
+  <!-- Headline with cyan highlights -->
   <text
     font-family="${fontFamily}"
     font-size="${fontSize}"
     font-weight="bold"
-    fill="white"
     text-anchor="middle"
-    letter-spacing="2"
+    letter-spacing="1"
   >
-    ${tspans}
+    ${textLines}
   </text>
 
   <!-- SuggestedByGPT watermark -->
-  <text x="60" y="${SLIDE_H - 52}" font-family="'Arial', sans-serif" font-size="28" fill="white" fill-opacity="0.55" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
+  <text x="52" y="${SLIDE_H - 58}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
 
   ${swipeHint}
 </svg>`;
@@ -199,7 +301,7 @@ export async function assembleSlideWithSharp(
 ): Promise<string | null> {
   const { runId, slideIndex, headline, mediaUrl, isVideo = false, isCover = false } = slide;
 
-  console.log(`[SharpCompositor] Assembling slide ${slideIndex} (${isVideo ? "video" : "image"})...`);
+  console.log(`[SharpCompositor] Assembling slide ${slideIndex} (${isVideo ? "video pass-through" : "image composite"})...`);
 
   // ── Video slides: pass through the original URL ────────────────────────────
   // Instagram natively plays MP4 carousels. We don't need to composite anything.
@@ -213,7 +315,7 @@ export async function assembleSlideWithSharp(
 
   if (mediaUrl) {
     try {
-      const ext = "png";
+      const ext = mediaUrl.includes(".jpg") ? "jpg" : "png";
       const tmpFile = await downloadToTemp(mediaUrl, ext);
       bgImageBuffer = fs.readFileSync(tmpFile);
       fs.unlink(tmpFile, () => {});
@@ -224,23 +326,23 @@ export async function assembleSlideWithSharp(
   }
 
   try {
-    const fontPath = getBestFont();
-    const overlaySvg = buildOverlaySvg(headline, isCover, fontPath);
+    const font = getBestFont();
+    const overlaySvg = buildOverlaySvg(headline, isCover, font);
 
     let pipeline: sharp.Sharp;
 
     if (bgImageBuffer) {
-      // Resize background to exactly 1080×1350 (cover crop)
+      // Resize background to exactly 1080×1350 (cover crop, center focus)
       pipeline = sharp(bgImageBuffer)
         .resize(SLIDE_W, SLIDE_H, { fit: "cover", position: "center" });
     } else {
-      // Fallback: deep dark blue gradient background
+      // Fallback: deep cinematic dark background
       const fallbackSvg = `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0f0c29"/>
-            <stop offset="50%" stop-color="#302b63"/>
-            <stop offset="100%" stop-color="#24243e"/>
+            <stop offset="0%" stop-color="#0a0a1a"/>
+            <stop offset="50%" stop-color="#1a0a2e"/>
+            <stop offset="100%" stop-color="#000000"/>
           </linearGradient>
         </defs>
         <rect width="${SLIDE_W}" height="${SLIDE_H}" fill="url(#bg)"/>
@@ -250,13 +352,13 @@ export async function assembleSlideWithSharp(
 
     const composited = await pipeline
       .composite([{ input: Buffer.from(overlaySvg), top: 0, left: 0 }])
-      .png({ quality: 90, compressionLevel: 6 })
+      .png({ quality: 92, compressionLevel: 5 })
       .toBuffer();
 
     // Upload to S3
     const s3Key = `sharp-slides/run-${runId}-slide-${slideIndex}-${Date.now()}.png`;
     const { url } = await storagePut(s3Key, composited, "image/png");
-    console.log(`[SharpCompositor] Slide ${slideIndex} uploaded to S3: ${url.slice(0, 80)}...`);
+    console.log(`[SharpCompositor] Slide ${slideIndex} uploaded → ${url.slice(0, 80)}...`);
     return url;
 
   } catch (err: any) {
@@ -274,7 +376,7 @@ export interface SharpAssemblyResult {
 }
 
 /**
- * Assemble all slides for a run in parallel (Sharp is fast enough — no rate limits).
+ * Assemble all slides for a run in parallel (Sharp is fast — no rate limits).
  * Returns an array of results in slideIndex order.
  */
 export async function assembleAllSlides(

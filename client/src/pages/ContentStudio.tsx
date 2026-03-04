@@ -559,12 +559,12 @@ function RunDetailDialog({
                               <div className="relative w-[220px] h-[390px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
                                 {src ? (
                                   isImageUrl(src) ? (
-                                    <img key={src} src={src} className="w-full h-full object-cover" alt={slide?.headline || "slide"} />
+                                    <img key={src} src={src} className="w-full h-full object-contain" alt={slide?.headline || "slide"} />
                                   ) : (
                                     <video
                                       key={src}
                                       src={src}
-                                      className="w-full h-full object-cover"
+                                      className="w-full h-full object-contain"
                                       autoPlay
                                       muted
                                       loop

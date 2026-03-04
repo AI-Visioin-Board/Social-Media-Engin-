@@ -145,3 +145,11 @@
 - [x] Update GPT prompts to generate provocative ALL-CAPS evolving.ai-style headlines
 - [x] Handle video slides: upload Kling MP4 to Canva, export as MP4
 - [x] Graceful fallback to FFmpeg if Canva MCP call fails
+
+## Sharp Compositor Quality Upgrade (evolving.ai / airesearches style)
+- [ ] Heavier bottom gradient (darker, taller — text sits on solid dark band at bottom)
+- [ ] Better font: install Anton/Oswald Bold, highlight 1-2 key words in yellow/orange accent
+- [ ] Cover slide: edgy eye-catching image prompt + "5 THINGS THAT HAPPENED IN AI THIS WEEK" style title
+- [ ] Fix carousel image cropping in dashboard (full image visible, no edge clipping)
+- [ ] Mixed carousel: 2 video slides + 2 image slides per run (AI decides which topics get video)
+- [ ] Pipeline: assign isVideo=true for 2 topics, isVideo=false for 2 topics automatically
