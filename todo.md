@@ -153,3 +153,23 @@
 - [ ] Fix carousel image cropping in dashboard (full image visible, no edge clipping)
 - [ ] Mixed carousel: 2 video slides + 2 image slides per run (AI decides which topics get video)
 - [ ] Pipeline: assign isVideo=true for 2 topics, isVideo=false for 2 topics automatically
+
+## Virality Framework Integration (GitHub Research)
+- [ ] Fix carousel preview: show full 1080x1350 image without edge cropping in phone mockup
+- [ ] Fix cover photo [object Object] display bug in run detail
+- [ ] Integrate virality hook formulas into LLM prompt (FOMO, Big Opportunity, RIP Pattern, Contrarian)
+- [ ] Add 5-pillar carousel structure to slide generation: Hook → Problem → Solution → Proof → CTA
+- [ ] Add hashtag strategy engine: 5-10 niche-specific tags, mix of large/medium/small reach
+- [ ] Add caption optimizer: open loop hook + surprising stat + CTA question
+- [ ] Add virality scoring to topic selection: controversy score, information gap, emotional trigger
+- [ ] Add posting time recommendation display (Tue-Fri 9-11am or 6-8pm)
+- [ ] Slide text: max 10-15 words per slide, 1 idea per slide rule enforced in prompt
+- [ ] Cover slide: always lead with a surprising stat or contrarian claim
+
+## Insight Line Feature (Slide Context)
+- [x] DB: Add insightLine column to generatedSlides table
+- [x] Research prompt: GPT generates optional insightLine (1 sentence, max 12 words) per slide — null if headline is self-explanatory
+- [x] Compositor: Render insightLine as chat bubble below headline when present
+- [x] Fix Kling ESM crash: replace jsonwebtoken (CJS) with jose (ESM-native)
+- [x] Fix carousel preview: image edges clipped in phone mockup lightbox (object-cover → object-contain)
+- [x] Add subtle dry/dark humor tone to headline + insightLine prompts — occasional, natural, not forced

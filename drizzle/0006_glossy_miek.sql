@@ -1,0 +1,1 @@
+ALTER TABLE `generated_slides` ADD `insightLine` varchar(200);

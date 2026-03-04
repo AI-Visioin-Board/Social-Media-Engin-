@@ -43,6 +43,13 @@
       "when": 1772598516382,
       "tag": "0005_black_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1772604171171,
+      "tag": "0006_glossy_miek",
+      "breakpoints": true
     }
   ]
 }

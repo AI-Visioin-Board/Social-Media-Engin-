@@ -282,6 +282,8 @@ export const generatedSlides = mysqlTable("generated_slides", {
   videoPrompt: text("videoPrompt"),
   /** Whether this slide should use video (1) or still image (0) — 2 video slides per carousel */
   isVideoSlide: int("isVideoSlide").default(0).notNull(),
+  /** Optional 1-sentence context line shown as a chat bubble below the headline (null = not needed) */
+  insightLine: varchar("insightLine", { length: 200 }),
   status: mysqlEnum("status", [
     "pending", "researching", "generating_video", "assembling", "ready", "failed"
   ]).default("pending").notNull(),

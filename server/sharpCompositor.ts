@@ -58,6 +58,7 @@ export interface SharpSlideInput {
   slideIndex: number;
   headline: string;
   summary?: string;
+  insightLine?: string;    // optional context sentence shown as chat bubble below headline
   mediaUrl: string | null; // S3/CDN URL of the Nano Banana image (or Kling video)
   isVideo?: boolean;       // if true, skip image assembly and return mediaUrl directly
   isCover?: boolean;
@@ -185,11 +186,12 @@ function buildHighlightedLine(
   return `<tspan x="${xCenter}" y="${yPos}" xml:space="preserve">${parts.join("")}</tspan>`;
 }
 
-/** Build the full SVG overlay: gradient + headline (with cyan highlights) + watermark + swipe hint */
+/** Build the full SVG overlay: gradient + headline (with cyan highlights) + optional insight bubble + watermark + swipe hint */
 function buildOverlaySvg(
   headline: string,
   isCover: boolean,
-  font: { path: string; name: string }
+  font: { path: string; name: string },
+  insightLine?: string
 ): string {
   const upper = headline.toUpperCase();
   // Wrap at ~16 chars per line for large bold font (Anton is wide)
@@ -230,6 +232,45 @@ function buildOverlaySvg(
     ? `<style>@font-face { font-family: '${font.name}'; src: url('${font.path}'); }</style>`
     : "";
 
+  // Chat bubble insight line (shown just above the headline block when present)
+  let insightBubbleSvg = "";
+  if (insightLine && insightLine.trim().length > 3 && !isCover) {
+    // Wrap insight text at ~42 chars per line
+    const insightWords = insightLine.trim().split(" ");
+    const insightLines: string[] = [];
+    let cur = "";
+    for (const w of insightWords) {
+      if ((cur + " " + w).trim().length <= 42) {
+        cur = (cur + " " + w).trim();
+      } else {
+        if (cur) insightLines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) insightLines.push(cur);
+
+    const iFontSize = 28;
+    const iLineH = iFontSize + 8;
+    const iPad = 18;
+    const iBubbleW = Math.min(SLIDE_W - 80, 700);
+    const iBubbleH = insightLines.length * iLineH + iPad * 2;
+    const iBubbleX = (SLIDE_W - iBubbleW) / 2;
+    // Position bubble just above the headline block
+    const iBubbleY = textStartY - iBubbleH - 24;
+    const iTailSize = 12;
+
+    const iTextLines = insightLines.map((line, i) =>
+      `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 6}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
+    ).join("\n    ");
+
+    insightBubbleSvg = `
+  <!-- Insight chat bubble -->
+  <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="14" ry="14" fill="white" fill-opacity="0.92"/>
+  <!-- Tail pointing down -->
+  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2 + iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2},${iBubbleY + iBubbleH + iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
+  ${iTextLines}`;
+  }
+
   // Gradient: starts at 30% height, fully black at bottom 40% — @evolving.ai style
   return `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -245,6 +286,8 @@ function buildOverlaySvg(
 
   <!-- Heavy dark gradient covering bottom 70% -->
   <rect x="0" y="${SLIDE_H * 0.30}" width="${SLIDE_W}" height="${SLIDE_H * 0.70}" fill="url(#grad)"/>
+
+  ${insightBubbleSvg}
 
   <!-- Drop shadow for headline -->
   <text
@@ -327,7 +370,7 @@ export async function assembleSlideWithSharp(
 
   try {
     const font = getBestFont();
-    const overlaySvg = buildOverlaySvg(headline, isCover, font);
+    const overlaySvg = buildOverlaySvg(headline, isCover, font, slide.insightLine);
 
     let pipeline: sharp.Sharp;
 

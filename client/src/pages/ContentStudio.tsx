@@ -556,7 +556,7 @@ function RunDetailDialog({
                             const slide = slides[activeSlide];
                             const src = slide?.assembledUrl || slide?.videoUrl;
                             return (
-                              <div className="relative w-[220px] h-[390px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
+                              <div className="relative w-[220px] h-[275px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
                                 {src ? (
                                   isImageUrl(src) ? (
                                     <img key={src} src={src} className="w-full h-full object-contain" alt={slide?.headline || "slide"} />
@@ -623,7 +623,7 @@ function RunDetailDialog({
                             <button
                               key={slide.id}
                               onClick={() => setActiveSlide(i)}
-                              className={`flex-shrink-0 relative w-16 h-[113px] rounded-lg overflow-hidden border-2 transition-all ${
+                              className={`flex-shrink-0 relative w-16 h-[80px] rounded-lg overflow-hidden border-2 transition-all ${
                                 i === activeSlide ? "border-indigo-500 shadow-md" : "border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100"
                               }`}
                             >
@@ -670,16 +670,16 @@ function RunDetailDialog({
                           >
                             <ChevronLeft className="w-6 h-6 text-white" />
                           </button>
-                          {/* Slide */}
-                          <div className="w-[360px] h-[640px] bg-black rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
+                          {/* Slide — 4:5 ratio matching 1080x1350 Instagram portrait */}
+                          <div className="w-[360px] h-[450px] bg-black rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
                             {src ? (
                               isImageUrl(src) ? (
-                                <img key={src} src={src} className="w-full h-full object-cover" alt="slide" />
+                                <img key={src} src={src} className="w-full h-full object-contain" alt="slide" />
                               ) : (
                                 <video
                                   key={src}
                                   src={src}
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full object-contain"
                                   autoPlay
                                   controls
                                   loop

@@ -25,7 +25,7 @@ import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
 import { generateImage } from "./_core/imageGeneration";
 import { ENV } from "./_core/env";
-import jwt from "jsonwebtoken";
+import { SignJWT } from "jose";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ export interface ResearchedTopic {
   title: string;
   headline: string;       // short punchy headline for slide
   summary: string;        // 2-sentence plain-English explanation
+  insightLine?: string;   // optional 1-sentence context shown as chat bubble (null = not needed)
   citations: Array<{ source: string; url: string }>;
   videoPrompt: string;    // Seedance generation prompt
   verified: boolean;      // has 3+ credible sources
@@ -587,21 +588,22 @@ async function researchWithGPT4oWebSearch(
     },
     body: JSON.stringify({
       model: "gpt-4o",
-      tools: [{ type: "web_search_preview" }],
-      input: `Today is ${todayStr}. Research this AI news topic using web search.
+      tools: [{ type: "web_search_preview" }],      content: `Today is ${todayStr}. Research this AI news topic using web search.
 
 CRITICAL RECENCY RULE: Only use sources and information published AFTER ${cutoffStr} (last 15 days). If you cannot find recent sources on this topic, say so clearly — do NOT use older articles or background information as if it were current news.
+
+TONE GUIDANCE: This page has a dry, occasionally sarcastic voice. If the story has an obvious irony, a tech-world punchline everyone is already thinking, or something genuinely absurd, you can lean into that with a wry headline or insightLine. Keep it subtle — a smirk, not a joke. Not every slide needs to be funny. Serious stories stay serious.
 
 Provide a JSON response with:
 1. headline: Write a VIRAL, PROVOCATIVE, ALL-CAPS Instagram headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts, be shocking or surprising, examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS", "OPENAI JUST RELEASED A MODEL THAT CODES BETTER THAN 99% OF ENGINEERS"
 2. summary: 2-sentence plain-English explanation of what JUST happened and why it matters to business owners today
-3. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. Describe a dramatic, high-impact visual: real photo of AI leaders OR AI-generated cinematic scene. Specific, vivid, photorealistic. No text overlays. Examples: "Dramatic close-up of Sam Altman in dark suit against glowing server room", "Humanoid robot hand reaching toward human hand, cinematic lighting, photorealistic"
-4. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
+3. insightLine: OPTIONAL. A single plain-English sentence (max 12 words) that gives the viewer the key "aha" context they need to understand WHY this headline is surprising or important. ONLY include this if the headline alone is cryptic or incomplete — for example "AI AGENTS GET RUDE AND BOOST REASONING BY 10.5%" needs insightLine: "Robots allowed to interrupt and be rude showed higher reasoning scores." But "OPENAI RELEASES GPT-5" does NOT need an insightLine. Return null if the headline is self-explanatory. Can be dry/wry if the story warrants it.
+4. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. Describe a dramatic, high-impact visual: real photo of AI leaders OR AI-generated cinematic scene. Specific, vivid, photorealistic. No text overlays. Examples: "Dramatic close-up of Sam Altman in dark suit against glowing server room", "Humanoid robot hand reaching toward human hand, cinematic lighting, photorealistic"
+5. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
 
 Topic: "${topic.title}"
 
-Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,    }),
-  });
+Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,    }),  });
 
   if (!response.ok) {
     const errText = await response.text();
@@ -650,13 +652,17 @@ Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "v
   const headline = parsed.headline ?? extractHeadline(rawText, topic.title);
   const summary = parsed.summary ?? extractSummary(rawText);
   const videoPrompt = parsed.videoPrompt ?? await generateVideoPrompt(topic.title, rawText);
+  const insightLine: string | undefined = typeof parsed.insightLine === "string" && parsed.insightLine.trim().length > 5
+    ? parsed.insightLine.trim().slice(0, 200)
+    : undefined;
 
-  console.log(`[ContentPipeline] GPT-4o researched "${topic.title}" — ${citations.length} citations`);
+  console.log(`[ContentPipeline] GPT-4o researched "${topic.title}" — ${citations.length} citations${insightLine ? " (has insight line)" : ""}`);
 
   return {
     title: topic.title,
     headline,
     summary,
+    insightLine,
     citations: citations.slice(0, 4),
     videoPrompt,
     verified: citations.length >= 1 || rawText.length > 200,
@@ -677,12 +683,15 @@ async function researchWithGPT(topic: ScoredTopic): Promise<ResearchedTopic> {
 Topic: "${topic.title}"
 Context: ${topic.summary}
 
+TONE GUIDANCE: The page has a dry, occasionally sarcastic voice. If the story is genuinely surprising, ironic, or has an obvious punchline that the tech world is already laughing about, you can lean into that with a wry headline or insightLine. Keep it subtle — a smirk, not a punchline. Not every slide needs to be funny. If the story is serious or straightforward, keep it straight.
+
 Provide:
 1. headline: A VIRAL, PROVOCATIVE, ALL-CAPS headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts. Examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS"
 2. summary: A 2-sentence plain-English explanation of what happened and why it matters to businesses
-3. videoPrompt: A cinematic image/video prompt for Nano Banana or Kling AI. Dramatic, high-impact visual. Specific, vivid, photorealistic. No text overlays.
+3. insightLine: OPTIONAL. A single plain-English sentence (max 12 words) giving the viewer the key "aha" context they need. ONLY include if the headline is cryptic or incomplete — return null if self-explanatory. Can be dry/wry if the story warrants it.
+4. videoPrompt: A cinematic image/video prompt for Nano Banana or Kling AI. Dramatic, high-impact visual. Specific, vivid, photorealistic. No text overlays.
 
-Format as JSON: { "headline": "...", "summary": "...", "videoPrompt": "..." }`,
+Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "..." }`,
       },
     ],
     response_format: {
@@ -695,9 +704,10 @@ Format as JSON: { "headline": "...", "summary": "...", "videoPrompt": "..." }`,
           properties: {
             headline: { type: "string" },
             summary: { type: "string" },
+            insightLine: { type: ["string", "null"] },
             videoPrompt: { type: "string" },
           },
-          required: ["headline", "summary", "videoPrompt"],
+          required: ["headline", "summary", "insightLine", "videoPrompt"],
           additionalProperties: false,
         },
       },
@@ -708,10 +718,15 @@ Format as JSON: { "headline": "...", "summary": "...", "videoPrompt": "..." }`,
   const content = typeof rawContent === "string" ? rawContent : "{}";
   const parsed = JSON.parse(content);
 
+  const insightLine: string | undefined = typeof parsed.insightLine === "string" && parsed.insightLine.trim().length > 5
+    ? parsed.insightLine.trim().slice(0, 200)
+    : undefined;
+
   return {
     title: topic.title,
     headline: parsed.headline ?? topic.title,
     summary: parsed.summary ?? topic.summary,
+    insightLine,
     citations: [],
     videoPrompt: parsed.videoPrompt ?? `Cinematic close-up of AI interface, futuristic tech, clean minimal design, 4K`,
     verified: false, // GPT fallback — not externally verified
@@ -812,15 +827,14 @@ Return ONLY the image prompt, no explanation, no preamble.`,
 // Primary: Kling 2.5 Turbo (text-to-video, ~$0.14/clip)
 // Fallback: Nano Banana / Imagen (free, built-in, still image)
 
-/** Generate a JWT token for Kling API authentication */
-function generateKlingJWT(accessKey: string, secretKey: string): string {
+/** Generate a JWT token for Kling API authentication (ESM-native jose) */
+async function generateKlingJWT(accessKey: string, secretKey: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: accessKey,
-    exp: now + 1800, // 30 min expiry
-    nbf: now - 5,
-  };
-  return jwt.sign(payload, secretKey, { algorithm: "HS256", header: { alg: "HS256", typ: "JWT" } });
+  return new SignJWT({ iss: accessKey, nbf: now - 5 })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setIssuedAt(now)
+    .setExpirationTime(now + 1800)
+    .sign(new TextEncoder().encode(secretKey));
 }
 
 /**
@@ -833,7 +847,7 @@ export async function generateKlingVideo(
   secretKey: string
 ): Promise<string | null> {
   try {
-    const token = generateKlingJWT(accessKey, secretKey);
+    const token = await generateKlingJWT(accessKey, secretKey);
     const baseUrl = "https://api-singapore.klingai.com";
 
     // Submit task
@@ -871,7 +885,7 @@ export async function generateKlingVideo(
       await new Promise((r) => setTimeout(r, 8000));
 
       // Refresh JWT for each poll (avoid expiry)
-      const pollToken = generateKlingJWT(accessKey, secretKey);
+      const pollToken = await generateKlingJWT(accessKey, secretKey);
       const pollRes = await fetch(`${baseUrl}/v1/videos/text2video/${taskId}`, {
         headers: { "Authorization": `Bearer ${pollToken}` },
       });
@@ -1192,6 +1206,7 @@ async function _runPipelineStages(
         slideIndex,
         headline: topic.headline,
         summary: topic.summary,
+        insightLine: topic.insightLine ?? null,
         citations: JSON.stringify(topic.citations),
         videoPrompt: topic.videoPrompt,
         isVideoSlide: videoSlideIndices.has(slideIndex) ? 1 : 0,
@@ -1254,6 +1269,7 @@ async function _runPipelineStages(
           slideIndex: s.slideIndex,
           headline: s.headline ?? "",
           summary: s.summary ?? undefined,
+          insightLine: s.insightLine ?? undefined,
           mediaUrl: s.videoUrl ?? null,
           // A slide is treated as video if: (a) isVideoSlide flag is set AND it has an MP4 URL
           // Without Kling keys, video slides fall back to still images (no .mp4 URL) so they get composited
