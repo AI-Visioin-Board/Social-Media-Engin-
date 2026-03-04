@@ -958,10 +958,10 @@ export default function ContentStudio() {
     {
       refetchInterval: (data) => {
         const list = Array.isArray(data) ? data : [];
-        const hasActive = list.some((r: any) =>
-          !["completed", "failed", "review", "pending_post"].includes(r.status)
-        );
-        return hasActive ? 3000 : 10000;
+        // Poll every 3s if any run is actively processing (not in a terminal/waiting state)
+        const TERMINAL_STATUSES = ["completed", "failed", "review", "pending_post"];
+        const hasActive = list.some((r: any) => !TERMINAL_STATUSES.includes(r.status));
+        return hasActive ? 3000 : 30000; // 3s when active, 30s when idle
       },
     }
   );
@@ -981,6 +981,8 @@ export default function ContentStudio() {
   });
 
   const openRun = (runId: number) => {
+    // Refresh the list immediately so the badge in the background is current
+    refetchRuns();
     setSelectedRunId(runId);
     setDialogOpen(true);
   };
@@ -988,7 +990,7 @@ export default function ContentStudio() {
   const completedRuns = (runs as ContentRun[]).filter((r) => r.status === "completed");
   const pendingReview = (runs as ContentRun[]).filter((r) => r.status === "review");
   const inProgress = (runs as ContentRun[]).filter((r) =>
-    !["completed", "failed", "pending", "review"].includes(r.status)
+    !["completed", "failed", "pending", "review", "pending_post"].includes(r.status)
   );
 
   return (

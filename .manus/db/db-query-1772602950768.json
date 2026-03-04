@@ -1,0 +1,46 @@
+{
+  "query": "SELECT id, status FROM content_runs ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, status FROM content_runs ORDER BY id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "210001",
+      "status": "pending_post"
+    },
+    {
+      "id": "180001",
+      "status": "review"
+    },
+    {
+      "id": "150001",
+      "status": "pending_post"
+    },
+    {
+      "id": "120001",
+      "status": "pending_post"
+    },
+    {
+      "id": "90001",
+      "status": "pending_post"
+    },
+    {
+      "id": "60001",
+      "status": "failed"
+    },
+    {
+      "id": "30001",
+      "status": "failed"
+    },
+    {
+      "id": "2",
+      "status": "failed"
+    },
+    {
+      "id": "1",
+      "status": "failed"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\n210001\tpending_post\n180001\treview\n150001\tpending_post\n120001\tpending_post\n90001\tpending_post\n60001\tfailed\n30001\tfailed\n2\tfailed\n1\tfailed\n",
+  "stderr": "",
+  "execution_time_ms": 346
+}
