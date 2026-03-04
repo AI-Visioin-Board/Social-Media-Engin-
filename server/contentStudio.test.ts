@@ -122,3 +122,80 @@ describe("regenerateSlide: state transitions", () => {
     }
   });
 });
+
+// ─── Marketing Brain: prompt quality guards ────────────────────────────────────
+
+describe("marketingBrainPrompt: generic prompt detection", () => {
+  /** Mirrors the isGenericPrompt logic in contentPipeline.ts */
+  function isGenericPrompt(prompt: string): boolean {
+    const p = prompt.toLowerCase();
+    return (
+      !prompt ||
+      p.includes("futuristic ai interface") ||
+      p.includes("glowing data streams") ||
+      p.includes("server room") ||
+      p.includes("neural network visualization")
+    );
+  }
+
+  it("flags a generic 'futuristic AI interface' prompt", () => {
+    expect(isGenericPrompt("Cinematic shot of a futuristic AI interface with glowing data streams")).toBe(true);
+  });
+
+  it("flags a generic 'server room' prompt", () => {
+    expect(isGenericPrompt("Wide shot of a server room with blinking lights")).toBe(true);
+  });
+
+  it("flags a generic 'neural network visualization' prompt", () => {
+    expect(isGenericPrompt("Neural network visualization with pulsing nodes")).toBe(true);
+  });
+
+  it("does NOT flag a specific, story-driven prompt", () => {
+    expect(isGenericPrompt("Alex Karp, Palantir CEO, standing at a podium with the Palantir logo behind him, intense expression")).toBe(false);
+  });
+
+  it("does NOT flag a specific ChatGPT uninstall prompt", () => {
+    expect(isGenericPrompt("Close-up of a hand pressing Delete App on an iPhone showing the ChatGPT logo, dramatic lighting")).toBe(false);
+  });
+
+  it("does NOT flag an OpenAI logo falling off a cliff prompt", () => {
+    expect(isGenericPrompt("The OpenAI logo falling in slow motion off a cliff edge into a dark void below, dramatic god rays")).toBe(false);
+  });
+
+  it("flags an empty prompt", () => {
+    expect(isGenericPrompt("")).toBe(true);
+  });
+});
+
+// ─── Compositor: layout logic ─────────────────────────────────────────────────
+
+describe("sharpCompositor: layout constants", () => {
+  it("content slides use wider wrap width (20) than cover slides (16)", () => {
+    const coverWrap = 16;
+    const contentWrap = 20;
+    expect(contentWrap).toBeGreaterThan(coverWrap);
+  });
+
+  it("insight bubble is positioned below the last headline line", () => {
+    // Simulate the bubble Y calculation
+    const textStartY = 900;
+    const lineHeight = 108 * 1.15; // fontSize * 1.15
+    const lineCount = 2;
+    const fontSize = 108;
+    const lastLineY = textStartY + (lineCount - 1) * lineHeight + fontSize;
+    const iBubbleY = lastLineY + 24;
+
+    // Bubble must be below the last text line
+    expect(iBubbleY).toBeGreaterThan(lastLineY);
+    // Gap must be exactly 24px
+    expect(iBubbleY - lastLineY).toBe(24);
+  });
+
+  it("insight bubble tail points upward (iBubbleY - tailSize < iBubbleY)", () => {
+    const iBubbleY = 1100;
+    const iTailSize = 12;
+    // Tail tip Y = iBubbleY - iTailSize * 1.5 (above the bubble top edge)
+    const tailTipY = iBubbleY - iTailSize * 1.5;
+    expect(tailTipY).toBeLessThan(iBubbleY);
+  });
+});

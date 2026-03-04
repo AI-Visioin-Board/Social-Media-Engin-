@@ -194,8 +194,10 @@ function buildOverlaySvg(
   insightLine?: string
 ): string {
   const upper = headline.toUpperCase();
-  // Wrap at ~16 chars per line for large bold font (Anton is wide)
-  const lines = wrapText(upper, 16);
+  // Content slides (non-cover): wrap at 20 chars — Anton Bold at 1080px can fit ~20 chars comfortably
+  // Cover slides: keep 16 chars for the larger, more dramatic look
+  const wrapWidth = isCover ? 16 : 20;
+  const lines = wrapText(upper, wrapWidth);
   const fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
   const lineHeight = fontSize * 1.15;
   const totalTextHeight = lines.length * lineHeight;
@@ -255,8 +257,9 @@ function buildOverlaySvg(
     const iBubbleW = Math.min(SLIDE_W - 80, 700);
     const iBubbleH = insightLines.length * iLineH + iPad * 2;
     const iBubbleX = (SLIDE_W - iBubbleW) / 2;
-    // Position bubble just above the headline block
-    const iBubbleY = textStartY - iBubbleH - 24;
+    // Position bubble BELOW the last headline line, with tail pointing UP toward the headline
+    const lastLineY = textStartY + (lines.length - 1) * lineHeight + fontSize;
+    const iBubbleY = lastLineY + 24; // 24px gap below the last headline line
     const iTailSize = 12;
 
     const iTextLines = insightLines.map((line, i) =>
@@ -264,10 +267,10 @@ function buildOverlaySvg(
     ).join("\n    ");
 
     insightBubbleSvg = `
-  <!-- Insight chat bubble -->
+  <!-- Insight chat bubble (below headline) -->
+  <!-- Tail pointing UP toward the headline -->
+  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY} ${SLIDE_W / 2 + iTailSize},${iBubbleY} ${SLIDE_W / 2},${iBubbleY - iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="14" ry="14" fill="white" fill-opacity="0.92"/>
-  <!-- Tail pointing down -->
-  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2 + iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2},${iBubbleY + iBubbleH + iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   ${iTextLines}`;
   }
 

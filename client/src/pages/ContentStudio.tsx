@@ -585,7 +585,6 @@ function RunDetailDialog({
                                       className="w-full h-full object-contain"
                                       autoPlay
                                       muted
-                                      loop
                                       playsInline
                                     />
                                   )
@@ -742,7 +741,6 @@ function RunDetailDialog({
                                   className="w-full h-full object-contain"
                                   autoPlay
                                   controls
-                                  loop
                                   playsInline
                                 />
                               )

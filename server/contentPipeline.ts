@@ -654,7 +654,29 @@ Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "i
 
   const headline = parsed.headline ?? extractHeadline(rawText, topic.title);
   const summary = parsed.summary ?? extractSummary(rawText);
-  const videoPrompt = parsed.videoPrompt ?? await generateVideoPrompt(topic.title, rawText);
+
+  // If the LLM already provided a specific videoPrompt, run it through the Marketing Brain
+  // to ensure it meets quality standards. If it's missing, generate one from scratch.
+  const rawVideoPrompt: string = parsed.videoPrompt ?? "";
+  const isGenericPrompt = !rawVideoPrompt ||
+    rawVideoPrompt.toLowerCase().includes("futuristic ai interface") ||
+    rawVideoPrompt.toLowerCase().includes("glowing data streams") ||
+    rawVideoPrompt.toLowerCase().includes("server room") ||
+    rawVideoPrompt.toLowerCase().includes("neural network visualization");
+
+  let videoPrompt: string;
+  if (isGenericPrompt) {
+    console.log(`[MarketingBrain] Generating hyper-specific prompt for: "${headline}"`);
+    videoPrompt = await marketingBrainPrompt({
+      headline,
+      summary,
+      research: rawText,
+      isVideo: false, // will be overridden per-slide based on isVideoSlide flag
+    });
+  } else {
+    videoPrompt = rawVideoPrompt;
+  }
+
   const insightLine: string | undefined = typeof parsed.insightLine === "string" && parsed.insightLine.trim().length > 5
     ? parsed.insightLine.trim().slice(0, 200)
     : undefined;
@@ -725,13 +747,37 @@ Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or n
     ? parsed.insightLine.trim().slice(0, 200)
     : undefined;
 
+  const headline = parsed.headline ?? topic.title;
+  const summary = parsed.summary ?? topic.summary;
+
+  // Always run through Marketing Brain on the fallback path — no web search context means
+  // the LLM-generated videoPrompt may be generic. Marketing Brain adds specificity.
+  const rawVideoPrompt: string = parsed.videoPrompt ?? "";
+  const isGenericFallback = !rawVideoPrompt ||
+    rawVideoPrompt.toLowerCase().includes("futuristic ai") ||
+    rawVideoPrompt.toLowerCase().includes("server room") ||
+    rawVideoPrompt.toLowerCase().includes("data streams");
+
+  let videoPrompt: string;
+  if (isGenericFallback) {
+    console.log(`[MarketingBrain] GPT fallback path — generating hyper-specific prompt for: "${headline}"`);
+    videoPrompt = await marketingBrainPrompt({
+      headline,
+      summary,
+      research: topic.summary,
+      isVideo: false,
+    });
+  } else {
+    videoPrompt = rawVideoPrompt;
+  }
+
   return {
     title: topic.title,
-    headline: parsed.headline ?? topic.title,
-    summary: parsed.summary ?? topic.summary,
+    headline,
+    summary,
     insightLine,
     citations: [],
-    videoPrompt: parsed.videoPrompt ?? `Dramatic cinematic scene directly depicting: ${topic.title}, photorealistic, vertical 9:16 frame`,
+    videoPrompt,
     verified: false, // GPT fallback — not externally verified
   };
 }
@@ -753,36 +799,88 @@ function extractSummary(content: string): string {
   return sentences.slice(0, 2).join(". ").trim() + ".";
 }
 
-async function generateVideoPrompt(title: string, research: string): Promise<string> {
+/**
+ * Marketing Brain — the "Head of Viral Marketing" agent.
+ *
+ * Receives the full story context (headline, summary, research text) and generates
+ * a hyper-specific, visually compelling image/video prompt. The agent is instructed
+ * to reason explicitly about WHO and WHAT is in the story before writing the prompt.
+ *
+ * Rules:
+ * - MUST name the actual company, person, product, or event
+ * - MUST be immediately recognizable as THIS story from the visual alone
+ * - MUST be cinematic, photorealistic, vertical 9:16 frame, no text overlays
+ * - SHOULD be somewhat comedic, viral, or emotionally engaging where appropriate
+ * - MUST NOT use generic AI/robot/server room scenes unless the story is literally about that
+ */
+async function marketingBrainPrompt({
+  headline,
+  summary,
+  research,
+  isVideo,
+}: {
+  headline: string;
+  summary: string;
+  research: string;
+  isVideo: boolean;
+}): Promise<string> {
+  const mediaType = isVideo
+    ? "5-second cinematic video clip (Kling AI text-to-video)"
+    : "single photorealistic still image (Nano Banana / Google Imagen)";
+
   const response = await invokeLLM({
     messages: [
       {
         role: "system",
-        content: "You generate precise Seedance AI video prompts for social media content. Each prompt describes a 5-8 second cinematic clip.",
+        content: `You are the Head of Viral Marketing at a top-tier AI news Instagram page with 4 million followers (@evolving.ai style). Your ONE job is to write the perfect visual prompt for a ${mediaType} that will make people stop scrolling.
+
+Your creative philosophy:
+- Every visual must be IMMEDIATELY recognizable as THIS specific story — not a generic AI scene
+- You think in terms of: what is the MOST OBVIOUS, VISCERAL, FUNNY, or DRAMATIC visual that represents this story?
+- You name real people, real logos, real products, real events — not "a tech CEO" or "an AI company"
+- You think like a meme creator and a cinematographer at the same time
+- You are somewhat comedic and irreverent when the story warrants it (not forced)
+- You always ask yourself: "If I saw this image/video, would I IMMEDIATELY know what story it's about?"
+
+Technical requirements:
+- Photorealistic, cinematic quality
+- Vertical 9:16 portrait frame (1080×1920)
+- No text overlays, no watermarks, no logos rendered as text
+- Dramatic lighting, high contrast, professional composition
+- For videos: describe camera movement, action, and duration (5 seconds)
+- For images: describe the exact scene, lighting, depth, and emotional tone`,
       },
       {
         role: "user",
-        content: `Generate a Seedance video prompt for this AI news story. The clip will appear in the bottom half of an Instagram carousel slide.
+        content: `Write the visual prompt for this AI news story.
 
-Story: "${title}"
-Context: ${research.slice(0, 300)}
+Headline: ${headline}
+Summary: ${summary}
+Research context: ${research.slice(0, 500)}
 
-Requirements:
-- 5-8 seconds, cinematic quality
-- Show the technology/concept visually (UI screens, robots, data flows, people using tech)
-- Clean, professional aesthetic
-- No text overlays (we add those separately)
-- Describe specific visual elements, camera movement, lighting
+Step 1 — Identify the key subject:
+Who or what is this story ACTUALLY about? Name the specific company, person, product, or event.
 
-Return just the prompt, no explanation.`,
+Step 2 — What is the MOST OBVIOUS visual?
+What would a meme creator, a movie director, or a viral content creator immediately think of when they hear this story?
+
+Step 3 — Write the prompt:
+Write a single paragraph describing the ${mediaType}. Be hyper-specific. Name the actual subject. Make it cinematic and emotionally resonant.
+
+Examples of GOOD prompts:
+- "Close-up of a hand pressing 'Delete App' on an iPhone screen showing the ChatGPT logo, the app icon shaking, dramatic warm lighting, shallow depth of field, photorealistic"
+- "Alex Karp, Palantir CEO, standing at a podium with the Palantir logo behind him, intense expression, dark dramatic lighting, American flag in background, cinematic portrait, 9:16 vertical"
+- "The OpenAI logo (stylized swirl) falling in slow motion off a cliff edge into a dark void below, dramatic god rays from above, cinematic wide shot, photorealistic"
+- "Sam Altman and Elon Musk facing each other across a chess board, both looking intense, neon blue lighting, cinematic close-up, shallow depth of field"
+
+Return ONLY the prompt, no explanation, no preamble, no step labels.`,
       },
     ],
   });
 
   const raw = response?.choices?.[0]?.message?.content;
-  const text = typeof raw === "string" ? raw : "";
-  return text.trim() ||
-    "Cinematic shot of a futuristic AI interface with glowing data streams, clean minimal design, 4K quality";
+  const text = typeof raw === "string" ? raw.trim() : "";
+  return text || `Dramatic cinematic scene directly depicting: ${headline}, photorealistic, vertical 9:16 frame, no text overlays`;
 }
 
 /**

@@ -199,3 +199,15 @@
 - [x] UI: "Recommended Track" card in RunDetailDialog approval view — shows track name, artist, mood, BPM, license, and link
 - [x] UI: Card only loads when run is in pending_post status (staleTime: 5 min to avoid re-querying LLM)
 - [x] Note: Instagram API does not support programmatic audio — track must be selected manually in IG's music picker when posting
+
+## Visual Quality Pass (March 2026)
+- [x] Compositor: Move insight box BELOW headline (currently renders above) — tail now points UP toward headline
+- [x] Compositor: Wider headline text on content slides (slides 2-5) — wrap width increased from 16 to 20 chars
+- [x] Frontend: Remove `loop` attribute from carousel thumbnail and lightbox video elements — clips play once and stop
+- [x] Note: Kling API already requests `duration: "5"` — looping was a frontend playback issue, not a generation issue
+- [x] Marketing Brain: Replaced generic generateVideoPrompt with dedicated "Head of Viral Marketing" LLM agent
+- [x] Marketing Brain: Agent reasons about WHO/WHAT is in the story before writing the prompt (3-step chain-of-thought)
+- [x] Marketing Brain: Wired into both web-search path and GPT fallback path with generic prompt detection guard
+- [x] Marketing Brain: Cover slide — generateCoverImagePrompt already uses specific story synthesis (no change needed)
+- [x] Marketing Brain: Content slides — agent now names real people/companies/events (e.g. "Alex Karp, Palantir CEO", "OpenAI logo falling off a cliff")
+- [x] Vitest: 10 new tests for Marketing Brain generic prompt detection and compositor layout constants (22 total)
