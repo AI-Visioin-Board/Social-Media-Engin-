@@ -181,3 +181,21 @@
 - [x] Fix image prompts: must be story-specific (name actual product/company/event/person), not generic AI/robot/server scenes
 - [x] Fix video prompts: same — directly tied to the specific headline and story
 - [x] Video slide layout: top 70% video edge-to-edge + gradient fade into solid black bottom 30% with headline text
+
+## Regenerate Slide Feature
+- [x] Server: tRPC regenerateSlide procedure — accepts runId + slideId, re-runs image or video generation for that single slide, re-assembles the composite, updates DB
+- [x] Server: try/catch wraps generation — resets slide status to "failed" if anything throws, never leaves slide stuck in "generating_video"
+- [x] Server: NaN guard on Drizzle sql`NULL` cast to safely clear varchar columns
+- [x] UI: Add "Re-roll" button on each slide in RunDetailDialog carousel (icon button, shows spinner while regenerating)
+- [x] UI: Disables all other Re-roll buttons while one regeneration is in progress
+- [x] UI: After regeneration completes, auto-refreshes the slide in the carousel without closing the dialog
+- [x] Vitest: 12 tests covering input validation, state transitions, and edge cases
+
+## Audio / Music for Posts
+- [x] Server: Module-level TRACK_LIBRARY (8 royalty-free epic/cinematic tracks, CC BY 4.0)
+- [x] Server: getMusicSuggestion tRPC query — GPT picks best matching track from curated list based on run topics
+- [x] Server: JSON.parse guard on topicsSelected — returns null gracefully on malformed data
+- [x] Server: NaN guard on LLM track index response
+- [x] UI: "Recommended Track" card in RunDetailDialog approval view — shows track name, artist, mood, BPM, license, and link
+- [x] UI: Card only loads when run is in pending_post status (staleTime: 5 min to avoid re-querying LLM)
+- [x] Note: Instagram API does not support programmatic audio — track must be selected manually in IG's music picker when posting

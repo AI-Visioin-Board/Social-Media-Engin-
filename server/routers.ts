@@ -20,6 +20,7 @@ import { SERVICE_PHASES, SERVICE_TIERS, ORDER_STATUSES, TIER_PHASES } from "../d
 import Stripe from "stripe";
 import { PRODUCTS } from "./products";
 import { buildWelcomeEmailContent } from "./emailHelper";
+import { invokeLLM } from "./_core/llm";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
   apiVersion: "2026-02-25.clover",
@@ -29,6 +30,18 @@ const phaseEnum = z.enum(SERVICE_PHASES as unknown as [string, ...string[]]);
 
 // Cookie name for client portal sessions
 const CLIENT_PORTAL_COOKIE = "sbgpt_client_session";
+
+// ─── Music Track Library (module-level, not re-created per request) ───────────
+const TRACK_LIBRARY = [
+  { name: "Titan", artist: "Audionautix", mood: "Epic / Orchestral", bpm: 120, url: "https://audionautix.com/Music/Titan.mp3", license: "CC BY 4.0" },
+  { name: "Colossal Boss Battle Theme", artist: "Kevin MacLeod", mood: "Intense / Battle", bpm: 140, url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100791", license: "CC BY 4.0" },
+  { name: "Epic Cinematic", artist: "Scott Buckley", mood: "Cinematic / Grandiose", bpm: 110, url: "https://www.scottbuckley.com.au/library/epic-cinematic/", license: "CC BY 4.0" },
+  { name: "Ascension", artist: "Scott Buckley", mood: "Uplifting / Triumphant", bpm: 128, url: "https://www.scottbuckley.com.au/library/ascension/", license: "CC BY 4.0" },
+  { name: "Thunderstruck (Cinematic)", artist: "Audionautix", mood: "Dramatic / Powerful", bpm: 132, url: "https://audionautix.com", license: "CC BY 4.0" },
+  { name: "Infinite Horizon", artist: "Scott Buckley", mood: "Futuristic / Expansive", bpm: 118, url: "https://www.scottbuckley.com.au/library/infinite-horizon/", license: "CC BY 4.0" },
+  { name: "Impact Moderato", artist: "Kevin MacLeod", mood: "Urgent / Driving", bpm: 125, url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100504", license: "CC BY 4.0" },
+  { name: "Olympus", artist: "Scott Buckley", mood: "Heroic / Majestic", bpm: 115, url: "https://www.scottbuckley.com.au/library/olympus/", license: "CC BY 4.0" },
+] as const;
 
 export const appRouter = router({
   system: systemRouter,
@@ -710,6 +723,154 @@ export const appRouter = router({
           .onDuplicateKeyUpdate({ set: { value: input.secretKey.trim() } });
         console.log("[Kling] Credentials saved to DB successfully");
         return { success: true, message: "Kling credentials saved. Video generation is now active." };
+      }),
+
+    // Regenerate a single slide (re-generate media + re-assemble composite)
+    regenerateSlide: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        slideId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { generatedSlides, appSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        // Load the slide
+        const [slide] = await db.select().from(generatedSlides).where(eq(generatedSlides.id, input.slideId));
+        if (!slide) throw new Error("Slide not found");
+        if (slide.runId !== input.runId) throw new Error("Slide does not belong to this run");
+        if (!slide.videoPrompt) throw new Error("Slide has no video prompt — cannot regenerate");
+
+        // Mark as regenerating — clear old media URLs so the UI shows the spinner
+        // Use sql`NULL` cast to safely null out nullable varchar columns
+        const { sql: drizzleSql } = await import("drizzle-orm");
+        await db.update(generatedSlides)
+          .set({ status: "generating_video", videoUrl: drizzleSql`NULL`, assembledUrl: drizzleSql`NULL` })
+          .where(eq(generatedSlides.id, input.slideId));
+
+        // Load Kling credentials from DB if env vars are empty
+        let klingAK = ENV.klingAccessKey;
+        let klingSK = ENV.klingSecretKey;
+        if (!klingAK || !klingSK) {
+          try {
+            const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_access_key"));
+            const [sk] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_secret_key"));
+            if (ak?.value) klingAK = ak.value;
+            if (sk?.value) klingSK = sk.value;
+          } catch { /* ignore */ }
+        }
+        const hasKling = !!(klingAK && klingSK);
+        const wantsVideo = slide.isVideoSlide === 1;
+
+        try {
+          // Re-generate media
+          let mediaUrl: string | null = null;
+          const { generateKlingVideo, generateSlideImage } = await import("./contentPipeline");
+
+          if (wantsVideo && hasKling) {
+            console.log(`[RegenerateSlide] Slide ${slide.slideIndex}: Kling 2.5 Turbo video generation`);
+            mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
+          }
+          if (!mediaUrl) {
+            console.log(`[RegenerateSlide] Slide ${slide.slideIndex}: Nano Banana still image`);
+            mediaUrl = await generateSlideImage(slide.videoPrompt);
+          }
+
+          if (!mediaUrl) throw new Error("Media generation failed for this slide");
+
+          // Update videoUrl (use empty string instead of null to avoid varchar NOT NULL constraint)
+          await db.update(generatedSlides)
+            .set({ videoUrl: mediaUrl, status: "assembling" })
+            .where(eq(generatedSlides.id, input.slideId));
+
+          // Re-assemble composite
+          const { assembleSlideWithSharp } = await import("./sharpCompositor");
+          const isVideo = wantsVideo && !!(mediaUrl.includes(".mp4") || mediaUrl.includes("video"));
+          const assembledUrl = await assembleSlideWithSharp({
+            runId: input.runId,
+            slideIndex: slide.slideIndex,
+            headline: slide.headline ?? "",
+            summary: slide.summary ?? undefined,
+            insightLine: slide.insightLine ?? undefined,
+            mediaUrl,
+            isVideo,
+            isCover: slide.slideIndex === 0,
+          });
+
+          if (!assembledUrl) throw new Error("Slide assembly failed");
+
+          // Save final result
+          await db.update(generatedSlides)
+            .set({ assembledUrl, status: "ready" })
+            .where(eq(generatedSlides.id, input.slideId));
+
+          console.log(`[RegenerateSlide] Slide ${slide.slideIndex} regenerated → ${assembledUrl.slice(0, 80)}...`);
+          return { success: true, assembledUrl, slideIndex: slide.slideIndex };
+        } catch (err: any) {
+          // Reset slide status to failed so it doesn't stay stuck in generating_video
+          await db.update(generatedSlides)
+            .set({ status: "failed" })
+            .where(eq(generatedSlides.id, input.slideId));
+          console.error(`[RegenerateSlide] Slide ${slide.slideIndex} failed:`, err?.message);
+          throw err;
+        }
+      }),
+
+    // Get music suggestion for a run based on its topics
+    getMusicSuggestion: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        if (!run || !run.topicsSelected) return null;
+
+        let topics: Array<{ title: string; summary: string }> = [];
+        try {
+          topics = JSON.parse(run.topicsSelected) as Array<{ title: string; summary: string }>;
+        } catch {
+          console.warn(`[getMusicSuggestion] Failed to parse topicsSelected for run #${input.runId}`);
+          return null;
+        }
+        if (!topics.length) return null;
+        const topicList = topics.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
+
+        const trackListStr = TRACK_LIBRARY.map((t, idx) => `${idx + 1}. "${t.name}" by ${t.artist} — ${t.mood}, ${t.bpm} BPM`).join("\n");
+
+        const response = await invokeLLM({
+          messages: [
+            {
+              role: "system",
+              content: "You are a music director for viral social media content. You match background music to content themes for maximum emotional impact.",
+            },
+            {
+              role: "user",
+              content: `Pick the BEST background track for an Instagram AI news carousel with these topics:\n${topicList}\n\nAvailable tracks:\n${trackListStr}\n\nReturn ONLY the track number (1-${TRACK_LIBRARY.length}), nothing else.`,
+            },
+          ],
+        });
+
+        const raw = (response as any)?.choices?.[0]?.message?.content?.trim() ?? "1";
+        const parsedIdx = parseInt(raw, 10);
+        const trackIndex = isNaN(parsedIdx) ? 0 : Math.max(0, Math.min(TRACK_LIBRARY.length - 1, parsedIdx - 1));
+        const track = TRACK_LIBRARY[trackIndex];
+
+        return {
+          name: track.name,
+          artist: track.artist,
+          mood: track.mood,
+          bpm: track.bpm,
+          url: track.url,
+          license: track.license,
+          note: "Royalty-free. Add manually in Instagram's music picker when posting.",
+        };
       }),
 
     // Swap a topic in a pending run

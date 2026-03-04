@@ -13,7 +13,7 @@ import {
   Calendar, BarChart3, Eye, ThumbsUp, Globe, Zap,
   ChevronRight, ChevronLeft, RotateCcw, Instagram, Sparkles, BookOpen,
   TrendingUp, Shield, Video, Layers, Send, Settings, Info,
-  ExternalLink, Download, Maximize2, X
+  ExternalLink, Download, Maximize2, X, RefreshCw, Music2
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
@@ -334,6 +334,7 @@ function RunDetailDialog({
   const [editCaption, setEditCaption] = useState<string | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [lightboxSlide, setLightboxSlide] = useState<number | null>(null);
+  const [regeneratingSlideId, setRegeneratingSlideId] = useState<number | null>(null);
 
   const { data: run, refetch } = trpc.contentStudio.getRun.useQuery(
     { runId: runId! },
@@ -366,6 +367,23 @@ function RunDetailDialog({
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const regenerateSlide = trpc.contentStudio.regenerateSlide.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Slide ${data.slideIndex === 0 ? "Cover" : data.slideIndex} regenerated!`);
+      setRegeneratingSlideId(null);
+      refetch();
+    },
+    onError: (e) => {
+      toast.error(`Regeneration failed: ${e.message}`);
+      setRegeneratingSlideId(null);
+    },
+  });
+
+  const { data: musicSuggestion } = trpc.contentStudio.getMusicSuggestion.useQuery(
+    { runId: runId! },
+    { enabled: !!runId && run?.status === "pending_post", staleTime: 5 * 60 * 1000 }
+  );
 
   if (!run) {
     return (
@@ -615,30 +633,72 @@ function RunDetailDialog({
                         ))}
                       </div>
 
-                      {/* Thumbnail strip */}
+                      {/* Thumbnail strip with Regenerate buttons */}
                       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
                         {slides.map((slide, i) => {
                           const src = slide.assembledUrl || slide.videoUrl;
+                          const isRegenerating = regeneratingSlideId === slide.id;
                           return (
-                            <button
-                              key={slide.id}
-                              onClick={() => setActiveSlide(i)}
-                              className={`flex-shrink-0 relative w-16 h-[80px] rounded-lg overflow-hidden border-2 transition-all ${
-                                i === activeSlide ? "border-indigo-500 shadow-md" : "border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100"
-                              }`}
-                            >
-                              {src ? (
-                                isImageUrl(src) ? (
-                                  <img src={src} className="w-full h-full object-cover" alt="slide thumbnail" />
+                            <div key={slide.id} className="flex-shrink-0 flex flex-col items-center gap-1">
+                              {/* Thumbnail */}
+                              <button
+                                onClick={() => setActiveSlide(i)}
+                                className={`relative w-16 h-[80px] rounded-lg overflow-hidden border-2 transition-all ${
+                                  i === activeSlide ? "border-indigo-500 shadow-md" : "border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100"
+                                }`}
+                              >
+                                {isRegenerating ? (
+                                  <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center gap-1">
+                                    <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+                                    <span className="text-[9px] text-indigo-300 font-medium">Regen...</span>
+                                  </div>
+                                ) : src ? (
+                                  isImageUrl(src) ? (
+                                    <img src={src} className="w-full h-full object-cover" alt="slide thumbnail" />
+                                  ) : (
+                                    <video src={src} className="w-full h-full object-cover" muted playsInline />
+                                  )
                                 ) : (
-                                  <video src={src} className="w-full h-full object-cover" muted playsInline />
-                                )
-                              ) : (
-                                <div className="w-full h-full bg-slate-800 flex items-center justify-center">
-                                  <span className="text-white text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
-                                </div>
-                              )}
-                            </button>
+                                  <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+                                    <span className="text-white text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
+                                  </div>
+                                )}
+                              </button>
+                              {/* Regenerate button */}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={() => {
+                                      if (isRegenerating || regeneratingSlideId !== null) return;
+                                      setRegeneratingSlideId(slide.id);
+                                      regenerateSlide.mutate({ runId: run.id, slideId: slide.id });
+                                    }}
+                                    disabled={isRegenerating || regeneratingSlideId !== null}
+                                    className={`w-16 h-6 rounded text-[10px] font-medium flex items-center justify-center gap-0.5 transition-colors ${
+                                      isRegenerating
+                                        ? "bg-indigo-100 text-indigo-400 cursor-not-allowed"
+                                        : regeneratingSlideId !== null
+                                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                                        : "bg-slate-100 hover:bg-indigo-100 text-slate-500 hover:text-indigo-600"
+                                    }`}
+                                  >
+                                    {isRegenerating ? (
+                                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-2.5 h-2.5" />
+                                    )}
+                                    {isRegenerating ? "..." : "Regen"}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="text-xs">
+                                  {isRegenerating
+                                    ? "Regenerating this slide..."
+                                    : regeneratingSlideId !== null
+                                    ? "Wait for current regeneration to finish"
+                                    : `Re-generate ${slide.slideIndex === 0 ? "cover" : `slide ${slide.slideIndex}`} media + composite`}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
                           );
                         })}
                       </div>
@@ -709,6 +769,37 @@ function RunDetailDialog({
                       </div>
                     );
                   })()}
+
+                  {/* Music Suggestion Card */}
+                  {musicSuggestion && (
+                    <div className="p-3 bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 rounded-xl">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Music2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                        <p className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Recommended Background Track</p>
+                        <span className="ml-auto text-[10px] text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded">Add manually in IG</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-white">{musicSuggestion.name}</p>
+                          <p className="text-xs text-slate-400">{musicSuggestion.artist}</p>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <span className="text-[10px] bg-purple-900/60 text-purple-300 px-1.5 py-0.5 rounded-full">{musicSuggestion.mood}</span>
+                            <span className="text-[10px] text-slate-500">{musicSuggestion.bpm} BPM</span>
+                            <span className="text-[10px] text-slate-600">{musicSuggestion.license}</span>
+                          </div>
+                        </div>
+                        <a
+                          href={musicSuggestion.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-shrink-0 flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 hover:underline"
+                        >
+                          <ExternalLink className="w-3 h-3" /> Preview
+                        </a>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-2 italic">{musicSuggestion.note}</p>
+                    </div>
+                  )}
 
                   {/* Caption editor */}
                   <div>
