@@ -194,9 +194,9 @@ function buildOverlaySvg(
   insightLine?: string
 ): string {
   const upper = headline.toUpperCase();
-  // Content slides (non-cover): wrap at 20 chars — Anton Bold at 1080px can fit ~20 chars comfortably
+  // Content slides (non-cover): wrap at 28 chars — wider paragraph-style layout, not narrow columns
   // Cover slides: keep 16 chars for the larger, more dramatic look
-  const wrapWidth = isCover ? 16 : 20;
+  const wrapWidth = isCover ? 16 : 28;
   const lines = wrapText(upper, wrapWidth);
   const fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
   const lineHeight = fontSize * 1.15;
@@ -274,21 +274,22 @@ function buildOverlaySvg(
   ${iTextLines}`;
   }
 
-  // Gradient: starts at 30% height, fully black at bottom 40% — @evolving.ai style
+  // Gradient: heavier bottom gradient for strong text contrast — @evolving.ai / @airesearches style
   return `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     ${fontFace}
     <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"   stop-color="black" stop-opacity="0"/>
-      <stop offset="30%"  stop-color="black" stop-opacity="0"/>
-      <stop offset="48%"  stop-color="black" stop-opacity="0.6"/>
-      <stop offset="62%"  stop-color="black" stop-opacity="0.88"/>
+      <stop offset="25%"  stop-color="black" stop-opacity="0"/>
+      <stop offset="40%"  stop-color="black" stop-opacity="0.45"/>
+      <stop offset="55%"  stop-color="black" stop-opacity="0.78"/>
+      <stop offset="70%"  stop-color="black" stop-opacity="0.92"/>
       <stop offset="100%" stop-color="black" stop-opacity="0.98"/>
     </linearGradient>
   </defs>
 
-  <!-- Heavy dark gradient covering bottom 70% -->
-  <rect x="0" y="${SLIDE_H * 0.30}" width="${SLIDE_W}" height="${SLIDE_H * 0.70}" fill="url(#grad)"/>
+  <!-- Heavy dark gradient covering bottom 75% — ensures headline text is always readable -->
+  <rect x="0" y="${SLIDE_H * 0.25}" width="${SLIDE_W}" height="${SLIDE_H * 0.75}" fill="url(#grad)"/>
 
   ${insightBubbleSvg}
 

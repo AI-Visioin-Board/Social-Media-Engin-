@@ -598,7 +598,7 @@ TONE GUIDANCE: This page has a dry, occasionally sarcastic voice. If the story h
 Provide a JSON response with:
 1. headline: Write a VIRAL, PROVOCATIVE, ALL-CAPS Instagram headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts, be shocking or surprising, examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS", "OPENAI JUST RELEASED A MODEL THAT CODES BETTER THAN 99% OF ENGINEERS"
 2. summary: 2-sentence plain-English explanation of what JUST happened and why it matters to business owners today
-3. insightLine: OPTIONAL. A single plain-English sentence (max 12 words) that gives the viewer the key "aha" context they need to understand WHY this headline is surprising or important. ONLY include this if the headline alone is cryptic or incomplete — for example "AI AGENTS GET RUDE AND BOOST REASONING BY 10.5%" needs insightLine: "Robots allowed to interrupt and be rude showed higher reasoning scores." But "OPENAI RELEASES GPT-5" does NOT need an insightLine. Return null if the headline is self-explanatory. Can be dry/wry if the story warrants it.
+3. insightLine: OPTIONAL. A single plain-English sentence (max 80 characters) that makes someone want to SCREENSHOT and SHARE this slide. It should connect the story to the READER'S life or something they personally care about. GOOD examples: "This means your job interview might be with an AI next year", "Google spent $30B on this and OpenAI did it for free", "Your phone is about to get a LOT smarter". BAD examples (generic, not share-worthy): "This is an interesting development in AI", "Many experts are watching this closely". ONLY include this if the headline alone is cryptic or incomplete. Return null if the headline is self-explanatory. Can be dry/wry if the story warrants it.
 4. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. CRITICAL: This prompt MUST be directly and specifically about THIS story — name the actual company, product, person, or event. DO NOT use generic AI/robot/server room scenes. The viewer should immediately recognize what story this is about from the visual alone. Rules: photorealistic, cinematic, vertical 9:16 frame, ABSOLUTELY NO TEXT OR READABLE CHARACTERS in the image (no letters, no words, no numbers — any text must be blurred/illegible). If the story involves a document or resume, show the emotional scene around it (e.g. a stressed person, a robot reviewing papers from a distance) — NOT the document itself. Examples for specificity: If the story is about ChatGPT uninstalls surging → "Close-up of a hand pressing 'Delete App' on an iPhone showing the ChatGPT icon, dramatic lighting". If about Elon Musk's Grok AI → "Dramatic portrait of Elon Musk at a futuristic control panel, xAI logo visible, cinematic lighting". If about robots in a factory → "Xiaomi humanoid robots working autonomously on a factory assembly line, sparks flying, photorealistic". Match the visual to THIS specific story.
 5. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
 
@@ -658,24 +658,32 @@ Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "i
   // If the LLM already provided a specific videoPrompt, run it through the Marketing Brain
   // to ensure it meets quality standards. If it's missing, generate one from scratch.
   const rawVideoPrompt: string = parsed.videoPrompt ?? "";
-  const isGenericPrompt = !rawVideoPrompt ||
-    rawVideoPrompt.toLowerCase().includes("futuristic ai interface") ||
-    rawVideoPrompt.toLowerCase().includes("glowing data streams") ||
-    rawVideoPrompt.toLowerCase().includes("server room") ||
-    rawVideoPrompt.toLowerCase().includes("neural network visualization");
+  // Expanded generic prompt detection — catches all the common cliché patterns
+  const lower = rawVideoPrompt.toLowerCase();
+  const GENERIC_PATTERNS = [
+    "futuristic ai interface", "glowing data streams", "server room",
+    "neural network visualization", "holographic", "floating interface",
+    "abstract neural", "glowing circuits", "digital brain",
+    "person in a suit", "businessman at a desk", "generic robot",
+    "random letter", "a man standing", "a woman standing",
+    "tech professional", "data flowing", "binary code",
+  ];
+  const isGenericPrompt = !rawVideoPrompt || GENERIC_PATTERNS.some(p => lower.includes(p));
 
+  // ALWAYS run through Marketing Brain to ensure maximum specificity
+  // Even non-generic prompts benefit from the Marketing Brain's quality pass
   let videoPrompt: string;
   if (isGenericPrompt) {
-    console.log(`[MarketingBrain] Generating hyper-specific prompt for: "${headline}"`);
-    videoPrompt = await marketingBrainPrompt({
-      headline,
-      summary,
-      research: rawText,
-      isVideo: false, // will be overridden per-slide based on isVideoSlide flag
-    });
+    console.log(`[MarketingBrain] Prompt was generic — generating hyper-specific prompt for: "${headline}"`);
   } else {
-    videoPrompt = rawVideoPrompt;
+    console.log(`[MarketingBrain] Quality pass on prompt for: "${headline}"`);
   }
+  videoPrompt = await marketingBrainPrompt({
+    headline,
+    summary,
+    research: rawText,
+    isVideo: false, // will be overridden per-slide based on isVideoSlide flag
+  });
 
   const insightLine: string | undefined = typeof parsed.insightLine === "string" && parsed.insightLine.trim().length > 5
     ? parsed.insightLine.trim().slice(0, 200)
@@ -750,26 +758,15 @@ Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or n
   const headline = parsed.headline ?? topic.title;
   const summary = parsed.summary ?? topic.summary;
 
-  // Always run through Marketing Brain on the fallback path — no web search context means
-  // the LLM-generated videoPrompt may be generic. Marketing Brain adds specificity.
-  const rawVideoPrompt: string = parsed.videoPrompt ?? "";
-  const isGenericFallback = !rawVideoPrompt ||
-    rawVideoPrompt.toLowerCase().includes("futuristic ai") ||
-    rawVideoPrompt.toLowerCase().includes("server room") ||
-    rawVideoPrompt.toLowerCase().includes("data streams");
-
-  let videoPrompt: string;
-  if (isGenericFallback) {
-    console.log(`[MarketingBrain] GPT fallback path — generating hyper-specific prompt for: "${headline}"`);
-    videoPrompt = await marketingBrainPrompt({
-      headline,
-      summary,
-      research: topic.summary,
-      isVideo: false,
-    });
-  } else {
-    videoPrompt = rawVideoPrompt;
-  }
+  // ALWAYS run through Marketing Brain on the fallback path — no web search context means
+  // the LLM-generated videoPrompt is likely generic. Marketing Brain adds specificity.
+  console.log(`[MarketingBrain] GPT fallback path — generating hyper-specific prompt for: "${headline}"`);
+  const videoPrompt = await marketingBrainPrompt({
+    headline,
+    summary,
+    research: topic.summary,
+    isVideo: false,
+  });
 
   return {
     title: topic.title,
@@ -828,6 +825,13 @@ async function marketingBrainPrompt({
     ? "5-second cinematic video clip (Kling AI text-to-video)"
     : "single photorealistic still image (Nano Banana / Google Imagen)";
 
+  // Import enhanced specificity rules from virality framework
+  let marketingEnhancement = "";
+  try {
+    const { MARKETING_BRAIN_ENHANCEMENT } = await import("./viralityFramework");
+    marketingEnhancement = "\n\n" + MARKETING_BRAIN_ENHANCEMENT;
+  } catch { /* framework not available — use base prompt */ }
+
   const response = await invokeLLM({
     messages: [
       {
@@ -849,7 +853,7 @@ Technical requirements:
 - NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — instead show the EMOTION or CONSEQUENCE of the story (e.g. for a resume story: a stressed person at a desk, or a robot reviewing a stack of papers from a distance, NOT a close-up of a resume with text)
 - Dramatic lighting, high contrast, professional composition
 - For videos: describe camera movement, action, and duration (5 seconds)
-- For images: describe the exact scene, lighting, depth, and emotional tone`,
+- For images: describe the exact scene, lighting, depth, and emotional tone${marketingEnhancement}`,
       },
       {
         role: "user",
@@ -857,22 +861,32 @@ Technical requirements:
 
 Headline: ${headline}
 Summary: ${summary}
-Research context: ${research.slice(0, 500)}
+Research context: ${research.slice(0, 800)}
 
 Step 1 — Identify the key subject:
-Who or what is this story ACTUALLY about? Name the specific company, person, product, or event.
+Who or what is this story ACTUALLY about? Name the specific company, person, product, or event. Be EXTREMELY specific — if it's about a CEO, name them and describe their appearance. If it's about a product, name it and describe its logo/interface.
 
 Step 2 — What is the MOST OBVIOUS visual?
-What would a meme creator, a movie director, or a viral content creator immediately think of when they hear this story?
+What would a meme creator, a movie director, or a viral content creator immediately think of when they hear this story? Think of the image that would make someone say "oh I know exactly what this is about" without reading any headline.
 
 Step 3 — Write the prompt:
 Write a single paragraph describing the ${mediaType}. Be hyper-specific. Name the actual subject. Make it cinematic and emotionally resonant.
 
+THE RECOGNITION TEST: Could someone see ONLY this image (no headline) and guess which AI story it's about? If not, your prompt is too generic. Rewrite it.
+
 Examples of GOOD prompts:
 - "Close-up of a hand pressing 'Delete App' on an iPhone screen showing the ChatGPT logo, the app icon shaking, dramatic warm lighting, shallow depth of field, photorealistic"
-- "Alex Karp, Palantir CEO, standing at a podium with the Palantir logo behind him, intense expression, dark dramatic lighting, American flag in background, cinematic portrait, 9:16 vertical"
-- "The OpenAI logo (stylized swirl) falling in slow motion off a cliff edge into a dark void below, dramatic god rays from above, cinematic wide shot, photorealistic"
-- "Sam Altman and Elon Musk facing each other across a chess board, both looking intense, neon blue lighting, cinematic close-up, shallow depth of field"
+- "Alex Karp, Palantir CEO, a bald man with intense eyes in a dark suit, standing at a podium with the Palantir logo behind him, dark dramatic lighting, American flag in background, cinematic portrait, 9:16 vertical"
+- "The OpenAI logo (stylized swirl) crumbling and falling in slow motion off a cliff edge into a dark void below, dramatic god rays from above, cinematic wide shot, photorealistic"
+- "Sam Altman (young man with brown curly hair, glasses) and Elon Musk facing each other across a chess board, both looking intense, neon blue lighting, cinematic close-up, shallow depth of field"
+- "A massive Google logo being crushed under the weight of an OpenAI swirl logo, dramatic red lighting, dust particles flying, photorealistic destruction scene, 9:16 vertical"
+
+Examples of BAD prompts (auto-reject these):
+- "A futuristic AI interface with glowing data streams" — GENERIC, could be any story
+- "A person in a suit looking at a screen" — WHO? Which person? What's on screen?
+- "A random letter G on a phone screen" — MEANINGLESS, not recognizable
+- "An abstract neural network with blue nodes" — CLICHÉ, tells no story
+- "A generic businessman at a desk" — Which businessman? Name them!
 
 CRITICAL REMINDER: The final prompt must contain ZERO readable text. If your story involves a document, resume, paper, or screen — describe the emotional scene around it, not the document itself.
 
@@ -964,9 +978,9 @@ export async function generateKlingVideo(
       body: JSON.stringify({
         model_name: "kling-v2-5-turbo",
         prompt,
-        negative_prompt: "text, watermark, blurry, low quality, distorted",
+        negative_prompt: "text, watermark, blurry, low quality, distorted, looping, repetitive motion",
         cfg_scale: 0.5,
-        mode: "std",
+        mode: "pro",  // "pro" produces more coherent, non-repetitive motion vs "std"
         duration: "5",
       }),
     });
@@ -1080,35 +1094,34 @@ export async function triggerInstagramPost(
 }
 
 /**
- * Generate the Instagram caption in evolving.ai style
+ * Generate the Instagram caption — algorithm-optimized for 2026.
+ *
+ * Instagram 2026 algorithm priorities:
+ * 1. DM shares/sends (strongest signal for Explore distribution)
+ * 2. Saves (long-term value signal)
+ * 3. Caption dwell time (now tracked — longer captions = more value)
+ * 4. Comment depth (replies >5 words = "high social relevance")
+ * 5. Keyword-rich captions > hashtags for discoverability (30% more reach)
+ *
+ * Hashtag limit: 3-5 (Instagram Dec 2025 change — exceeding may reduce reach)
  */
 export async function generateCaption(topics: ResearchedTopic[]): Promise<string> {
+  const { CAPTION_SYSTEM_PROMPT, CAPTION_USER_PROMPT_TEMPLATE } = await import("./viralityFramework");
+
+  const topicsList = topics.map((t, i) => `${i + 1}. ${t.headline}: ${t.summary || ""}`).join("\n");
+  const userPrompt = CAPTION_USER_PROMPT_TEMPLATE.replace("{TOPICS}", topicsList);
+
   const response = await invokeLLM({
     messages: [
-      {
-        role: "system",
-        content: "You write viral Instagram captions for an AI news page. Style: short, punchy, emoji-led, curiosity-driven. Similar to @evolving.ai.",
-      },
-      {
-        role: "user",
-        content: `Write an Instagram caption for a carousel post covering these 4 AI news stories:
-${topics.map((t, i) => `${i + 1}. ${t.headline}`).join("\n")}
-
-Requirements:
-- Start with 2-3 relevant emojis
-- One punchy hook sentence (max 10 words)
-- Brief teaser mentioning the stories
-- End with "Swipe to see all 4 →"
-- 3-5 relevant hashtags at the end
-- Keep it under 150 words total`,
-      },
+      { role: "system", content: CAPTION_SYSTEM_PROMPT },
+      { role: "user", content: userPrompt },
     ],
   });
 
   const raw = response?.choices?.[0]?.message?.content;
   const text = typeof raw === "string" ? raw : "";
   return text.trim() ||
-    "🤖🔥 AI is moving fast — here's what you missed this week. Swipe to see all 4 →\n\n#AI #ArtificialIntelligence #AINews #TechNews #BusinessAI";
+    "🚨 The AI world just shifted — and most people have no idea.\n\nThis week's updates aren't just incremental. They're the kind of changes that reshape entire industries overnight.\n\nFrom surprise product launches to breakthroughs that have researchers scrambling — this carousel covers the stories you can't afford to miss.\n\nSend this to someone who needs to stay ahead of AI 📩\nSave this for reference 🔖\n\nWhich story shocked you the most? Drop it in the comments 👇\n\nSwipe to see all the stories →\n\n#AINews #ArtificialIntelligence #MachineLearning #TechNews #FutureOfAI";
 }
 
 // ─── Main Pipeline Orchestrator ───────────────────────────────────────────────
@@ -1228,22 +1241,40 @@ export async function continueAfterApproval(
  * Generate a provocative, ALL-CAPS cover headline for the carousel.
  * Modelled after @airesearches and @evolving.ai — designed to stop scrolling.
  */
+/**
+ * Generate cover headline using curiosity-gap / FOMO hook formulas.
+ * The cover slide carries ~80% of the carousel's weight — it must stop scrolling.
+ *
+ * Hook psychology exploited:
+ * 1. Curiosity gap — hint without revealing (brain NEEDS closure)
+ * 2. FOMO — "everyone else knows and you don't"
+ * 3. Disbelief — "wait, that can't be real"
+ * 4. Specificity — specific claims beat vague ones
+ */
 async function generateCoverHeadline(headlines: string[], slot: "monday" | "friday"): Promise<string> {
+  const {
+    COVER_HEADLINE_SYSTEM_PROMPT,
+    COVER_HEADLINE_USER_PROMPT_TEMPLATE,
+    COVER_HOOK_TEMPLATES,
+  } = await import("./viralityFramework");
+
   try {
+    // Pick 4 random templates to inspire the LLM (avoid repetition across runs)
+    const shuffled = [...COVER_HOOK_TEMPLATES].sort(() => Math.random() - 0.5);
+    const templateExamples = shuffled.slice(0, 4).join("\n- ");
+
+    const userPrompt = COVER_HEADLINE_USER_PROMPT_TEMPLATE
+      .replace("{HEADLINES}", headlines.map((h, i) => `${i + 1}. ${h}`).join("\n"))
+      .replace("{TEMPLATES}", templateExamples);
+
     const response = await invokeLLM({
       messages: [
-        {
-          role: "system",
-          content: "You write viral Instagram carousel cover headlines. Your style is EXACTLY like @airesearches and @evolving.ai on Instagram — provocative, ALL-CAPS, 8-12 words max, designed to make someone stop scrolling.",
-        },
-        {
-          role: "user",
-          content: `Write ONE cover headline for an Instagram AI news carousel. This week's topics:\n${headlines.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n\nRules:\n- ALL CAPS\n- 8-12 words max\n- Provocative and curiosity-driven (e.g. "THE AI REVOLUTION JUST CHANGED EVERYTHING THIS WEEK")\n- Hint at multiple shocking stories without revealing them\n- Use words like: JUST, NOW, FINALLY, EXPOSED, SHOCKING, CHANGED, NEVER, EVERY\n- Do NOT use quotation marks\n- Return ONLY the headline, nothing else`,
-        },
+        { role: "system", content: COVER_HEADLINE_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
       ],
     });
     const raw = (response as any)?.choices?.[0]?.message?.content?.trim() ?? "";
-    const headline = raw.replace(/^"|"$/g, "").trim().toUpperCase();
+    const headline = raw.replace(/^"|"$/g, "").replace(/^- /, "").trim().toUpperCase();
     if (headline && headline.length > 5) return headline;
   } catch (err) {
     console.warn("[ContentPipeline] Cover headline generation failed:", err);
