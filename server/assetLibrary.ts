@@ -243,8 +243,24 @@ export async function searchImage(
   query: string,
   opts: { transparent?: boolean; portrait?: boolean } = {}
 ): Promise<ImageSearchResult | null> {
-  const apiKey = process.env.GOOGLE_CSE_API_KEY;
-  const cseId = process.env.GOOGLE_CSE_ID;
+  let apiKey = process.env.GOOGLE_CSE_API_KEY;
+  let cseId = process.env.GOOGLE_CSE_ID;
+
+  // Fall back to DB-stored credentials if env vars not set
+  if (!apiKey || !cseId) {
+    try {
+      const { getDb } = await import("./db");
+      const { appSettings } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const db = await getDb();
+      if (db) {
+        const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "google_cse_api_key"));
+        const [ci] = await db.select().from(appSettings).where(eq(appSettings.key, "google_cse_id"));
+        if (ak?.value) apiKey = ak.value;
+        if (ci?.value) cseId = ci.value;
+      }
+    } catch { /* ignore */ }
+  }
 
   if (!apiKey || !cseId) {
     console.log("[AssetLibrary] Google CSE not configured — skipping image search");
