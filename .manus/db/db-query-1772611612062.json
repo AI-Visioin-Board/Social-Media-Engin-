@@ -1,0 +1,28 @@
+{
+  "query": "SELECT slideIndex, headline, videoUrl, insightLine FROM generated_slides WHERE isVideoSlide = 1 AND videoUrl IS NOT NULL ORDER BY id DESC LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT slideIndex, headline, videoUrl, insightLine FROM generated_slides WHERE isVideoSlide = 1 AND videoUrl IS NOT NULL ORDER BY id DESC LIMIT 3;",
+  "rows": [
+    {
+      "slideIndex": "3",
+      "headline": "XIAOMI HUMAN-ROBOTS ACHIEVE 90.2% AUTONOMY IN FACTORY TASKS",
+      "videoUrl": "https://v16-kling-fdl.klingai.com/bs2/upload-ylab-stunt-sgp/muse/857570638440693796/VIDEO/20260304/b345b5076885687d881fea655dec3a9e-f194e952-0a99-430a-be43-b8cdeaf437cd.mp4?cacheKey=ChtzZWN1cml0eS5rbGluZy5tZXRhX2VuY3J5cHQSsAHFMfwzKjMj-ABUbWxcpxdRkM_ZvjXV2eFGAEA2qHPJpX5e1-bRbVjYKnzSVv6VsDsMcNTSQ0LKcBXOluisRQ9DbKXfWCEP7YDiELeNLt_2966zLmAtNTht3VGdXReHRwEDnOO5dOtJvTTGaRk_fUezQzXTdklSBFduOwEg4OjFji_P08yA2ojoYQ2FVVsX_OC2dTQ68kbwSVw7UYY7dApbQGWuk12NeiJx4Ic7mIf9bBoSOFvh80_9xnI_XufDmu_AA0PdIiDNmrzmfMQ34LZtCk86tICIib-AGfRGHKMZ7iJhSAaIGigFMAE&x-kcdn-pid=112781&ksSecret=7a98a80cee1b65bb01c582badd41e958&ksTime=69cf6e8b",
+      "insightLine": "NULL"
+    },
+    {
+      "slideIndex": "1",
+      "headline": "CLAUDE AI INVADES EXCEL, POWERPOINT, SLACK: YOUR JOB IS NOW 50% EASIER",
+      "videoUrl": "https://v16-kling-fdl.klingai.com/bs2/upload-ylab-stunt-sgp/muse/857570638440693796/VIDEO/20260304/af294d34d18a3b3b28736440bd45e99e-8ee76112-258c-4a53-bb34-c4772ea52763.mp4?cacheKey=ChtzZWN1cml0eS5rbGluZy5tZXRhX2VuY3J5cHQSsAHXoOY0yurSNJpOIA2SOKK9d6am6VjnrnDcNeV8pbr4G1IzOee-EzJxk42gvlDv51VeT9RcYveuVKCoY-df87JHEQb8FR-XH6_gQT5wrtelVuRFQjyK5WWMJ8nvhy6JNVSzcE2II4UMDr0KzFAi_S9SS8CCQgAxcSAPhllTywACAPFM0obirhi6WMbasn5Avu03IzrClRBsXVsNVF97Q21oWvXeIrR8zJ5XK9ff94qECBoSnEyggwjlEmAabESg8cJCaRyFIiAH2nzJloy3-AZLZwpvvTMb7jJFcZFd1vKmI0q6Q-NN9ygFMAE&x-kcdn-pid=112781&ksSecret=5af0128aa0ca61c8d01319520360471b&ksTime=69cf6e3d",
+      "insightLine": "NULL"
+    },
+    {
+      "slideIndex": "3",
+      "headline": "PERPLEXITY UNVEILS 'COMPUTER': MULTI-MODEL AI AGENTS FOR ULTIMATE AUTOMATION",
+      "videoUrl": "https://v16-kling-fdl.klingai.com/bs2/upload-ylab-stunt-sgp/muse/857570638440693796/VIDEO/20260304/9d369f1768c2b3d845e8eef0ac680f43-60f5207b-b972-4348-b962-9b9c57863e17.mp4?cacheKey=ChtzZWN1cml0eS5rbGluZy5tZXRhX2VuY3J5cHQSsAEM5oXPUb1V1FB32Hh8iSuEI6Q60gx2zFPQOAoSy70qV9UwjMkYDB0m2AYCtClcOr3edjpSVNLru8724jtx08HIGlBY8pzU5LhdmFsz1_f7MVTz8foUN8ctJYm_87J4zHTn-pkk8iYCWoMWpGfOlz7DFdRxm_xY44yqvDK8GjEKMyxlfsRm6LGmIFywvS4Meopi-d7U7-6RzUknwVN7AoeUoxZ2syuUWy4WK5Wu_WxCwxoSYF8ADrg3uvuiuzhTSVrQUvw0IiDEi8oiYnyxn6ZM9FKXT9Xwtvk5hfTGLoLwuCaPfK7uzCgFMAE&x-kcdn-pid=112781&ksSecret=7a525db4337a8193182ff22a15d7e6fe&ksTime=69cf6e36",
+      "insightLine": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "slideIndex\theadline\tvideoUrl\tinsightLine\n3\tXIAOMI HUMAN-ROBOTS ACHIEVE 90.2% AUTONOMY IN FACTORY TASKS\thttps://v16-kling-fdl.klingai.com/bs2/upload-ylab-stunt-sgp/muse/857570638440693796/VIDEO/20260304/b345b5076885687d881fea655dec3a9e-f194e952-0a99-430a-be43-b8cdeaf437cd.mp4?cacheKey=ChtzZWN1cml0eS5rbGluZy5tZXRhX2VuY3J5cHQSsAHFMfwzKjMj-ABUbWxcpxdRkM_ZvjXV2eFGAEA2qHPJpX5e1-bRbVjYKnzSVv6VsDsMcNTSQ0LKcBXOluisRQ9DbKXfWCEP7YDiELeNLt_2966zLmAtNTht3VGdXReHRwEDnOO5dOtJvTTGaRk_fUezQzXTdklSBFduOwEg4OjFji_P08yA2ojoYQ2FVVsX_OC2dTQ68kbwSVw7UYY7dApbQGWuk12NeiJx4Ic7mIf9bBoSOFvh80_9xnI_XufDmu_AA0PdIiDNmrzmfMQ34LZtCk86tICIib-AGfRGHKMZ7iJhSAaIGigFMAE&x-kcdn-pid=112781&ksSecret=7a98a80cee1b65bb01c582badd41e958&ksTime=69cf6e8b\tNULL\n1\tCLAUDE AI INVADES EXCEL, POWERPOINT, SLACK: YOUR JOB IS NOW 50% EASIER\thttps://v16-kling-fdl.klingai.com/bs2/upload-ylab-stunt-sgp/muse/857570638440693796/VIDEO/20260304/af294d34d18a3b3b28736440bd45e99e-8ee76112-258c-4a53-bb34-c4772ea52763.mp4?cacheKey=ChtzZWN1cml0eS5rbGluZy5tZXRhX2VuY3J5cHQSsAHXoOY0yurSNJpOIA2SOKK9d6am6VjnrnDcNeV8pbr4G1IzOee-EzJxk42gvlDv51VeT9RcYveuVKCoY-df87JHEQb8FR-XH6_gQT5wrtelVuRFQjyK5WWMJ8nvhy6JNVSzcE2II4UMDr0KzFAi_S9SS8CCQgAxcSAPhllTywACAPFM0obirhi6WMbasn5Avu03IzrClRBsXVsNVF97Q21oWvXeIrR8zJ5XK9ff94qECBoSnEyggwjlEmAabESg8cJCaRyFIiAH2nzJloy3-AZLZwpvvTMb7jJFcZFd1vKmI0q6Q-NN9ygFMAE&x-kcdn-pid=112781&ksSecret=5af0128aa0ca61c8d01319520360471b&ksTime=69cf6e3d\tNULL\n3\tPERPLEXITY UNVEILS 'COMPUTER': MULTI-MODEL AI AGENTS FOR ULTIMATE AUTOMATION\thttps://v16-kling-fdl.klingai.com/bs2/upload-ylab-stunt-sgp/muse/857570638440693796/VIDEO/20260304/9d369f1768c2b3d845e8eef0ac680f43-60f5207b-b972-4348-b962-9b9c57863e17.mp4?cacheKey=ChtzZWN1cml0eS5rbGluZy5tZXRhX2VuY3J5cHQSsAEM5oXPUb1V1FB32Hh8iSuEI6Q60gx2zFPQOAoSy70qV9UwjMkYDB0m2AYCtClcOr3edjpSVNLru8724jtx08HIGlBY8pzU5LhdmFsz1_f7MVTz8foUN8ctJYm_87J4zHTn-pkk8iYCWoMWpGfOlz7DFdRxm_xY44yqvDK8GjEKMyxlfsRm6LGmIFywvS4Meopi-d7U7-6RzUknwVN7AoeUoxZ2syuUWy4WK5Wu_WxCwxoSYF8ADrg3uvuiuzhTSVrQUvw0IiDEi8oiYnyxn6ZM9FKXT9Xwtvk5hfTGLoLwuCaPfK7uzCgFMAE&x-kcdn-pid=112781&ksSecret=7a525db4337a8193182ff22a15d7e6fe&ksTime=69cf6e36\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 365
+}

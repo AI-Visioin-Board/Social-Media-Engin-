@@ -1,0 +1,8 @@
+{
+  "query": "SELECT gs.slide_index, gs.headline, gs.media_url, gs.is_video, gs.insight_line FROM generated_slides gs WHERE gs.is_video = true AND gs.media_url IS NOT NULL ORDER BY gs.id DESC LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT gs.slide_index, gs.headline, gs.media_url, gs.is_video, gs.insight_line FROM generated_slides gs WHERE gs.is_video = true AND gs.media_url IS NOT NULL ORDER BY gs.id DESC LIMIT 3;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'gs.is_video' in 'where clause'"
+  ]
+}

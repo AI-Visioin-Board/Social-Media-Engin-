@@ -599,7 +599,7 @@ Provide a JSON response with:
 1. headline: Write a VIRAL, PROVOCATIVE, ALL-CAPS Instagram headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts, be shocking or surprising, examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS", "OPENAI JUST RELEASED A MODEL THAT CODES BETTER THAN 99% OF ENGINEERS"
 2. summary: 2-sentence plain-English explanation of what JUST happened and why it matters to business owners today
 3. insightLine: OPTIONAL. A single plain-English sentence (max 12 words) that gives the viewer the key "aha" context they need to understand WHY this headline is surprising or important. ONLY include this if the headline alone is cryptic or incomplete — for example "AI AGENTS GET RUDE AND BOOST REASONING BY 10.5%" needs insightLine: "Robots allowed to interrupt and be rude showed higher reasoning scores." But "OPENAI RELEASES GPT-5" does NOT need an insightLine. Return null if the headline is self-explanatory. Can be dry/wry if the story warrants it.
-4. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. Describe a dramatic, high-impact visual: real photo of AI leaders OR AI-generated cinematic scene. Specific, vivid, photorealistic. No text overlays. Examples: "Dramatic close-up of Sam Altman in dark suit against glowing server room", "Humanoid robot hand reaching toward human hand, cinematic lighting, photorealistic"
+4. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. CRITICAL: This prompt MUST be directly and specifically about THIS story — name the actual company, product, person, or event. DO NOT use generic AI/robot/server room scenes. The viewer should immediately recognize what story this is about from the visual alone. Rules: photorealistic, cinematic, vertical 9:16 frame, no text overlays. Examples for specificity: If the story is about ChatGPT uninstalls surging → "Close-up of a hand pressing 'Delete App' on an iPhone showing the ChatGPT icon, dramatic lighting". If about Elon Musk's Grok AI → "Dramatic portrait of Elon Musk at a futuristic control panel, xAI logo visible, cinematic lighting". If about robots in a factory → "Xiaomi humanoid robots working autonomously on a factory assembly line, sparks flying, photorealistic". Match the visual to THIS specific story.
 5. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
 
 Topic: "${topic.title}"
@@ -692,7 +692,7 @@ Provide:
 1. headline: A VIRAL, PROVOCATIVE, ALL-CAPS headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts. Examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS"
 2. summary: A 2-sentence plain-English explanation of what happened and why it matters to businesses
 3. insightLine: OPTIONAL. A single plain-English sentence (max 12 words) giving the viewer the key "aha" context they need. ONLY include if the headline is cryptic or incomplete — return null if self-explanatory. Can be dry/wry if the story warrants it.
-4. videoPrompt: A cinematic image/video prompt for Nano Banana or Kling AI. Dramatic, high-impact visual. Specific, vivid, photorealistic. No text overlays.
+4. videoPrompt: A cinematic image/video prompt for Nano Banana or Kling AI. CRITICAL: This MUST be directly and specifically about THIS story — name the actual company, product, person, or event in the prompt. DO NOT use generic AI/robot/server room scenes. The viewer should immediately recognize what story this is about from the visual alone. Photorealistic, cinematic, vertical 9:16 frame, no text overlays. Example: story about ChatGPT uninstalls → "Close-up of a hand pressing Delete App on an iPhone showing the ChatGPT icon, dramatic lighting". Match the visual to THIS specific story.
 
 Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "..." }`,
       },
@@ -731,7 +731,7 @@ Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or n
     summary: parsed.summary ?? topic.summary,
     insightLine,
     citations: [],
-    videoPrompt: parsed.videoPrompt ?? `Cinematic close-up of AI interface, futuristic tech, clean minimal design, 4K`,
+    videoPrompt: parsed.videoPrompt ?? `Dramatic cinematic scene directly depicting: ${topic.title}, photorealistic, vertical 9:16 frame`,
     verified: false, // GPT fallback — not externally verified
   };
 }

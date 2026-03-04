@@ -176,3 +176,8 @@
 
 ## Bug: Kling Key Save
 - [x] Fix Kling API keys disappearing after Save & Activate in Setup Guide
+
+## Image/Video Prompt Specificity & Video Layout
+- [x] Fix image prompts: must be story-specific (name actual product/company/event/person), not generic AI/robot/server scenes
+- [x] Fix video prompts: same — directly tied to the specific headline and story
+- [x] Video slide layout: top 70% video edge-to-edge + gradient fade into solid black bottom 30% with headline text

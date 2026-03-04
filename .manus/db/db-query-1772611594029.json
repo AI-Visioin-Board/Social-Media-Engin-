@@ -1,0 +1,114 @@
+{
+  "query": "DESCRIBE generated_slides;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute DESCRIBE generated_slides;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "runId",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "slideIndex",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "headline",
+      "Type": "varchar(500)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "summary",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "citations",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "videoUrl",
+      "Type": "varchar(1000)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "assembledUrl",
+      "Type": "varchar(1000)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "videoPrompt",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "status",
+      "Type": "enum('pending','researching','generating_video','assembling','ready','failed')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "pending",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "isVideoSlide",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "insightLine",
+      "Type": "varchar(200)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nrunId\tint\tNO\t\tNULL\t\nslideIndex\tint\tNO\t\tNULL\t\nheadline\tvarchar(500)\tYES\t\tNULL\t\nsummary\ttext\tYES\t\tNULL\t\ncitations\ttext\tYES\t\tNULL\t\nvideoUrl\tvarchar(1000)\tYES\t\tNULL\t\nassembledUrl\tvarchar(1000)\tYES\t\tNULL\t\nvideoPrompt\ttext\tYES\t\tNULL\t\nstatus\tenum('pending','researching','generating_video','assembling','ready','failed')\tNO\t\tpending\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nisVideoSlide\tint\tNO\t\t0\t\ninsightLine\tvarchar(200)\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 358
+}

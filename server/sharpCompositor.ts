@@ -346,11 +346,23 @@ export async function assembleSlideWithSharp(
 
   console.log(`[SharpCompositor] Assembling slide ${slideIndex} (${isVideo ? "video pass-through" : "image composite"})...`);
 
-  // ── Video slides: pass through the original URL ────────────────────────────
-  // Instagram natively plays MP4 carousels. We don't need to composite anything.
+  // ── Video slides: composite with new layout (top 70% video + black bottom 30% + text) ──
   if (isVideo && mediaUrl) {
-    console.log(`[SharpCompositor] Video slide — passing through: ${mediaUrl.slice(0, 80)}`);
-    return mediaUrl;
+    try {
+      console.log(`[SharpCompositor] Video slide — compositing with VideoCompositor...`);
+      const { compositeVideoSlide } = await import("./videoCompositor");
+      const composedUrl = await compositeVideoSlide({
+        runId,
+        slideIndex,
+        videoUrl: mediaUrl,
+        headline,
+        insightLine: slide.insightLine,
+      });
+      return composedUrl;
+    } catch (err: any) {
+      console.warn(`[SharpCompositor] Video compositor failed (${err?.message}), falling back to pass-through`);
+      return mediaUrl; // fallback: return raw video
+    }
   }
 
   // ── Image slides: download + composite + upload ────────────────────────────
