@@ -725,6 +725,54 @@ export const appRouter = router({
         return { success: true, message: "Kling credentials saved. Video generation is now active." };
       }),
 
+    // Get Google CSE status
+    getGoogleCseStatus: adminProcedure
+      .query(async () => {
+        let apiKey = ENV.googleCseApiKey;
+        let cseId = ENV.googleCseId;
+        if (!apiKey || !cseId) {
+          try {
+            const { getDb } = await import("./db");
+            const { appSettings } = await import("../drizzle/schema");
+            const { eq } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "google_cse_api_key"));
+              const [ci] = await db.select().from(appSettings).where(eq(appSettings.key, "google_cse_id"));
+              if (ak?.value) apiKey = ak.value;
+              if (ci?.value) cseId = ci.value;
+            }
+          } catch { /* ignore */ }
+        }
+        const active = !!(apiKey && cseId);
+        const maskedKey = apiKey ? `...${apiKey.slice(-4)}` : null;
+        return { active, maskedKey };
+      }),
+
+    // Save Google CSE credentials (persisted in DB appSettings table)
+    saveGoogleCseCredentials: adminProcedure
+      .input(z.object({
+        apiKey: z.string().min(1),
+        cseId: z.string().min(1),
+      }))
+      .mutation(async ({ input }) => {
+        if (!input.apiKey.trim() || !input.cseId.trim()) {
+          throw new Error("Both API Key and Search Engine ID are required");
+        }
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.insert(appSettings)
+          .values({ key: "google_cse_api_key", value: input.apiKey.trim() })
+          .onDuplicateKeyUpdate({ set: { value: input.apiKey.trim() } });
+        await db.insert(appSettings)
+          .values({ key: "google_cse_id", value: input.cseId.trim() })
+          .onDuplicateKeyUpdate({ set: { value: input.cseId.trim() } });
+        console.log("[Google CSE] Credentials saved to DB successfully");
+        return { success: true, message: "Google CSE credentials saved. Image search is now active." };
+      }),
+
     // Regenerate a single slide (re-generate media + re-assemble composite)
     regenerateSlide: adminProcedure
       .input(z.object({

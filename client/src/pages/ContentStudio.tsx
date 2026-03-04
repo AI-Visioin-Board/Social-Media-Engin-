@@ -1050,6 +1050,129 @@ function KlingCredentialsCard() {
   );
 }
 
+// ─── Google CSE Credentials Card ─────────────────────────────────────────────
+
+function GoogleCseCredentialsCard() {
+  const [apiKey, setApiKey] = useState("");
+  const [cseId, setCseId] = useState("");
+  const [showKeys, setShowKeys] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const utils = trpc.useUtils();
+  const { data: cseStatus } = trpc.contentStudio.getGoogleCseStatus.useQuery();
+  const saveCse = trpc.contentStudio.saveGoogleCseCredentials.useMutation({
+    onSuccess: () => {
+      setSaved(true);
+      setApiKey("");
+      setCseId("");
+      utils.contentStudio.getGoogleCseStatus.invalidate();
+      setTimeout(() => setSaved(false), 3000);
+      toast.success("Google CSE credentials saved! Image search is now active.");
+    },
+    onError: (e) => toast.error(`Failed to save credentials: ${e.message}`),
+  });
+
+  const isActive = cseStatus?.active ?? false;
+
+  return (
+    <Card className={`border-2 ${isActive ? "border-blue-200 bg-blue-50" : "border-amber-200 bg-amber-50"}`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Globe className="w-4 h-4 text-blue-600" />
+          Google Custom Search — Real Image Sourcing
+          <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${
+            isActive ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+          }`}>
+            {isActive ? "✓ Active" : "Not configured"}
+          </span>
+        </CardTitle>
+        <CardDescription>
+          {isActive
+            ? "Google CSE is active. The pipeline searches for real product/company images before falling back to AI generation. 100 free queries/day."
+            : "Add your Google Custom Search credentials to enable real image sourcing for slides. Without it, AI-generated images are used instead (still looks great)."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-start gap-2 p-3 bg-white border border-slate-200 rounded-lg">
+          <Info className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-slate-600 space-y-1">
+            <p><strong>Cost:</strong> Free — 100 queries/day included (plenty for 2 posts/week).</p>
+            <p><strong>Fallback chain:</strong> Logo library → Google Image Search → AI generation.</p>
+            <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline flex items-center gap-0.5 mt-1">
+              Manage search engine at Google CSE <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
+
+        {isActive && cseStatus?.maskedKey && (
+          <div className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 flex-shrink-0" />
+            <p className="text-xs text-blue-700">Credentials saved — API Key ending in <strong className="font-mono">{cseStatus.maskedKey}</strong>. Enter new keys below to update.</p>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="cse-key" className="text-xs font-medium text-slate-700">{isActive ? "New API Key (leave blank to keep current)" : "Google API Key"}</Label>
+            <Input
+              id="cse-key"
+              type={showKeys ? "text" : "password"}
+              placeholder="Paste your Google Custom Search API Key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="font-mono text-sm"
+              autoComplete="off"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cse-id" className="text-xs font-medium text-slate-700">Search Engine ID</Label>
+            <Input
+              id="cse-id"
+              type={showKeys ? "text" : "password"}
+              placeholder="Paste your Search Engine ID (cx)"
+              value={cseId}
+              onChange={(e) => setCseId(e.target.value)}
+              className="font-mono text-sm"
+              autoComplete="off"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowKeys(!showKeys)}
+              className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+            >
+              <Shield className="w-3 h-3" />
+              {showKeys ? "Hide keys" : "Show keys"}
+            </button>
+            <Button
+              size="sm"
+              disabled={(!isActive && (!apiKey.trim() || !cseId.trim())) || saveCse.isPending}
+              onClick={() => {
+                if (isActive && !apiKey.trim() && !cseId.trim()) return;
+                saveCse.mutate({ apiKey: apiKey.trim(), cseId: cseId.trim() });
+              }}
+              className="ml-auto bg-blue-600 hover:bg-blue-700"
+            >
+              {saveCse.isPending ? (
+                <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving...</>
+              ) : saved ? (
+                <><CheckCircle2 className="w-3 h-3 mr-1.5" /> Saved!</>
+              ) : (
+                <><Zap className="w-3 h-3 mr-1.5" /> Save & Activate</>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-400 border-t pt-3">
+          <strong>Fallback:</strong> When Google CSE is unavailable, Nano Banana (Google Imagen) generates a cinematic image for each slide — free and built-in.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ContentStudio() {
@@ -1281,7 +1404,7 @@ export default function ContentStudio() {
                   API Keys & Configuration
                 </CardTitle>
                 <CardDescription>
-                  OpenAI and Anthropic are active. Add Kling keys below for AI video generation — Nano Banana images are used as fallback.
+                  OpenAI and Anthropic are active. Add Kling keys for AI video and Google CSE keys for real image sourcing below.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -1344,6 +1467,9 @@ export default function ContentStudio() {
 
             {/* Kling AI Video Credentials */}
             <KlingCredentialsCard />
+
+            {/* Google CSE Image Search Credentials */}
+            <GoogleCseCredentialsCard />
 
             {/* Pipeline Overview */}
             <Card className="border-slate-200">

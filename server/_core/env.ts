@@ -9,4 +9,6 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   klingAccessKey: process.env.KLING_ACCESS_KEY ?? "",
   klingSecretKey: process.env.KLING_SECRET_KEY ?? "",
+  googleCseApiKey: process.env.GOOGLE_CSE_API_KEY ?? "",
+  googleCseId: process.env.GOOGLE_CSE_ID ?? "",
 };
