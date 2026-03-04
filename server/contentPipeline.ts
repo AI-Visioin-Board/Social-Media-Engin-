@@ -596,10 +596,10 @@ CRITICAL RECENCY RULE: Only use sources and information published AFTER ${cutoff
 TONE GUIDANCE: This page has a dry, occasionally sarcastic voice. If the story has an obvious irony, a tech-world punchline everyone is already thinking, or something genuinely absurd, you can lean into that with a wry headline or insightLine. Keep it subtle — a smirk, not a joke. Not every slide needs to be funny. Serious stories stay serious.
 
 Provide a JSON response with:
-1. headline: Write a VIRAL, PROVOCATIVE, ALL-CAPS Instagram headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts, be shocking or surprising, examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS", "OPENAI JUST RELEASED A MODEL THAT CODES BETTER THAN 99% OF ENGINEERS"
-2. summary: 2-sentence plain-English explanation of what JUST happened and why it matters to business owners today
+1. headline: Write an ALL-CAPS Instagram headline (max 12 words). VARIETY IS KEY — rotate between these styles: (a) Straight news: "OPENAI JUST RELEASED GPT-5 — HERE'S WHAT IT DOES" (b) Provocative/curiosity: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION" (c) Stakes/consequence: "THIS AI UPDATE WILL ACTUALLY AFFECT YOUR JOB" (d) Question: "DID GOOGLE JUST KILL SEARCH?" — NOT every headline should be hyperbolic. Match the tone to the story. Use specific names/numbers/facts.
+2. summary: 1-2 sentence plain-English explanation of what JUST happened and why it matters. This text will appear on the slide below the headline, so make it concise and informative — help the reader understand the story at a glance. Think newsletter bullet point, not essay.
 3. insightLine: OPTIONAL. A single plain-English sentence (max 80 characters) that makes someone want to SCREENSHOT and SHARE this slide. It should connect the story to the READER'S life or something they personally care about. GOOD examples: "This means your job interview might be with an AI next year", "Google spent $30B on this and OpenAI did it for free", "Your phone is about to get a LOT smarter". BAD examples (generic, not share-worthy): "This is an interesting development in AI", "Many experts are watching this closely". ONLY include this if the headline alone is cryptic or incomplete. Return null if the headline is self-explanatory. Can be dry/wry if the story warrants it.
-4. videoPrompt: Cinematic image/video prompt for Nano Banana or Kling AI. CRITICAL: This prompt MUST be directly and specifically about THIS story — name the actual company, product, person, or event. DO NOT use generic AI/robot/server room scenes. The viewer should immediately recognize what story this is about from the visual alone. Rules: photorealistic, cinematic, vertical 9:16 frame, ABSOLUTELY NO TEXT OR READABLE CHARACTERS in the image (no letters, no words, no numbers — any text must be blurred/illegible). If the story involves a document or resume, show the emotional scene around it (e.g. a stressed person, a robot reviewing papers from a distance) — NOT the document itself. Examples for specificity: If the story is about ChatGPT uninstalls surging → "Close-up of a hand pressing 'Delete App' on an iPhone showing the ChatGPT icon, dramatic lighting". If about Elon Musk's Grok AI → "Dramatic portrait of Elon Musk at a futuristic control panel, xAI logo visible, cinematic lighting". If about robots in a factory → "Xiaomi humanoid robots working autonomously on a factory assembly line, sparks flying, photorealistic". Match the visual to THIS specific story.
+4. videoPrompt: Cinematic image/video prompt for AI image generation. CRITICAL: This prompt MUST be directly and specifically about THIS story. The viewer should immediately recognize what company/story it's about from the COLORS and CONTEXT alone. IMPORTANT LIMITATIONS — AI image generators CANNOT accurately render real people's faces or company logos. Your prompt MUST work around this: For PEOPLE → show silhouettes, from-behind shots, hands, or symbolic objects (NOT faces). For COMPANIES → use their BRAND COLORS as identifiers: OpenAI=green/white, Google=red/blue/yellow/green, Meta=blue, Anthropic=orange/brown, Apple=silver/white, Microsoft=4-color. For PRODUCTS → show a phone/laptop screen glowing in brand colors from a distance. Rules: photorealistic, cinematic, vertical 9:16 frame, ABSOLUTELY NO TEXT OR READABLE CHARACTERS, NO faces, NO accurate logos. Examples: ChatGPT story → "Close-up of a hand hovering over a phone glowing green (OpenAI brand), about to tap delete, dramatic lighting". Elon Musk AI story → "Silhouette of a man seen from behind at a futuristic control panel, screens glowing white and black (xAI colors), cinematic lighting". Factory robots → "Humanoid robots on a factory line, sparks flying, photorealistic wide shot".
 5. sources: array of {title, url} for the top 2-3 sources you found (must be from after ${cutoffStr})
 
 Topic: "${topic.title}"
@@ -667,6 +667,9 @@ Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "i
     "person in a suit", "businessman at a desk", "generic robot",
     "random letter", "a man standing", "a woman standing",
     "tech professional", "data flowing", "binary code",
+    // Face/portrait patterns — AI generators can't render real people
+    "portrait of", "close-up of his face", "close-up of her face",
+    "looking directly at camera", "facial expression",
   ];
   const isGenericPrompt = !rawVideoPrompt || GENERIC_PATTERNS.some(p => lower.includes(p));
 
@@ -719,10 +722,10 @@ Context: ${topic.summary}
 TONE GUIDANCE: The page has a dry, occasionally sarcastic voice. If the story is genuinely surprising, ironic, or has an obvious punchline that the tech world is already laughing about, you can lean into that with a wry headline or insightLine. Keep it subtle — a smirk, not a punchline. Not every slide needs to be funny. If the story is serious or straightforward, keep it straight.
 
 Provide:
-1. headline: A VIRAL, PROVOCATIVE, ALL-CAPS headline in the style of @evolving.ai (4.1M followers). Rules: ALL CAPS, max 12 words, must make someone STOP scrolling, use specific numbers/names/facts. Examples: "THIS 20-YEAR-OLD BUILT AN AI THAT EXPOSES CORRUPTION", "EVERY MAJOR AI MODEL HAS BEEN CAUGHT LYING IN SAFETY TESTS"
-2. summary: A 2-sentence plain-English explanation of what happened and why it matters to businesses
+1. headline: An ALL-CAPS headline (max 12 words). VARY the tone — sometimes straight news ("OPENAI JUST RELEASED GPT-5"), sometimes provocative ("THIS AI UPDATE WILL ACTUALLY AFFECT YOUR JOB"), sometimes a question ("DID GOOGLE JUST KILL SEARCH?"). Match tone to story. Use specific names/numbers.
+2. summary: 1-2 sentence plain-English explanation of what happened and why it matters. This appears on the slide below the headline — keep it concise and informative, like a newsletter bullet point.
 3. insightLine: OPTIONAL. A single plain-English sentence (max 12 words) giving the viewer the key "aha" context they need. ONLY include if the headline is cryptic or incomplete — return null if self-explanatory. Can be dry/wry if the story warrants it.
-4. videoPrompt: A cinematic image/video prompt for Nano Banana or Kling AI. CRITICAL: This MUST be directly and specifically about THIS story — name the actual company, product, person, or event in the prompt. DO NOT use generic AI/robot/server room scenes. The viewer should immediately recognize what story this is about from the visual alone. Photorealistic, cinematic, vertical 9:16 frame, ABSOLUTELY NO TEXT OR READABLE CHARACTERS in the image (no letters, no words, no numbers — any text must be blurred/illegible). If the story involves a document or resume, show the emotional scene around it — NOT the document itself. Example: story about ChatGPT uninstalls → "Close-up of a hand pressing Delete App on an iPhone showing the ChatGPT icon, dramatic lighting". Match the visual to THIS specific story.
+4. videoPrompt: A cinematic image/video prompt for AI image generation. CRITICAL: Must be directly about THIS story. IMPORTANT: AI generators CANNOT render real faces or accurate logos. Use BRAND COLORS as identifiers (OpenAI=green/white, Google=red/blue/yellow/green, Meta=blue, Anthropic=orange/brown). For people: show silhouettes, from-behind shots, hands — NEVER faces. For companies: use brand-colored glowing objects/scenes. Photorealistic, cinematic, vertical 9:16 frame, NO TEXT, NO faces, NO logos. Example: ChatGPT story → "Hand hovering over a phone glowing green (OpenAI brand), about to tap delete, dramatic lighting".
 
 Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "..." }`,
       },
@@ -841,16 +844,26 @@ async function marketingBrainPrompt({
 Your creative philosophy:
 - Every visual must be IMMEDIATELY recognizable as THIS specific story — not a generic AI scene
 - You think in terms of: what is the MOST OBVIOUS, VISCERAL, FUNNY, or DRAMATIC visual that represents this story?
-- You name real people, real logos, real products, real events — not "a tech CEO" or "an AI company"
+- You identify stories by BRAND COLORS, PRODUCTS, and CONTEXT — not by trying to draw faces or logos
 - You think like a meme creator and a cinematographer at the same time
 - You are somewhat comedic and irreverent when the story warrants it (not forced)
-- You always ask yourself: "If I saw this image/video, would I IMMEDIATELY know what story it's about?"
+- You always ask yourself: "If I saw this image/video, would I IMMEDIATELY know what company/story it's about?"
+
+CRITICAL LIMITATION — AI image generators CANNOT accurately render:
+- Real people's faces (they generate random strangers, NOT the actual person)
+- Accurate company logos (they will be garbled and wrong)
+- Readable text
+
+YOUR WORKAROUNDS:
+- For PEOPLE: show them from behind (silhouette at podium), show their hands, show crowd reactions, show symbolic objects (Tesla for Musk, Apple products for Tim Cook). NEVER describe a face.
+- For LOGOS: use the company's SIGNATURE COLORS as the visual identifier. OpenAI = green/white swirl shape. Google = red/blue/yellow/green. Meta = blue. Anthropic = orange/brown. Apple = silver/white minimalist. Describe brand-colored objects, not the logo itself.
+- For PRODUCTS: show a phone/laptop screen from a distance with the right color scheme glowing. Show someone's hand holding a device.
 
 Technical requirements:
 - Photorealistic, cinematic quality
 - Vertical 9:16 portrait frame (1080×1920)
-- ABSOLUTELY NO TEXT in the image — no letters, no words, no numbers, no readable characters of any kind. Any text must be completely blurred, out-of-focus, or abstracted into illegible marks. This is a hard rule — violating it ruins the slide.
-- NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — instead show the EMOTION or CONSEQUENCE of the story (e.g. for a resume story: a stressed person at a desk, or a robot reviewing a stack of papers from a distance, NOT a close-up of a resume with text)
+- ABSOLUTELY NO TEXT in the image — no letters, no words, no numbers, no readable characters of any kind. Any text must be completely blurred, out-of-focus, or abstracted into illegible marks.
+- NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — show the EMOTION or CONSEQUENCE instead
 - Dramatic lighting, high contrast, professional composition
 - For videos: describe camera movement, action, and duration (5 seconds)
 - For images: describe the exact scene, lighting, depth, and emotional tone${marketingEnhancement}`,
@@ -874,19 +887,19 @@ Write a single paragraph describing the ${mediaType}. Be hyper-specific. Name th
 
 THE RECOGNITION TEST: Could someone see ONLY this image (no headline) and guess which AI story it's about? If not, your prompt is too generic. Rewrite it.
 
-Examples of GOOD prompts:
-- "Close-up of a hand pressing 'Delete App' on an iPhone screen showing the ChatGPT logo, the app icon shaking, dramatic warm lighting, shallow depth of field, photorealistic"
-- "Alex Karp, Palantir CEO, a bald man with intense eyes in a dark suit, standing at a podium with the Palantir logo behind him, dark dramatic lighting, American flag in background, cinematic portrait, 9:16 vertical"
-- "The OpenAI logo (stylized swirl) crumbling and falling in slow motion off a cliff edge into a dark void below, dramatic god rays from above, cinematic wide shot, photorealistic"
-- "Sam Altman (young man with brown curly hair, glasses) and Elon Musk facing each other across a chess board, both looking intense, neon blue lighting, cinematic close-up, shallow depth of field"
-- "A massive Google logo being crushed under the weight of an OpenAI swirl logo, dramatic red lighting, dust particles flying, photorealistic destruction scene, 9:16 vertical"
+Examples of GOOD prompts (notice: NO faces, NO accurate logos — use brand colors and context):
+- "Close-up of a hand hovering over a phone screen glowing green (OpenAI's brand color), finger about to tap a delete button, dramatic warm lighting, shallow depth of field, photorealistic, 9:16 vertical"
+- "Silhouette of a man in a dark suit at a podium, seen from behind, large screen behind him glowing deep blue and white (Palantir colors), packed auditorium visible, dark dramatic lighting, cinematic wide shot, 9:16 vertical"
+- "A green-and-white glowing orb (OpenAI brand colors) cracking and falling in slow motion off a cliff edge into a dark void, dramatic god rays from above, photorealistic, 9:16 vertical"
+- "Two glowing spheres — one green (OpenAI) and one red/blue/yellow/green (Google) — facing each other across a dark chess board, neon lighting, cinematic shallow depth of field, 9:16 vertical"
+- "A person's hand holding a phone showing a bright blue glowing interface (Meta brand color), sitting in a modern office, dramatic side lighting, photorealistic close-up, 9:16 vertical"
 
 Examples of BAD prompts (auto-reject these):
+- "Sam Altman with brown curly hair and glasses" — AI generators CANNOT render real faces, will look like a random person
+- "The OpenAI logo on a screen" — AI generators CANNOT render accurate logos, will be garbled
 - "A futuristic AI interface with glowing data streams" — GENERIC, could be any story
-- "A person in a suit looking at a screen" — WHO? Which person? What's on screen?
-- "A random letter G on a phone screen" — MEANINGLESS, not recognizable
+- "A person in a suit looking at a screen" — WHO? What company? No identifying context
 - "An abstract neural network with blue nodes" — CLICHÉ, tells no story
-- "A generic businessman at a desk" — Which businessman? Name them!
 
 CRITICAL REMINDER: The final prompt must contain ZERO readable text. If your story involves a document, resume, paper, or screen — describe the emotional scene around it, not the document itself.
 

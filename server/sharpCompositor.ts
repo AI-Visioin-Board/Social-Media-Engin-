@@ -186,25 +186,49 @@ function buildHighlightedLine(
   return `<tspan x="${xCenter}" y="${yPos}" xml:space="preserve">${parts.join("")}</tspan>`;
 }
 
-/** Build the full SVG overlay: gradient + headline (with cyan highlights) + optional insight bubble + watermark + swipe hint */
+/** Build the full SVG overlay: gradient + headline (with cyan highlights) + optional summary + optional insight bubble + watermark + swipe hint */
 function buildOverlaySvg(
   headline: string,
   isCover: boolean,
   font: { path: string; name: string },
-  insightLine?: string
+  insightLine?: string,
+  summary?: string
 ): string {
   const upper = headline.toUpperCase();
   // Content slides (non-cover): wrap at 28 chars — wider paragraph-style layout, not narrow columns
   // Cover slides: keep 16 chars for the larger, more dramatic look
   const wrapWidth = isCover ? 16 : 28;
   const lines = wrapText(upper, wrapWidth);
-  const fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
+
+  // Determine if we have summary text to show (content slides only, not cover)
+  const hasSummary = !isCover && summary && summary.trim().length > 10;
+
+  // When summary is present, shrink headline slightly to make room
+  let fontSize: number;
+  if (hasSummary) {
+    fontSize = lines.length <= 2 ? 90 : lines.length <= 3 ? 76 : 64;
+  } else {
+    fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
+  }
   const lineHeight = fontSize * 1.15;
   const totalTextHeight = lines.length * lineHeight;
 
+  // --- Summary text layout ---
+  const summaryFontSize = 30;
+  const summaryLineH = summaryFontSize + 10;
+  const summaryPadTop = 20; // gap between headline and summary
+  let summaryWrapped: string[] = [];
+  let summaryBlockHeight = 0;
+  if (hasSummary) {
+    summaryWrapped = wrapText(summary!.trim(), 46); // ~46 chars per line at 30px in Arial
+    // Cap at 4 lines to avoid overflow
+    if (summaryWrapped.length > 4) summaryWrapped = summaryWrapped.slice(0, 4);
+    summaryBlockHeight = summaryPadTop + summaryWrapped.length * summaryLineH;
+  }
+
   // Text block sits 160px from bottom (above watermark + swipe hint)
   const textBlockBottom = SLIDE_H - 160;
-  const textStartY = textBlockBottom - totalTextHeight;
+  const textStartY = textBlockBottom - totalTextHeight - summaryBlockHeight;
 
   // Highlighted words
   const highlightedWords = getHighlightedWords(upper);
@@ -226,6 +250,29 @@ function buildOverlaySvg(
     return `<tspan x="${SLIDE_W / 2}" y="${y}">${escapeXml(line)}</tspan>`;
   }).join("\n    ");
 
+  // Summary text SVG (rendered below headline in lighter weight)
+  let summarySvg = "";
+  if (hasSummary && summaryWrapped.length > 0) {
+    const lastHeadlineY = textStartY + (lines.length - 1) * lineHeight + fontSize;
+    const summaryStartY = lastHeadlineY + summaryPadTop;
+    const summaryTextLines = summaryWrapped.map((line, i) =>
+      `<tspan x="${SLIDE_W / 2}" y="${summaryStartY + (i + 1) * summaryLineH}">${escapeXml(line)}</tspan>`
+    ).join("\n    ");
+
+    summarySvg = `
+  <!-- Summary / context text below headline -->
+  <text
+    font-family="'Arial', 'Helvetica', sans-serif"
+    font-size="${summaryFontSize}"
+    fill="white"
+    fill-opacity="0.85"
+    text-anchor="middle"
+    font-weight="400"
+  >
+    ${summaryTextLines}
+  </text>`;
+  }
+
   // Swipe hint
   const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 52}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
 
@@ -234,7 +281,7 @@ function buildOverlaySvg(
     ? `<style>@font-face { font-family: '${font.name}'; src: url('${font.path}'); }</style>`
     : "";
 
-  // Chat bubble insight line (shown just above the headline block when present)
+  // Chat bubble insight line (shown below summary if present, or below headline if no summary)
   let insightBubbleSvg = "";
   if (insightLine && insightLine.trim().length > 3 && !isCover) {
     // Wrap insight text at ~42 chars per line
@@ -257,9 +304,12 @@ function buildOverlaySvg(
     const iBubbleW = Math.min(SLIDE_W - 80, 700);
     const iBubbleH = insightLines.length * iLineH + iPad * 2;
     const iBubbleX = (SLIDE_W - iBubbleW) / 2;
-    // Position bubble BELOW the last headline line, with tail pointing UP toward the headline
-    const lastLineY = textStartY + (lines.length - 1) * lineHeight + fontSize;
-    const iBubbleY = lastLineY + 24; // 24px gap below the last headline line
+    // Position bubble BELOW the last content block (summary if present, otherwise headline)
+    const lastHeadlineY = textStartY + (lines.length - 1) * lineHeight + fontSize;
+    const anchorY = hasSummary
+      ? lastHeadlineY + summaryPadTop + summaryWrapped.length * summaryLineH
+      : lastHeadlineY;
+    const iBubbleY = anchorY + 24; // 24px gap below the anchor
     const iTailSize = 12;
 
     const iTextLines = insightLines.map((line, i) =>
@@ -267,8 +317,7 @@ function buildOverlaySvg(
     ).join("\n    ");
 
     insightBubbleSvg = `
-  <!-- Insight chat bubble (below headline) -->
-  <!-- Tail pointing UP toward the headline -->
+  <!-- Insight chat bubble -->
   <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY} ${SLIDE_W / 2 + iTailSize},${iBubbleY} ${SLIDE_W / 2},${iBubbleY - iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="14" ry="14" fill="white" fill-opacity="0.92"/>
   ${iTextLines}`;
@@ -290,8 +339,6 @@ function buildOverlaySvg(
 
   <!-- Heavy dark gradient covering bottom 75% — ensures headline text is always readable -->
   <rect x="0" y="${SLIDE_H * 0.25}" width="${SLIDE_W}" height="${SLIDE_H * 0.75}" fill="url(#grad)"/>
-
-  ${insightBubbleSvg}
 
   <!-- Drop shadow for headline -->
   <text
@@ -317,6 +364,10 @@ function buildOverlaySvg(
   >
     ${textLines}
   </text>
+
+  ${summarySvg}
+
+  ${insightBubbleSvg}
 
   <!-- SuggestedByGPT watermark -->
   <text x="52" y="${SLIDE_H - 58}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
@@ -386,7 +437,7 @@ export async function assembleSlideWithSharp(
 
   try {
     const font = getBestFont();
-    const overlaySvg = buildOverlaySvg(headline, isCover, font, slide.insightLine);
+    const overlaySvg = buildOverlaySvg(headline, isCover, font, slide.insightLine, slide.summary);
 
     let pipeline: sharp.Sharp;
 
