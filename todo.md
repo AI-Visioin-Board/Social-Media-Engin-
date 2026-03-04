@@ -173,3 +173,6 @@
 - [x] Fix Kling ESM crash: replace jsonwebtoken (CJS) with jose (ESM-native)
 - [x] Fix carousel preview: image edges clipped in phone mockup lightbox (object-cover → object-contain)
 - [x] Add subtle dry/dark humor tone to headline + insightLine prompts — occasional, natural, not forced
+
+## Bug: Kling Key Save
+- [x] Fix Kling API keys disappearing after Save & Activate in Setup Guide

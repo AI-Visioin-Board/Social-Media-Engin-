@@ -292,3 +292,14 @@ export const generatedSlides = mysqlTable("generated_slides", {
 
 export type GeneratedSlide = typeof generatedSlides.$inferSelect;
 export type InsertGeneratedSlide = typeof generatedSlides.$inferInsert;
+
+/**
+ * Key-value store for app-level settings (e.g. Kling API credentials).
+ * Values are stored as text; sensitive values are stored encrypted.
+ */
+export const appSettings = mysqlTable("appSettings", {
+  key: varchar("key", { length: 128 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type AppSetting = typeof appSettings.$inferSelect;

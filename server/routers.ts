@@ -664,28 +664,52 @@ export const appRouter = router({
     // Get Kling API status
     getKlingStatus: adminProcedure
       .query(async () => {
-        const active = !!(ENV.klingAccessKey && ENV.klingSecretKey);
-        return { active };
+        // Check env vars first, then fall back to DB-stored credentials
+        let accessKey = ENV.klingAccessKey;
+        let secretKey = ENV.klingSecretKey;
+        if (!accessKey || !secretKey) {
+          try {
+            const { getDb } = await import("./db");
+            const { appSettings } = await import("../drizzle/schema");
+            const { eq } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_access_key"));
+              const [sk] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_secret_key"));
+              if (ak?.value) accessKey = ak.value;
+              if (sk?.value) secretKey = sk.value;
+            }
+          } catch { /* ignore */ }
+        }
+        const active = !!(accessKey && secretKey);
+        // Return masked key for display (last 4 chars only)
+        const maskedKey = accessKey ? `...${accessKey.slice(-4)}` : null;
+        return { active, maskedKey };
       }),
 
-    // Save Kling API credentials (stored as env vars via platform secrets)
+    // Save Kling API credentials (persisted in DB appSettings table)
     saveKlingCredentials: adminProcedure
       .input(z.object({
         accessKey: z.string().min(1),
         secretKey: z.string().min(1),
       }))
       .mutation(async ({ input }) => {
-        // Credentials are managed via platform secrets (Settings → Secrets)
-        // This endpoint validates the format and confirms they're received
         if (!input.accessKey.trim() || !input.secretKey.trim()) {
           throw new Error("Both Access Key and Secret Key are required");
         }
-        // Log that credentials were submitted (actual storage is via platform secrets UI)
-        console.log("[Kling] Credentials submitted — update KLING_ACCESS_KEY and KLING_SECRET_KEY in Settings → Secrets");
-        return { 
-          success: true, 
-          message: "Credentials received. To activate, paste these values into Settings → Secrets as KLING_ACCESS_KEY and KLING_SECRET_KEY, then redeploy."
-        };
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        // Upsert both keys
+        await db.insert(appSettings)
+          .values({ key: "kling_access_key", value: input.accessKey.trim() })
+          .onDuplicateKeyUpdate({ set: { value: input.accessKey.trim() } });
+        await db.insert(appSettings)
+          .values({ key: "kling_secret_key", value: input.secretKey.trim() })
+          .onDuplicateKeyUpdate({ set: { value: input.secretKey.trim() } });
+        console.log("[Kling] Credentials saved to DB successfully");
+        return { success: true, message: "Kling credentials saved. Video generation is now active." };
       }),
 
     // Swap a topic in a pending run

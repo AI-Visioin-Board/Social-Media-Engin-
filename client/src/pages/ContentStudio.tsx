@@ -837,12 +837,14 @@ function KlingCredentialsCard() {
   const [showKeys, setShowKeys] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  const utils = trpc.useUtils();
   const { data: klingStatus } = trpc.contentStudio.getKlingStatus.useQuery();
   const saveKling = trpc.contentStudio.saveKlingCredentials.useMutation({
     onSuccess: () => {
       setSaved(true);
       setAccessKey("");
       setSecretKey("");
+      utils.contentStudio.getKlingStatus.invalidate();
       setTimeout(() => setSaved(false), 3000);
       toast.success("Kling API credentials saved! Video generation is now active.");
     },
@@ -882,10 +884,18 @@ function KlingCredentialsCard() {
           </div>
         </div>
 
+        {/* Show confirmation when already saved */}
+        {isActive && klingStatus?.maskedKey && (
+          <div className="flex items-center gap-2 p-2.5 bg-purple-50 border border-purple-200 rounded-lg">
+            <CheckCircle2 className="w-4 h-4 text-purple-600 flex-shrink-0" />
+            <p className="text-xs text-purple-700">Credentials saved — Access Key ending in <strong className="font-mono">{klingStatus.maskedKey}</strong>. Enter new keys below to update.</p>
+          </div>
+        )}
+
         {/* Credential inputs */}
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="kling-ak" className="text-xs font-medium text-slate-700">Access Key</Label>
+            <Label htmlFor="kling-ak" className="text-xs font-medium text-slate-700">{isActive ? "New Access Key (leave blank to keep current)" : "Access Key"}</Label>
             <div className="relative">
               <Input
                 id="kling-ak"
@@ -923,8 +933,12 @@ function KlingCredentialsCard() {
             </button>
             <Button
               size="sm"
-              disabled={!accessKey.trim() || !secretKey.trim() || saveKling.isPending}
-              onClick={() => saveKling.mutate({ accessKey: accessKey.trim(), secretKey: secretKey.trim() })}
+              disabled={(!isActive && (!accessKey.trim() || !secretKey.trim())) || saveKling.isPending}
+              onClick={() => {
+                // If active and fields are empty, don't re-save (no-op)
+                if (isActive && !accessKey.trim() && !secretKey.trim()) return;
+                saveKling.mutate({ accessKey: accessKey.trim(), secretKey: secretKey.trim() });
+              }}
               className="ml-auto bg-purple-600 hover:bg-purple-700"
             >
               {saveKling.isPending ? (

@@ -1217,8 +1217,21 @@ async function _runPipelineStages(
     // Stage 5: Video / Image Generation (Kling primary, Nano Banana fallback)
     await db.update(contentRuns).set({ status: "generating" }).where(eq(contentRuns.id, runId));
     const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
-    const klingAK = options.klingAccessKey || ENV.klingAccessKey;
-    const klingSK = options.klingSecretKey || ENV.klingSecretKey;
+    let klingAK = options.klingAccessKey || ENV.klingAccessKey;
+    let klingSK = options.klingSecretKey || ENV.klingSecretKey;
+    // If env vars are empty, try reading from DB appSettings (user saved via Setup Guide)
+    if (!klingAK || !klingSK) {
+      try {
+        const { appSettings } = await import("../drizzle/schema");
+        const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_access_key"));
+        const [sk] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_secret_key"));
+        if (ak?.value) klingAK = ak.value;
+        if (sk?.value) klingSK = sk.value;
+        if (klingAK && klingSK) console.log("[ContentPipeline] Loaded Kling credentials from DB settings");
+      } catch (e) {
+        console.warn("[ContentPipeline] Could not load Kling credentials from DB:", e);
+      }
+    }
     const hasKling = !!(klingAK && klingSK);
 
     for (const slide of slides) {
