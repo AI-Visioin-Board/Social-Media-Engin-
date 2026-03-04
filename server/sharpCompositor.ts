@@ -282,6 +282,7 @@ function buildOverlaySvg(
     : "";
 
   // Chat bubble insight line (shown below summary if present, or below headline if no summary)
+  // Skip if it would overflow into watermark area (SLIDE_H - 100)
   let insightBubbleSvg = "";
   if (insightLine && insightLine.trim().length > 3 && !isCover) {
     // Wrap insight text at ~42 chars per line
@@ -316,11 +317,14 @@ function buildOverlaySvg(
       `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 6}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
     ).join("\n    ");
 
-    insightBubbleSvg = `
+    // Only render if it fits above the watermark area (SLIDE_H - 100)
+    if (iBubbleY + iBubbleH < SLIDE_H - 100) {
+      insightBubbleSvg = `
   <!-- Insight chat bubble -->
   <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY} ${SLIDE_W / 2 + iTailSize},${iBubbleY} ${SLIDE_W / 2},${iBubbleY - iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="14" ry="14" fill="white" fill-opacity="0.92"/>
   ${iTextLines}`;
+    }
   }
 
   // Gradient: heavier bottom gradient for strong text contrast — @evolving.ai / @airesearches style
