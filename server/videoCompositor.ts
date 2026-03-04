@@ -132,19 +132,43 @@ function getHighlightedWords(headline: string): Set<string> {
  */
 function buildVideoOverlaySvg(
   headline: string,
-  insightLine?: string
+  insightLine?: string,
+  summary?: string
 ): string {
   const upper = headline.toUpperCase();
   const lines = wrapText(upper, 18);
-  const fontSize = lines.length <= 2 ? 96 : lines.length <= 3 ? 80 : lines.length <= 4 ? 68 : 56;
+
+  // Determine if we have summary text to show
+  const hasSummary = summary && summary.trim().length > 10;
+
+  // When summary is present, shrink headline to make room in the text zone
+  let fontSize: number;
+  if (hasSummary) {
+    fontSize = lines.length <= 2 ? 80 : lines.length <= 3 ? 68 : lines.length <= 4 ? 58 : 48;
+  } else {
+    fontSize = lines.length <= 2 ? 96 : lines.length <= 3 ? 80 : lines.length <= 4 ? 68 : 56;
+  }
   const lineHeight = fontSize * 1.22;
   const totalTextH = lines.length * lineHeight;
+
+  // Summary layout
+  const summaryFontSize = 26;
+  const summaryLineH = summaryFontSize + 8;
+  const summaryPadTop = 16;
+  let summaryWrapped: string[] = [];
+  let summaryBlockH = 0;
+  if (hasSummary) {
+    summaryWrapped = wrapText(summary!.trim(), 44);
+    if (summaryWrapped.length > 3) summaryWrapped = summaryWrapped.slice(0, 3);
+    summaryBlockH = summaryPadTop + summaryWrapped.length * summaryLineH;
+  }
 
   // Text zone: VIDEO_ZONE_H to SLIDE_H - 100
   const textZoneTop = VIDEO_ZONE_H + 20;
   const textZoneBottom = SLIDE_H - 100;
   const textZoneH = textZoneBottom - textZoneTop;
-  const textBlockTop = textZoneTop + Math.max(0, (textZoneH - totalTextH) / 2);
+  const totalContentH = totalTextH + summaryBlockH;
+  const textBlockTop = textZoneTop + Math.max(0, (textZoneH - totalContentH) / 2);
 
   const highlightedWords = getHighlightedWords(upper);
 
@@ -179,7 +203,30 @@ function buildVideoOverlaySvg(
     return `<tspan x="${SLIDE_W / 2}" y="${y}" xml:space="preserve">${parts.join("")}</tspan>`;
   }).join("\n    ");
 
-  // Insight bubble
+  // Summary text SVG (below headline in text zone)
+  let summarySvg = "";
+  if (hasSummary && summaryWrapped.length > 0) {
+    const lastHeadlineY = textBlockTop + (lines.length - 1) * lineHeight + fontSize;
+    const summaryStartY = lastHeadlineY + summaryPadTop;
+    const summaryTextLines = summaryWrapped.map((line, i) =>
+      `<tspan x="${SLIDE_W / 2}" y="${summaryStartY + (i + 1) * summaryLineH}">${escapeXml(line)}</tspan>`
+    ).join("\n    ");
+
+    summarySvg = `
+  <!-- Summary / context text below headline -->
+  <text
+    font-family="'Arial', 'Helvetica', sans-serif"
+    font-size="${summaryFontSize}"
+    fill="white"
+    fill-opacity="0.85"
+    text-anchor="middle"
+    font-weight="400"
+  >
+    ${summaryTextLines}
+  </text>`;
+  }
+
+  // Insight bubble (above headline in video zone overlap area)
   let insightBubbleSvg = "";
   if (insightLine && insightLine.trim().length > 3) {
     const insightWords = insightLine.trim().split(" ");
@@ -204,14 +251,17 @@ function buildVideoOverlaySvg(
     const iBubbleY = textBlockTop - iBubbleH - 20;
     const iTailSize = 10;
 
-    const iTextLines = insightLines.map((line, i) =>
-      `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 4}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
-    ).join("\n    ");
+    // Only render if bubble fits within the visible area
+    if (iBubbleY > VIDEO_ZONE_H * 0.4) {
+      const iTextLines = insightLines.map((line, i) =>
+        `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 4}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
+      ).join("\n    ");
 
-    insightBubbleSvg = `
+      insightBubbleSvg = `
   <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="12" ry="12" fill="white" fill-opacity="0.92"/>
   <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2 + iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2},${iBubbleY + iBubbleH + iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   ${iTextLines}`;
+    }
   }
 
   return `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
@@ -256,6 +306,8 @@ function buildVideoOverlaySvg(
     ${textLines}
   </text>
 
+  ${summarySvg}
+
   <!-- SuggestedByGPT watermark -->
   <text x="52" y="${SLIDE_H - 58}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
 
@@ -271,6 +323,7 @@ export interface VideoCompositorInput {
   slideIndex: number;
   videoUrl: string;
   headline: string;
+  summary?: string;
   insightLine?: string;
 }
 
@@ -284,7 +337,7 @@ export interface VideoCompositorInput {
  * 4. Upload the result to S3 and return the CDN URL
  */
 export async function compositeVideoSlide(input: VideoCompositorInput): Promise<string> {
-  const { runId, slideIndex, videoUrl, headline, insightLine } = input;
+  const { runId, slideIndex, videoUrl, headline, summary, insightLine } = input;
 
   console.log(`[VideoCompositor] Compositing slide ${slideIndex} for run ${runId}...`);
 
@@ -297,7 +350,7 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
   console.log(`[VideoCompositor] Downloaded ${ext} (${Math.round(fs.statSync(tmpVideoPath).size / 1024)}KB)`);
 
   // 2. Generate Sharp overlay PNG
-  const svgOverlay = buildVideoOverlaySvg(headline, insightLine);
+  const svgOverlay = buildVideoOverlaySvg(headline, insightLine, summary);
   const overlayBuffer = await sharp(Buffer.from(svgOverlay))
     .png()
     .toBuffer();

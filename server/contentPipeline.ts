@@ -1382,6 +1382,10 @@ async function _runPipelineStages(
     }
     const hasKling = !!(klingAK && klingSK);
 
+    // Import asset library for real-image sourcing
+    const { findLogoForText, downloadImage, compositeAssetOnBackground, uploadAsset, searchImage } =
+      await import("./assetLibrary");
+
     for (const slide of slides) {
       if (!slide.videoPrompt) continue;
       await db.update(generatedSlides)
@@ -1391,22 +1395,70 @@ async function _runPipelineStages(
       let mediaUrl: string | null = null;
       const wantsVideo = slide.isVideoSlide === 1;
 
-      if (wantsVideo) {
-        // Video slide: try Kling first, fall back to Nano Banana video gen
-        if (hasKling) {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Kling 2.5 Turbo video generation`);
-          mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
+      // ── Strategy 1: Try real-image sourcing first (logos, dynamic search) ──
+      // Only for non-cover, non-video image slides
+      if (!wantsVideo && slide.slideIndex !== 0) {
+        // Check curated logo library first (free, instant)
+        const headlineText = (slide.headline ?? "") + " " + (slide.summary ?? "");
+        const logoMatch = findLogoForText(headlineText);
+        if (logoMatch) {
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: found curated logo → ${logoMatch.description}`);
+          const logoBuffer = await downloadImage(logoMatch.url);
+          if (logoBuffer) {
+            try {
+              const composed = await compositeAssetOnBackground(logoBuffer, logoMatch.bgColor ?? "#0a0a1a");
+              mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: real logo composited and uploaded`);
+            } catch (err: any) {
+              console.warn(`[ContentPipeline] Logo compositing failed: ${err?.message} — falling back to AI generation`);
+            }
+          }
         }
+
+        // If no logo found, try Google Custom Search (if configured)
         if (!mediaUrl) {
-          // Nano Banana doesn't generate video — generate a still image for now
-          // When Kling keys are added, this will become a real video
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: video slide — Kling unavailable, using Nano Banana still image`);
+          const searchResult = await searchImage(
+            `${slide.headline ?? ""} AI technology high quality`,
+            { portrait: true }
+          );
+          if (searchResult) {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Google CSE found → ${searchResult.title}`);
+            const imgBuffer = await downloadImage(searchResult.url);
+            if (imgBuffer) {
+              try {
+                // Upload raw image — Sharp compositor will resize/crop to 1080×1350
+                const { url } = await (await import("./storage")).storagePut(
+                  `assets/run-${runId}-slide-${slide.slideIndex}-search-${Date.now()}.png`,
+                  imgBuffer,
+                  "image/png"
+                );
+                mediaUrl = url;
+                console.log(`[ContentPipeline] Slide ${slide.slideIndex}: search image uploaded`);
+              } catch (err: any) {
+                console.warn(`[ContentPipeline] Search image upload failed: ${err?.message}`);
+              }
+            }
+          }
+        }
+      }
+
+      // ── Strategy 2: AI generation (existing flow — fallback or for video slides) ──
+      if (!mediaUrl) {
+        if (wantsVideo) {
+          // Video slide: try Kling first, fall back to Nano Banana still image
+          if (hasKling) {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Kling 2.5 Turbo video generation`);
+            mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
+          }
+          if (!mediaUrl) {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: video slide — Kling unavailable, using Nano Banana still image`);
+            mediaUrl = await generateSlideImage(slide.videoPrompt);
+          }
+        } else {
+          // Image slide: Nano Banana still image
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: still image via Nano Banana`);
           mediaUrl = await generateSlideImage(slide.videoPrompt);
         }
-      } else {
-        // Image slide: always use Nano Banana still image
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: still image via Nano Banana`);
-        mediaUrl = await generateSlideImage(slide.videoPrompt);
       }
 
       await db.update(generatedSlides)

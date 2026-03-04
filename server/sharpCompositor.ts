@@ -415,6 +415,7 @@ export async function assembleSlideWithSharp(
         slideIndex,
         videoUrl: mediaUrl,
         headline,
+        summary: slide.summary,
         insightLine: slide.insightLine,
       });
       return composedUrl;
