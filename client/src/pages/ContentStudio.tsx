@@ -25,6 +25,15 @@ import {
   Tooltip, TooltipContent, TooltipTrigger
 } from "@/components/ui/tooltip";
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Returns true if the URL points to a static image (not a video). */
+function isImageUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const clean = url.split("?")[0].toLowerCase();
+  return clean.endsWith(".png") || clean.endsWith(".jpg") || clean.endsWith(".jpeg") || clean.endsWith(".webp");
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type RunStatus =
@@ -549,15 +558,19 @@ function RunDetailDialog({
                             return (
                               <div className="relative w-[220px] h-[390px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
                                 {src ? (
-                                  <video
-                                    key={src}
-                                    src={src}
-                                    className="w-full h-full object-cover"
-                                    autoPlay
-                                    muted
-                                    loop
-                                    playsInline
-                                  />
+                                  isImageUrl(src) ? (
+                                    <img key={src} src={src} className="w-full h-full object-cover" alt={slide?.headline || "slide"} />
+                                  ) : (
+                                    <video
+                                      key={src}
+                                      src={src}
+                                      className="w-full h-full object-cover"
+                                      autoPlay
+                                      muted
+                                      loop
+                                      playsInline
+                                    />
+                                  )
                                 ) : (
                                   <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center p-4 gap-2">
                                     <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center">
@@ -615,7 +628,11 @@ function RunDetailDialog({
                               }`}
                             >
                               {src ? (
-                                <video src={src} className="w-full h-full object-cover" muted playsInline />
+                                isImageUrl(src) ? (
+                                  <img src={src} className="w-full h-full object-cover" alt="slide thumbnail" />
+                                ) : (
+                                  <video src={src} className="w-full h-full object-cover" muted playsInline />
+                                )
                               ) : (
                                 <div className="w-full h-full bg-slate-800 flex items-center justify-center">
                                   <span className="text-white text-xs font-bold">{slide.slideIndex === 0 ? "C" : slide.slideIndex}</span>
@@ -656,15 +673,19 @@ function RunDetailDialog({
                           {/* Slide */}
                           <div className="w-[360px] h-[640px] bg-black rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
                             {src ? (
-                              <video
-                                key={src}
-                                src={src}
-                                className="w-full h-full object-cover"
-                                autoPlay
-                                controls
-                                loop
-                                playsInline
-                              />
+                              isImageUrl(src) ? (
+                                <img key={src} src={src} className="w-full h-full object-cover" alt="slide" />
+                              ) : (
+                                <video
+                                  key={src}
+                                  src={src}
+                                  className="w-full h-full object-cover"
+                                  autoPlay
+                                  controls
+                                  loop
+                                  playsInline
+                                />
+                              )
                             ) : (
                               <div className="w-full h-full bg-slate-900 flex flex-col items-center justify-center p-6 gap-3">
                                 <span className="text-indigo-400 text-2xl font-bold">{slide?.slideIndex === 0 ? "Cover" : `Slide ${slide?.slideIndex}`}</span>

@@ -1195,21 +1195,20 @@ async function _runPipelineStages(
         .where(eq(generatedSlides.id, slide.id));
     }
 
-    // Stage 6: Assembly — Canva compositor (primary) with FFmpeg fallback
+    // Stage 6: Assembly — Sharp compositor (@evolving.ai style, fast, no external API)
     await db.update(contentRuns).set({ status: "assembling" }).where(eq(contentRuns.id, runId));
     const slidesForAssembly = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
-    let assemblySucceeded = false;
 
-    // Primary: Canva MCP-based assembly (@evolving.ai style full-bleed slides)
+    console.log(`[ContentPipeline] Stage 6: Sharp assembly for run #${runId} (${slidesForAssembly.length} slides)...`);
     try {
-      console.log(`[ContentPipeline] Stage 6: Canva assembly for run #${runId}...`);
-      const { assembleSlides: canvaAssemble } = await import("./canvaCompositor");
-      const assembled = await canvaAssemble(
+      const { assembleAllSlides } = await import("./sharpCompositor");
+      const assembled = await assembleAllSlides(
         slidesForAssembly.map((s) => ({
+          runId,
           slideIndex: s.slideIndex,
           headline: s.headline ?? "",
           summary: s.summary ?? undefined,
-          mediaUrl: s.videoUrl ?? undefined,
+          mediaUrl: s.videoUrl ?? null,
           isVideo: !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
           isCover: s.slideIndex === 0,
         }))
@@ -1217,46 +1216,23 @@ async function _runPipelineStages(
       let successCount = 0;
       for (const result of assembled) {
         const matchingSlide = slidesForAssembly.find((s) => s.slideIndex === result.slideIndex);
-        if (matchingSlide && result.assembledUrl) {
+        if (matchingSlide && result.url) {
           await db.update(generatedSlides)
-            .set({ assembledUrl: result.assembledUrl, status: "ready" })
+            .set({ assembledUrl: result.url, status: "ready" })
             .where(eq(generatedSlides.id, matchingSlide.id));
           successCount++;
+        } else if (matchingSlide) {
+          // Mark as ready even if assembly failed so pipeline can continue
+          await db.update(generatedSlides)
+            .set({ status: "ready" })
+            .where(eq(generatedSlides.id, matchingSlide.id));
         }
       }
-      console.log(`[ContentPipeline] Canva assembly: ${successCount}/${slidesForAssembly.length} slides assembled`);
-      assemblySucceeded = successCount > 0;
-    } catch (canvaErr: any) {
-      console.warn(`[ContentPipeline] Canva assembly failed, falling back to FFmpeg: ${canvaErr?.message}`);
-    }
-
-    // Fallback: FFmpeg split-screen compositor (only if Canva produced 0 slides)
-    if (!assemblySucceeded) {
-      console.log(`[ContentPipeline] Stage 6 fallback: FFmpeg assembly for run #${runId}...`);
-      try {
-        const { assembleSlides: ffmpegAssemble } = await import("./ffmpegCompositor");
-        const assembled = await ffmpegAssemble(
-          slidesForAssembly.map((s) => ({
-            slideIndex: s.slideIndex,
-            headline: s.headline ?? "",
-            summary: s.summary ?? undefined,
-            videoUrl: s.videoUrl ?? undefined,
-            iscover: s.slideIndex === 0,
-          }))
-        );
-        for (const result of assembled) {
-          const matchingSlide = slidesForAssembly.find((s) => s.slideIndex === result.slideIndex);
-          if (matchingSlide) {
-            await db.update(generatedSlides)
-              .set({ assembledUrl: result.assembledUrl, status: "ready" })
-              .where(eq(generatedSlides.id, matchingSlide.id));
-          }
-        }
-      } catch (ffmpegErr: any) {
-        console.warn(`[ContentPipeline] FFmpeg fallback also failed: ${ffmpegErr?.message}`);
-        // Mark slides as ready even without assembled URL so pipeline can continue
-        await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.runId, runId));
-      }
+      console.log(`[ContentPipeline] Sharp assembly: ${successCount}/${slidesForAssembly.length} slides assembled`);
+    } catch (sharpErr: any) {
+      console.warn(`[ContentPipeline] Sharp assembly failed: ${sharpErr?.message}`);
+      // Mark all slides ready so pipeline can continue to caption/approval
+      await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.runId, runId));
     }
 
     // Stage 7: Generate caption and wait for admin approval before posting

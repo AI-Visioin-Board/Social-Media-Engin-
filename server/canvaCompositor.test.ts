@@ -122,21 +122,5 @@ describe("Canva MCP: generate-design → create-from-candidate → export", () =
   }, 180_000); // 3 min timeout for full Canva flow
 });
 
-describe("canvaCompositor: assembleSlideWithCanva()", () => {
-  it("assembles a full slide and returns an S3 URL", async () => {
-    const { assembleSlideWithCanva } = await import("./canvaCompositor");
-
-    const result = await assembleSlideWithCanva({
-      slideIndex: 0,
-      headline: "OPENAI JUST RELEASED A MODEL THAT CODES BETTER THAN 99% OF ENGINEERS",
-      summary: "OpenAI's new model outperforms 99% of human engineers on coding benchmarks. Business owners can now automate software development tasks that previously required expensive developers.",
-      mediaUrl: TEST_IMAGE_URL,
-      isVideo: false,
-      isCover: true,
-    });
-
-    expect(result).toBeTruthy();
-    expect(result).toMatch(/^https?:\/\//);
-    console.log("✅ Assembled slide S3 URL:", result?.slice(0, 80) + "...");
-  }, 300_000); // 5 min timeout for full pipeline
-});
+// NOTE: assembleSlideWithCanva() end-to-end test removed — Sharp compositor is now primary.
+// Canva MCP is kept as an optional integration but not used in the production pipeline.

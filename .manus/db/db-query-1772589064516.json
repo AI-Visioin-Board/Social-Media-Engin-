@@ -1,0 +1,55 @@
+{
+  "query": "SELECT id, runId, slideIndex, headline, status, videoUrl, assembledUrl FROM generated_slides WHERE runId = 150001 ORDER BY slideIndex;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, runId, slideIndex, headline, status, videoUrl, assembledUrl FROM generated_slides WHERE runId = 150001 ORDER BY slideIndex;",
+  "rows": [
+    {
+      "id": "150001",
+      "runId": "150001",
+      "slideIndex": "0",
+      "headline": "Here's the biggest AI news of the last 7 days",
+      "status": "ready",
+      "videoUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588151826.png",
+      "assembledUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588225135-slide-0.png"
+    },
+    {
+      "id": "150002",
+      "runId": "150001",
+      "slideIndex": "1",
+      "headline": "APPLE'S SIRI TO RUN ON GOOGLE SERVERS—IS PRIVACY AT RISK?",
+      "status": "ready",
+      "videoUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588159778.png",
+      "assembledUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588292323-slide-1.png"
+    },
+    {
+      "id": "150003",
+      "runId": "150001",
+      "slideIndex": "2",
+      "headline": "ANTHROPIC'S CLAUDE AI NOW BUILDS YOUR EXCEL REPORTS AND POWERPOINT DECKS!",
+      "status": "assembling",
+      "videoUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588167304.png",
+      "assembledUrl": "NULL"
+    },
+    {
+      "id": "150004",
+      "runId": "150001",
+      "slideIndex": "3",
+      "headline": "XIAOMI'S HUMANOID ROBOTS ACHIEVE 90.2% SUCCESS IN EV FACTORY!",
+      "status": "ready",
+      "videoUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588174127.png",
+      "assembledUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588439384-slide-3.png"
+    },
+    {
+      "id": "150005",
+      "runId": "150001",
+      "slideIndex": "4",
+      "headline": "AI AGENTS GET RUDE—BOOST COMPLEX TASK PERFORMANCE BY 15%!",
+      "status": "ready",
+      "videoUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588181626.png",
+      "assembledUrl": "https://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588491150-slide-4.png"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\trunId\tslideIndex\theadline\tstatus\tvideoUrl\tassembledUrl\n150001\t150001\t0\tHere's the biggest AI news of the last 7 days\tready\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588151826.png\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588225135-slide-0.png\n150002\t150001\t1\tAPPLE'S SIRI TO RUN ON GOOGLE SERVERS—IS PRIVACY AT RISK?\tready\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588159778.png\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588292323-slide-1.png\n150003\t150001\t2\tANTHROPIC'S CLAUDE AI NOW BUILDS YOUR EXCEL REPORTS AND POWERPOINT DECKS!\tassembling\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588167304.png\tNULL\n150004\t150001\t3\tXIAOMI'S HUMANOID ROBOTS ACHIEVE 90.2% SUCCESS IN EV FACTORY!\tready\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588174127.png\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588439384-slide-3.png\n150005\t150001\t4\tAI AGENTS GET RUDE—BOOST COMPLEX TASK PERFORMANCE BY 15%!\tready\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/generated/1772588181626.png\thttps://d2xsxph8kpxj0f.cloudfront.net/310419663031711838/gydcH5xscZ9R6SrGgu5bZS/canva-slides/run-1772588491150-slide-4.png\n",
+  "stderr": "",
+  "execution_time_ms": 396
+}
