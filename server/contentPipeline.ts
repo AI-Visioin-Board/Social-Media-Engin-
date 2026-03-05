@@ -842,7 +842,7 @@ async function marketingBrainPrompt({
   isVideo: boolean;
 }): Promise<string> {
   const mediaType = isVideo
-    ? "8-second cinematic video clip (Kling AI text-to-video)"
+    ? "5-second cinematic video clip (Kling AI text-to-video)"
     : "single photorealistic still image (Nano Banana / Google Imagen)";
 
   // Import enhanced specificity rules from virality framework
@@ -882,7 +882,7 @@ Technical requirements:
 - ABSOLUTELY NO TEXT in the image — no letters, no words, no numbers, no readable characters of any kind. Any text must be completely blurred, out-of-focus, or abstracted into illegible marks.
 - NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — show the EMOTION or CONSEQUENCE instead
 - Dramatic lighting, high contrast, professional composition
-- For videos: describe camera movement, action, and duration (8 seconds). Include DYNAMIC camera movements: slow push-in, dolly zoom, parallax shifts, rotating orbit shots, or dramatic reveal movements. The video must have VISIBLE MOTION — never a static image.
+- For videos: describe camera movement, action, and duration (5 seconds). Include DYNAMIC camera movements: slow push-in, dolly zoom, parallax shifts, rotating orbit shots, or dramatic reveal movements. The video must have VISIBLE MOTION — never a static image.
 - For images: describe the exact scene, lighting, depth, and emotional tone${marketingEnhancement}`,
       },
       {
@@ -996,7 +996,7 @@ async function generateKlingJWT(accessKey: string, secretKey: string): Promise<s
 }
 
 /**
- * Generate an 8-second video clip using Kling 2.5 Turbo API.
+ * Generate a 5-second video clip using Kling 2.5 Turbo API.
  * Returns the video URL on success, null on failure.
  */
 export async function generateKlingVideo(
@@ -1021,7 +1021,7 @@ export async function generateKlingVideo(
         negative_prompt: "text, watermark, blurry, low quality, distorted, looping, repetitive motion",
         cfg_scale: 0.5,
         mode: "pro",  // "pro" produces more coherent, non-repetitive motion vs "std"
-        duration: "8",
+        duration: "5",  // kling-v2-5-turbo only supports 5s; 8s returns error 1201
       }),
     });
 
@@ -1541,7 +1541,7 @@ async function _runPipelineStages(
       // ════════════════════════════════════════════════════════════════════════
 
       if (strategy === "kling_video" && hasKling) {
-        // ── KLING VIDEO: Generate 8-second cinematic video clip ──
+        // ── KLING VIDEO: Generate 5-second cinematic video clip ──
         // PRIORITY: Use the Creative Director's scenePrompt if it has camera motion keywords
         // (the CD was specifically told to include camera movement for kling_video slides).
         // Only fall back to Marketing Brain re-generation if the CD prompt is missing/empty.

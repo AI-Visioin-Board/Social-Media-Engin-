@@ -29,6 +29,21 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // ── Ghost-run recovery: fail any runs left in-flight from a previous server crash ──
+  try {
+    const mysql = await import("mysql2/promise");
+    const conn = await mysql.createConnection(process.env.DATABASE_URL!);
+    const [result] = await conn.execute(
+      `UPDATE content_runs SET status = 'failed' WHERE status IN ('generating','assembling','researching','scoring','discovering','posting')`
+    ) as any;
+    if (result?.affectedRows > 0) {
+      console.log(`[Startup] Auto-failed ${result.affectedRows} ghost run(s) left in-flight from previous session`);
+    }
+    await conn.end();
+  } catch (e) {
+    console.warn("[Startup] Ghost-run recovery skipped:", e);
+  }
+
   const app = express();
   const server = createServer(app);
   // Stripe webhook MUST be registered before express.json() to preserve raw body

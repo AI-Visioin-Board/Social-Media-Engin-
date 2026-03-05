@@ -226,3 +226,8 @@
 - [ ] UI: Setup Guide — show webhook status (configured/not configured) with masked URL
 - [ ] UI: Setup Guide — detailed Make.com scenario build instructions with exact payload JSON
 - [ ] UI: Setup Guide — aspect ratio warning for carousel videos (4:5 required by Instagram)
+
+## Stuck Run & Kling Duration Fix
+- [x] Kill stuck run #390001 (ghost generating status after server restart)
+- [x] Fix Kling duration error — API rejects value '8', switch to supported duration (5)
+- [x] Add server-restart recovery: on startup, auto-fail any runs stuck in generating/assembling

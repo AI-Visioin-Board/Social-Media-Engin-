@@ -1,0 +1,70 @@
+{
+  "query": "SELECT id, status, runSlot, adminApproved FROM content_runs ORDER BY id DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, status, runSlot, adminApproved FROM content_runs ORDER BY id DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "390001",
+      "status": "generating",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    },
+    {
+      "id": "360005",
+      "status": "failed",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    },
+    {
+      "id": "360004",
+      "status": "pending_post",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    },
+    {
+      "id": "360003",
+      "status": "review",
+      "runSlot": "friday",
+      "adminApproved": "0"
+    },
+    {
+      "id": "360002",
+      "status": "review",
+      "runSlot": "monday",
+      "adminApproved": "0"
+    },
+    {
+      "id": "360001",
+      "status": "review",
+      "runSlot": "monday",
+      "adminApproved": "0"
+    },
+    {
+      "id": "330001",
+      "status": "pending_post",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    },
+    {
+      "id": "300001",
+      "status": "pending_post",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    },
+    {
+      "id": "270001",
+      "status": "pending_post",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    },
+    {
+      "id": "240002",
+      "status": "pending_post",
+      "runSlot": "monday",
+      "adminApproved": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\trunSlot\tadminApproved\n390001\tgenerating\tmonday\t1\n360005\tfailed\tmonday\t1\n360004\tpending_post\tmonday\t1\n360003\treview\tfriday\t0\n360002\treview\tmonday\t0\n360001\treview\tmonday\t0\n330001\tpending_post\tmonday\t1\n300001\tpending_post\tmonday\t1\n270001\tpending_post\tmonday\t1\n240002\tpending_post\tmonday\t1\n",
+  "stderr": "",
+  "execution_time_ms": 387
+}
