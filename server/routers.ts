@@ -530,11 +530,11 @@ export const appRouter = router({
           source: z.string(),
           url: z.string(),
           scores: z.object({
-            businessOwnerImpact: z.number(),
-            generalPublicRelevance: z.number(),
-            viralPotential: z.number(),
-            worldImportance: z.number(),
-            interestingness: z.number(),
+            shareability: z.number(),
+            saveWorthiness: z.number(),
+            debatePotential: z.number(),
+            informationGap: z.number(),
+            personalImpact: z.number(),
             total: z.number(),
           }),
         })),
@@ -944,7 +944,7 @@ export const appRouter = router({
         const topics = JSON.parse(run.topicsSelected ?? "[]");
         topics[input.topicIndex] = {
           ...input.newTopic,
-          scores: { businessOwnerImpact: 5, generalPublicRelevance: 5, viralPotential: 5, worldImportance: 5, interestingness: 5, total: 25 },
+          scores: { shareability: 5, saveWorthiness: 5, debatePotential: 5, informationGap: 5, personalImpact: 5, total: 70 },
         };
         await db.update(contentRuns).set({ topicsSelected: JSON.stringify(topics) }).where(eq(contentRuns.id, input.runId));
         return { success: true };

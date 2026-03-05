@@ -43,12 +43,12 @@ export interface ScoredTopic {
   source: string;
   url: string;
   scores: {
-    businessOwnerImpact: number;   // 1-10
-    generalPublicRelevance: number; // 1-10
-    viralPotential: number;         // 1-10
-    worldImportance: number;        // 1-10
-    interestingness: number;        // 1-10
-    total: number;                  // sum
+    shareability: number;    // 1-10, weight 5x — would someone DM this?
+    saveWorthiness: number;  // 1-10, weight 3.5x — would someone bookmark?
+    debatePotential: number; // 1-10, weight 2.5x — would people argue?
+    informationGap: number;  // 1-10, weight 2x — how unknown is this?
+    personalImpact: number;  // 1-10, weight 1x — affects viewer's life?
+    total: number;           // weighted sum
   };
 }
 
@@ -517,12 +517,12 @@ NOTE: "total" = (shareability × 5) + (saveWorthiness × 3.5) + (debatePotential
       source: t.source,
       url: t.url,
       scores: {
-        businessOwnerImpact: 5,
-        generalPublicRelevance: 5,
-        viralPotential: 5,
-        worldImportance: 5,
-        interestingness: 5,
-        total: 25,
+        shareability: 5,
+        saveWorthiness: 5,
+        debatePotential: 5,
+        informationGap: 5,
+        personalImpact: 5,
+        total: 70,
       },
     }));
   }

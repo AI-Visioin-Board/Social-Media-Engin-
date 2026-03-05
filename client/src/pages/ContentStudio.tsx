@@ -63,11 +63,11 @@ interface ScoredTopic {
   source: string;
   url: string;
   scores: {
-    businessOwnerImpact: number;
-    generalPublicRelevance: number;
-    viralPotential: number;
-    worldImportance: number;
-    interestingness: number;
+    shareability: number;
+    saveWorthiness: number;
+    debatePotential: number;
+    informationGap: number;
+    personalImpact: number;
     total: number;
   };
 }
@@ -119,11 +119,11 @@ const PIPELINE_STEPS = [
 ];
 
 const SCORE_CRITERIA = [
-  { key: "businessOwnerImpact",    label: "Business Impact",  icon: <BarChart3 className="w-3.5 h-3.5" />,  color: "text-blue-600" },
-  { key: "generalPublicRelevance", label: "Public Relevance", icon: <Globe className="w-3.5 h-3.5" />,      color: "text-green-600" },
-  { key: "viralPotential",         label: "Viral Potential",  icon: <TrendingUp className="w-3.5 h-3.5" />, color: "text-pink-600" },
-  { key: "worldImportance",        label: "World Impact",     icon: <Shield className="w-3.5 h-3.5" />,     color: "text-purple-600" },
-  { key: "interestingness",        label: "Interestingness",  icon: <Sparkles className="w-3.5 h-3.5" />,   color: "text-amber-600" },
+  { key: "shareability",     label: "Shareability (5x)",  icon: <BarChart3 className="w-3.5 h-3.5" />,  color: "text-blue-600" },
+  { key: "saveWorthiness",  label: "Save-Worthy (3.5x)", icon: <Globe className="w-3.5 h-3.5" />,      color: "text-green-600" },
+  { key: "debatePotential", label: "Debate (2.5x)",      icon: <TrendingUp className="w-3.5 h-3.5" />, color: "text-pink-600" },
+  { key: "informationGap",  label: "Info Gap (2x)",       icon: <Shield className="w-3.5 h-3.5" />,     color: "text-purple-600" },
+  { key: "personalImpact",  label: "Personal (1x)",       icon: <Sparkles className="w-3.5 h-3.5" />,   color: "text-amber-600" },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
