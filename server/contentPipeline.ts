@@ -43,11 +43,18 @@ export interface ScoredTopic {
   source: string;
   url: string;
   scores: {
-    shareability: number;    // 1-10, weight 5x — would someone DM this?
-    saveWorthiness: number;  // 1-10, weight 3.5x — would someone bookmark?
-    debatePotential: number; // 1-10, weight 2.5x — would people argue?
-    informationGap: number;  // 1-10, weight 2x — how unknown is this?
-    personalImpact: number;  // 1-10, weight 1x — affects viewer's life?
+    // New virality-weighted criteria
+    shareability?: number;    // 1-10, weight 5x — would someone DM this?
+    saveWorthiness?: number;  // 1-10, weight 3.5x — would someone bookmark?
+    debatePotential?: number; // 1-10, weight 2.5x — would people argue?
+    informationGap?: number;  // 1-10, weight 2x — how unknown is this?
+    personalImpact?: number;  // 1-10, weight 1x — affects viewer's life?
+    // Legacy criteria (backwards compatibility)
+    businessOwnerImpact?: number;
+    generalPublicRelevance?: number;
+    viralPotential?: number;
+    worldImportance?: number;
+    interestingness?: number;
     total: number;           // weighted sum
   };
 }
@@ -1093,32 +1100,63 @@ export async function generateSlideImage(
  */
 export async function triggerInstagramPost(
   runId: number,
-  slides: Array<{ assembledUrl: string; headline: string }>,
+  slides: Array<{ assembledUrl: string; headline: string; isVideo?: boolean }>,
   caption: string,
   makeWebhookUrl?: string
 ): Promise<boolean> {
-  if (!makeWebhookUrl) {
+  // Resolve webhook URL: env var takes priority, then DB-stored value
+  let url = makeWebhookUrl;
+  if (!url) {
+    try {
+      const db = await getDb();
+      if (db) {
+        const { appSettings } = await import("../drizzle/schema");
+        const [row] = await db.select().from(appSettings).where(eq(appSettings.key, "make_webhook_url"));
+        if (row?.value) url = row.value;
+      }
+    } catch { /* ignore */ }
+  }
+  if (!url) {
     console.log("[ContentPipeline] Make.com webhook not configured — skipping Instagram post");
     return false;
   }
 
+  /**
+   * Make.com mixed-media carousel payload.
+   * Each slide must have image_url, video_url, AND media_type so Make.com’s
+   * Instagram Business module can handle both images and videos in a single carousel.
+   * Reference: https://community.make.com/t/dynamic-mapping-video-or-image-on-instagram-carousel/43280
+   *
+   * IMPORTANT: Instagram carousel videos must be 4:5 aspect ratio (1080×1350).
+   * Our slides are 1080×1920 (9:16). The Make.com scenario must crop/pad
+   * video slides to 4:5 before calling the Instagram API.
+   */
+  const slidePayload = slides.map((s, i) => ({
+    slide_index: i,
+    media_type: s.isVideo ? "VIDEO" : "IMAGE",
+    image_url: s.assembledUrl,   // always set — Make.com uses this for IMAGE slides
+    video_url: s.assembledUrl,   // always set — Make.com uses this for VIDEO slides
+    headline: s.headline,
+  }));
+
   try {
-    const response = await fetch(makeWebhookUrl, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        type: "carousel_post",
         instagram_page: "suggestedbygpt",
         run_id: runId,
         caption,
-        video_url: slides[0]?.assembledUrl ?? null,
-        image_url: slides[0]?.assembledUrl ?? null,
-        slides: slides.map((s) => ({ url: s.assembledUrl, headline: s.headline })),
-        topic_title: slides[0]?.headline ?? "",
-        topic_summary: "",
+        slides: slidePayload,
+        slide_count: slides.length,
+        has_video: slides.some((s) => s.isVideo),
         posted_at: new Date().toISOString(),
       }),
     });
-
+    if (!response.ok) {
+      console.error(`[ContentPipeline] Make.com webhook returned ${response.status}: ${await response.text()}`);
+    }
     return response.ok;
   } catch (err) {
     console.error("[ContentPipeline] Make.com webhook failed:", err);

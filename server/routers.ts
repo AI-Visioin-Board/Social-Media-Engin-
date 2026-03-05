@@ -529,7 +529,7 @@ export const appRouter = router({
           summary: z.string(),
           source: z.string(),
           url: z.string(),
-          // Accept any score field names for backward compatibility — normalize below
+          // Accept any score field names for backward compatibility — frontend normalizes before sending
           scores: z.record(z.string(), z.number()).optional().default({}),
         })),
       }))
@@ -643,9 +643,9 @@ export const appRouter = router({
         const readySlides = slides.filter((s) => s.assembledUrl).map((s) => ({
           assembledUrl: s.assembledUrl!,
           headline: s.headline ?? "",
+          isVideo: s.isVideoSlide === 1 && !!(s.assembledUrl && (s.assembledUrl.includes(".mp4") || s.assembledUrl.includes("video"))),
         }));
-
-        // Fire Make.com webhook
+        // Fire Make.com webhook (URL resolved inside triggerInstagramPost: env → DB fallback)
         const { triggerInstagramPost } = await import("./contentPipeline");
         const posted = await triggerInstagramPost(
           input.runId,
@@ -956,6 +956,79 @@ export const appRouter = router({
         };
         await db.update(contentRuns).set({ topicsSelected: JSON.stringify(topics) }).where(eq(contentRuns.id, input.runId));
         return { success: true };
+      }),
+    // ─── Make.com Webhook URL ─────────────────────────────────────────────────
+    // Save Make.com webhook URL (persisted in DB appSettings table)
+    saveWebhookUrl: adminProcedure
+      .input(z.object({
+        webhookUrl: z.string().url("Must be a valid URL"),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.insert(appSettings)
+          .values({ key: "make_webhook_url", value: input.webhookUrl.trim() })
+          .onDuplicateKeyUpdate({ set: { value: input.webhookUrl.trim() } });
+        console.log("[Make.com] Webhook URL saved to DB");
+        return { success: true, message: "Webhook URL saved. Auto-posting is now active." };
+      }),
+    // Get Make.com webhook status
+    getWebhookStatus: adminProcedure
+      .query(async () => {
+        // Check env var first, then fall back to DB-stored value
+        let webhookUrl = process.env.MAKE_WEBHOOK_URL;
+        if (!webhookUrl) {
+          try {
+            const { getDb } = await import("./db");
+            const { appSettings } = await import("../drizzle/schema");
+            const { eq } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const [row] = await db.select().from(appSettings).where(eq(appSettings.key, "make_webhook_url"));
+              if (row?.value) webhookUrl = row.value;
+            }
+          } catch { /* ignore */ }
+        }
+        if (!webhookUrl) return { configured: false, maskedUrl: null };
+        // Mask the URL for display — show only the last 8 chars of the path
+        const masked = webhookUrl.replace(/(https:\/\/hook\.make\.com\/[^/]+\/)(.+)/, (_, prefix, token) =>
+          prefix + "*".repeat(Math.max(0, token.length - 8)) + token.slice(-8)
+        );
+        return { configured: true, maskedUrl: masked };
+      }),
+    // Test Make.com webhook with a ping payload
+    testWebhook: adminProcedure
+      .mutation(async () => {
+        let webhookUrl = process.env.MAKE_WEBHOOK_URL;
+        if (!webhookUrl) {
+          try {
+            const { getDb } = await import("./db");
+            const { appSettings } = await import("../drizzle/schema");
+            const { eq } = await import("drizzle-orm");
+            const db = await getDb();
+            if (db) {
+              const [row] = await db.select().from(appSettings).where(eq(appSettings.key, "make_webhook_url"));
+              if (row?.value) webhookUrl = row.value;
+            }
+          } catch { /* ignore */ }
+        }
+        if (!webhookUrl) throw new Error("No webhook URL configured");
+        try {
+          const res = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "ping",
+              message: "SuggestedByGPT webhook test — connection verified",
+              timestamp: new Date().toISOString(),
+            }),
+          });
+          return { success: res.ok, statusCode: res.status };
+        } catch (err: any) {
+          throw new Error(`Webhook ping failed: ${err.message}`);
+        }
       }),
   }),
 });

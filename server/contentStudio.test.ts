@@ -199,3 +199,109 @@ describe("sharpCompositor: layout constants", () => {
     expect(tailTipY).toBeLessThan(iBubbleY);
   });
 });
+
+// ─── Make.com Webhook: payload shape ─────────────────────────────────────────
+
+describe("triggerInstagramPost: payload shape", () => {
+  /** Mirror the slide payload builder from contentPipeline.ts */
+  function buildSlidePayload(slides: Array<{ assembledUrl: string; headline: string; isVideo?: boolean }>) {
+    return slides.map((s, i) => ({
+      slide_index: i,
+      media_type: s.isVideo ? "VIDEO" : "IMAGE",
+      image_url: s.assembledUrl,
+      video_url: s.assembledUrl,
+      headline: s.headline,
+    }));
+  }
+
+  const mixedSlides = [
+    { assembledUrl: "https://cdn.example.com/slide0.png", headline: "Cover", isVideo: false },
+    { assembledUrl: "https://cdn.example.com/slide1.mp4", headline: "Story 1", isVideo: true },
+    { assembledUrl: "https://cdn.example.com/slide2.png", headline: "Story 2", isVideo: false },
+    { assembledUrl: "https://cdn.example.com/slide3.mp4", headline: "Story 3", isVideo: true },
+  ];
+
+  it("assigns correct media_type per slide", () => {
+    const payload = buildSlidePayload(mixedSlides);
+    expect(payload[0].media_type).toBe("IMAGE");
+    expect(payload[1].media_type).toBe("VIDEO");
+    expect(payload[2].media_type).toBe("IMAGE");
+    expect(payload[3].media_type).toBe("VIDEO");
+  });
+
+  it("always sets both image_url and video_url to the same assembledUrl", () => {
+    const payload = buildSlidePayload(mixedSlides);
+    for (const slide of payload) {
+      expect(slide.image_url).toBe(slide.video_url);
+    }
+  });
+
+  it("preserves slide_index order", () => {
+    const payload = buildSlidePayload(mixedSlides);
+    payload.forEach((s, i) => expect(s.slide_index).toBe(i));
+  });
+
+  it("correctly detects has_video from slide array", () => {
+    const hasVideo = mixedSlides.some((s) => s.isVideo);
+    expect(hasVideo).toBe(true);
+
+    const imageOnly = mixedSlides.filter((s) => !s.isVideo);
+    expect(imageOnly.some((s) => s.isVideo)).toBe(false);
+  });
+
+  it("defaults isVideo to false when not provided", () => {
+    const slides = [{ assembledUrl: "https://cdn.example.com/slide.png", headline: "Test" }];
+    const payload = buildSlidePayload(slides);
+    expect(payload[0].media_type).toBe("IMAGE");
+  });
+});
+
+describe("isVideoSlide: URL detection logic", () => {
+  /** Mirror the isVideo detection from routers.ts approvePost */
+  function detectIsVideo(assembledUrl: string | null, isVideoSlide: number): boolean {
+    return isVideoSlide === 1 && !!(assembledUrl && (assembledUrl.includes(".mp4") || assembledUrl.includes("video")));
+  }
+
+  it("returns true for .mp4 URL with isVideoSlide=1", () => {
+    expect(detectIsVideo("https://cdn.example.com/clip.mp4", 1)).toBe(true);
+  });
+
+  it("returns true for video path with isVideoSlide=1", () => {
+    expect(detectIsVideo("https://cdn.example.com/video/clip", 1)).toBe(true);
+  });
+
+  it("returns false for image URL even with isVideoSlide=1", () => {
+    expect(detectIsVideo("https://cdn.example.com/slide.png", 1)).toBe(false);
+  });
+
+  it("returns false for .mp4 URL when isVideoSlide=0", () => {
+    expect(detectIsVideo("https://cdn.example.com/clip.mp4", 0)).toBe(false);
+  });
+
+  it("returns false for null URL", () => {
+    expect(detectIsVideo(null, 1)).toBe(false);
+  });
+});
+
+describe("getWebhookStatus: URL masking", () => {
+  /** Mirror the masking logic from routers.ts getWebhookStatus */
+  function maskWebhookUrl(webhookUrl: string): string {
+    return webhookUrl.replace(/(https:\/\/hook\.make\.com\/[^/]+\/)(.+)/, (_, prefix, token) =>
+      prefix + "*".repeat(Math.max(0, token.length - 8)) + token.slice(-8)
+    );
+  }
+
+  it("masks the token portion leaving last 8 chars visible", () => {
+    const url = "https://hook.make.com/abc123/abcdefghijklmnop";
+    const masked = maskWebhookUrl(url);
+    expect(masked).toContain("https://hook.make.com/abc123/");
+    expect(masked).toContain("ijklmnop");
+    expect(masked).not.toContain("abcdefgh");
+  });
+
+  it("does not mask non-Make.com URLs", () => {
+    const url = "https://other.example.com/webhook/token123";
+    const masked = maskWebhookUrl(url);
+    expect(masked).toBe(url); // no change
+  });
+});

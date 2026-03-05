@@ -215,3 +215,14 @@
 ## Bug Fixes (March 4 2026 — Round 2)
 - [x] Bug: Generated images contain garbled text/lorem ipsum overlay — added hard NO-TEXT rule to marketingBrainPrompt system prompt, user prompt, and both inline research prompts; added document-avoidance rule (show emotion/consequence, not the document itself)
 - [x] Bug: Run list shows "Ready to Post" but dialog shows run still in "Researching" — confirmed NOT a bug: #240002 was a new in-progress run; other runs correctly show pending_post status
+
+## Make.com Webhook — Full Auto-Post Pipeline
+- [x] Server: upgrade triggerInstagramPost payload to per-slide { image_url, video_url, media_type, headline } format (Make.com mixed carousel compatible)
+- [x] Server: add isVideoSlide to slide data passed to triggerInstagramPost
+- [x] Server: save/get webhook URL in appSettings DB table (fallback chain: env → DB)
+- [x] Server: tRPC saveWebhookUrl + getWebhookStatus procedures
+- [x] Server: read webhook URL from DB in runContentPipeline and continueAfterApproval
+- [ ] UI: Setup Guide — live webhook URL input field with Save + Test Ping button
+- [ ] UI: Setup Guide — show webhook status (configured/not configured) with masked URL
+- [ ] UI: Setup Guide — detailed Make.com scenario build instructions with exact payload JSON
+- [ ] UI: Setup Guide — aspect ratio warning for carousel videos (4:5 required by Instagram)

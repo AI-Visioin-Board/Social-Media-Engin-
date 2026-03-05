@@ -1185,6 +1185,164 @@ function GoogleCseCredentialsCard() {
   );
 }
 
+// ─── Make.com Webhook Card ──────────────────────────────────────────────────
+
+function MakeWebhookCard() {
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [testing, setTesting] = useState(false);
+  const utils = trpc.useUtils();
+
+  const { data: webhookStatus } = trpc.contentStudio.getWebhookStatus.useQuery();
+
+  const saveWebhook = trpc.contentStudio.saveWebhookUrl.useMutation({
+    onSuccess: () => {
+      setWebhookUrl("");
+      utils.contentStudio.getWebhookStatus.invalidate();
+      toast.success("Webhook URL saved! Auto-posting is now active.");
+    },
+    onError: (e) => toast.error(`Failed to save: ${e.message}`),
+  });
+
+  const testWebhook = trpc.contentStudio.testWebhook.useMutation({
+    onSuccess: (data) => {
+      setTesting(false);
+      if (data.success) {
+        toast.success(`Ping sent! Make.com responded with HTTP ${data.statusCode}. Your scenario is connected.`);
+      } else {
+        toast.error(`Make.com returned HTTP ${data.statusCode}. Check your scenario is active.`);
+      }
+    },
+    onError: (e) => {
+      setTesting(false);
+      toast.error(`Ping failed: ${e.message}`);
+    },
+  });
+
+  const isConfigured = webhookStatus?.configured ?? false;
+
+  const PAYLOAD_EXAMPLE = `{
+  "type": "carousel_post",
+  "instagram_page": "suggestedbygpt",
+  "run_id": 42,
+  "caption": "5 AI stories that broke the internet this week...",
+  "slide_count": 5,
+  "has_video": true,
+  "slides": [
+    {
+      "slide_index": 0,
+      "media_type": "IMAGE",
+      "image_url": "https://cdn.../slide0.png",
+      "video_url": "https://cdn.../slide0.png",
+      "headline": "OpenAI just released..."
+    },
+    {
+      "slide_index": 1,
+      "media_type": "VIDEO",
+      "image_url": "https://cdn.../slide1.mp4",
+      "video_url": "https://cdn.../slide1.mp4",
+      "headline": "Google DeepMind..."
+    }
+  ],
+  "posted_at": "2026-03-05T04:00:00.000Z"
+}`;
+
+  return (
+    <Card className={`border-2 ${isConfigured ? "border-green-200 bg-green-50" : "border-slate-200"}`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Send className="w-4 h-4 text-indigo-600" />
+          Make.com Instagram Auto-Post
+          <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full ${
+            isConfigured ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"
+          }`}>
+            {isConfigured ? "✓ Connected" : "Not configured"}
+          </span>
+        </CardTitle>
+        <CardDescription>
+          {isConfigured
+            ? "Webhook is active. Approved carousels will auto-post to Instagram via Make.com."
+            : "Paste your Make.com webhook URL to enable fully automated Instagram posting after you approve each carousel."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+
+        {/* Status row */}
+        {isConfigured && webhookStatus?.maskedUrl && (
+          <div className="flex items-center gap-2 p-2.5 bg-green-50 border border-green-200 rounded-lg">
+            <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+            <p className="text-xs text-green-700 font-mono">{webhookStatus.maskedUrl}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto text-xs h-7 border-green-300 text-green-700 hover:bg-green-100"
+              disabled={testing || testWebhook.isPending}
+              onClick={() => { setTesting(true); testWebhook.mutate(); }}
+            >
+              {testWebhook.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Zap className="w-3 h-3 mr-1" />}
+              Test Ping
+            </Button>
+          </div>
+        )}
+
+        {/* URL input */}
+        <div className="space-y-1.5">
+          <Label htmlFor="webhook-url" className="text-xs font-medium text-slate-700">
+            {isConfigured ? "Update Webhook URL" : "Make.com Webhook URL"}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="webhook-url"
+              type="url"
+              placeholder="https://hook.make.com/your-webhook-id"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              className="font-mono text-xs"
+            />
+            <Button
+              onClick={() => saveWebhook.mutate({ webhookUrl })}
+              disabled={!webhookUrl.trim() || saveWebhook.isPending}
+              className="bg-indigo-600 hover:bg-indigo-700 shrink-0"
+            >
+              {saveWebhook.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Step-by-step Make.com instructions */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">How to set up your Make.com scenario</p>
+          {[
+            { step: 1, text: "In Make.com, create a new scenario. Add a Webhooks → Custom webhook trigger. Copy the webhook URL it gives you." },
+            { step: 2, text: "Add an Iterator module. Set the array to map(slides, 'slide_index') — this loops over each slide in the payload." },
+            { step: 3, text: "Add an Array Aggregator after the Iterator. Set Target Structure → Custom. Map: media_type, image_url, video_url from the iterator output." },
+            { step: 4, text: "Add Instagram for Business → Create a Carousel Post. Map: slides array from aggregator, caption from webhook payload." },
+            { step: 5, text: "⚠️ Video aspect ratio: Instagram carousel videos must be 4:5 (1080×1350). Add a video conversion step if any slides have media_type = VIDEO." },
+            { step: 6, text: "Activate the scenario, then paste the webhook URL above and click Save. Use Test Ping to verify the connection." },
+          ].map(({ step, text }) => (
+            <div key={step} className="flex items-start gap-3 text-xs text-slate-600">
+              <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs">{step}</span>
+              {text}
+            </div>
+          ))}
+        </div>
+
+        {/* Payload reference */}
+        <div>
+          <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">Webhook payload shape (reference)</p>
+          <div className="p-3 bg-slate-900 rounded-lg overflow-x-auto">
+            <pre className="text-xs text-green-400 font-mono whitespace-pre">{PAYLOAD_EXAMPLE}</pre>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            <strong>media_type</strong> is always <code className="bg-slate-100 px-1 rounded">"IMAGE"</code> or <code className="bg-slate-100 px-1 rounded">"VIDEO"</code>.
+            Both <code className="bg-slate-100 px-1 rounded">image_url</code> and <code className="bg-slate-100 px-1 rounded">video_url</code> are always set to the same URL — Make.com uses the correct one based on <code className="bg-slate-100 px-1 rounded">media_type</code>.
+          </p>
+        </div>
+
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ContentStudio() {
@@ -1565,37 +1723,7 @@ export default function ContentStudio() {
             </Card>
 
             {/* Make.com Setup */}
-            <Card className="border-slate-200">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Send className="w-4 h-4" />
-                  Make.com Instagram Setup
-                </CardTitle>
-                <CardDescription>Configure your Make.com scenario to receive slide URLs and post to Instagram</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  {[
-                    "Create a new scenario in Make.com",
-                    "Add a Webhook trigger module — copy the webhook URL",
-                    "Add an Instagram for Business module → Create a Carousel Post",
-                    "Map payload: slides[].url → media URLs, caption → post caption",
-                    "Paste the webhook URL as MAKE_WEBHOOK_URL in Settings → Secrets",
-                  ].map((text, i) => (
-                    <div key={i} className="flex items-start gap-3 text-xs text-slate-600">
-                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-slate-200 text-slate-600 font-bold flex items-center justify-center text-xs">{i + 1}</span>
-                      {text}
-                    </div>
-                  ))}
-                </div>
-                <div className="p-3 bg-slate-50 rounded border border-slate-200">
-                  <p className="text-xs font-mono text-slate-600">
-                    Webhook payload shape:<br />
-                    {"{ runId, caption, slides: [{ url, headline }], scheduledFor }"}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            <MakeWebhookCard />
           </div>
         </TabsContent>
       </Tabs>
