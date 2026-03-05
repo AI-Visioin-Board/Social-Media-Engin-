@@ -1503,9 +1503,27 @@ async function _runPipelineStages(
 
       if (wantsVideo && hasKling) {
         // VIDEO SLIDE with Kling available
+        // ── BUG 8 FIX: Re-generate prompt with isVideo:true for Kling ──
+        // The research phase generates ALL prompts with isVideo:false (still-image style).
+        // Kling needs camera motion, dynamic action, and movement descriptions to produce
+        // quality 8-second video clips. Re-run Marketing Brain with isVideo:true.
+        let videoSpecificPrompt = slide.videoPrompt;
+        try {
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Re-generating prompt with video motion for Kling...`);
+          videoSpecificPrompt = await marketingBrainPrompt({
+            headline: slide.headline ?? "",
+            summary: slide.summary ?? "",
+            research: slide.summary ?? "",
+            isVideo: true,
+          });
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Video prompt generated (${videoSpecificPrompt.length} chars)`);
+        } catch (err: any) {
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using original: ${err?.message}`);
+        }
+
         log.klingAttempted = true;
         console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Kling 2.5 Turbo video...`);
-        mediaUrl = await generateKlingVideo(slide.videoPrompt, klingAK, klingSK);
+        mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
         log.klingSucceeded = !!mediaUrl;
         if (mediaUrl) {
           log.strategy = "kling_video";
@@ -1524,7 +1542,7 @@ async function _runPipelineStages(
           // ✅ KEY FIX: Logo found + AI background → composite logo PROMINENTLY on top
           try {
             const isDualLogo = !!secondLogoBuffer;
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔀 Compositing ${isDualLogo ? "DUAL" : "HERO"} logo(s) onto AI background...`);
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔀 Compositing ${isDualLogo ? "dual" : "single"} logo badge(s) onto AI background...`);
             const aiImageBuffer = await downloadImage(aiImageUrl);
             if (aiImageBuffer) {
               const composed = await compositeAssetOnBackground(
@@ -1566,7 +1584,7 @@ async function _runPipelineStages(
 
       await db.update(generatedSlides)
         .set({
-          videoUrl: mediaUrl ?? undefined,
+          videoUrl: mediaUrl ?? null,
           status: mediaUrl ? "assembling" : "ready",
         })
         .where(eq(generatedSlides.id, slide.id));
@@ -1600,9 +1618,23 @@ async function _runPipelineStages(
     console.log(`[ContentPipeline] ═══════════════════════════════════════\n`);
 
     // Store decision log in run metadata for UI access
+    // BUG 4 FIX: topicsRaw is a JSON ARRAY "[{...},{...}]" — we must NOT spread it
+    // into an object (that would destroy it into {"0":{...},"1":{...}}).
+    // Instead, store the decision log as a separate field or wrap properly.
     try {
+      const [currentRun] = await db.select({ topicsRaw: contentRuns.topicsRaw }).from(contentRuns).where(eq(contentRuns.id, runId));
+      const existingRaw = currentRun?.topicsRaw ?? "[]";
+      let parsed: any;
+      try { parsed = JSON.parse(existingRaw); } catch { parsed = []; }
+
+      // If topicsRaw is an array (the normal case), wrap it in an object to add the log
+      // If it's already an object (from a previous run), just add the log key
+      const wrapped = Array.isArray(parsed)
+        ? { topics: parsed, mediaDecisionLog: decisionLog }
+        : { ...parsed, mediaDecisionLog: decisionLog };
+
       await db.update(contentRuns)
-        .set({ topicsRaw: JSON.stringify({ ...JSON.parse((await db.select({ topicsRaw: contentRuns.topicsRaw }).from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.topicsRaw ?? "{}"), mediaDecisionLog: decisionLog }) })
+        .set({ topicsRaw: JSON.stringify(wrapped) })
         .where(eq(contentRuns.id, runId));
     } catch { /* don't fail pipeline over logging */ }
 

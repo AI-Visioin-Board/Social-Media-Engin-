@@ -362,13 +362,14 @@ export async function downloadImage(imageUrl: string): Promise<Buffer | null> {
 }
 
 /**
- * Composite a logo/asset as a LARGE, PROMINENT circular overlay onto a background image.
- * Inspired by @evolving.ai / @airesearches style — logos are 300-400px, placed in the
- * upper portion of the image as a major visual element (not a small badge).
+ * Composite logo(s) as SMALL CORNER BADGES onto a background image.
+ * Matches @evolving.ai style — logos are 80-110px circular badges in the
+ * bottom-left corner. The AI-generated background is the main visual;
+ * logos are supplementary brand identifiers, NOT the focal point.
  *
  * Layout options:
- * - "hero": Single large logo centered in upper-third (default)
- * - "dual": Two logos side by side (for competition/comparison stories)
+ * - "badge" (default): Single small logo badge in bottom-left corner
+ * - "dual": Two small logos side by side in bottom-left
  *
  * If no backgroundBuffer is provided, creates a cinematic gradient background.
  */
@@ -376,7 +377,7 @@ export async function compositeAssetOnBackground(
   assetBuffer: Buffer,
   bgColor: string = "#0a0a1a",
   backgroundBuffer?: Buffer,
-  options?: { layout?: "hero" | "dual"; secondLogoBuffer?: Buffer; secondBgColor?: string }
+  options?: { layout?: "badge" | "dual"; secondLogoBuffer?: Buffer; secondBgColor?: string }
 ): Promise<Buffer> {
   const W = 1080;
   const H = 1350;
@@ -403,93 +404,62 @@ export async function compositeAssetOnBackground(
   const bgBuffer = await bgPipeline.png().toBuffer();
   const composites: sharp.OverlayOptions[] = [];
 
-  // ── Logo sizing: LARGE and prominent (300-380px) like @evolving.ai ──
-  const LOGO_SIZE = 340; // diameter of the circular logo container
-  const LOGO_INNER = LOGO_SIZE - 40; // logo itself inside the circle (with padding)
+  // ── Logo sizing: SMALL corner badges (80-110px) like @evolving.ai ──
+  // Background image is the hero visual; logos sit in the corner as context identifiers.
+  const BADGE_SIZE = 100;  // outer circle diameter
+  const BADGE_INNER = 70;  // logo itself inside the circle (with padding)
+  const BADGE_MARGIN = 40; // distance from edge of image
+  // Place badges in the upper-left area above the text overlay zone (bottom ~30% = text zone)
+  // Position near top-left so they don't overlap text at bottom
+  const BADGE_Y = 40;
 
-  // Resize main logo to fit inside the circle
-  const resizedAsset = await sharp(assetBuffer)
-    .resize(LOGO_INNER, LOGO_INNER, { fit: "inside", withoutEnlargement: true })
-    .png()
-    .toBuffer();
-
-  const assetMeta = await sharp(resizedAsset).metadata();
-  const assetW = assetMeta.width ?? LOGO_INNER;
-  const assetH = assetMeta.height ?? LOGO_INNER;
-
-  if (options?.layout === "dual" && options.secondLogoBuffer) {
-    // ── DUAL LAYOUT: Two logos side by side (competition stories) ──
-    const DUAL_SIZE = 260;
-    const DUAL_INNER = DUAL_SIZE - 30;
-    const gapX = 80; // gap between circles
-    const leftCenterX = Math.round(W / 2 - DUAL_SIZE / 2 - gapX / 2);
-    const rightCenterX = Math.round(W / 2 + DUAL_SIZE / 2 + gapX / 2);
-    const centerY = Math.round(H * 0.22); // 22% from top
-
-    // Left circle (main logo)
-    const leftCircleSvg = `<svg width="${DUAL_SIZE}" height="${DUAL_SIZE}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2}" fill="${bgColor}" fill-opacity="0.85"/>
-      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2 - 3}" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
-    </svg>`;
-    composites.push({
-      input: await sharp(Buffer.from(leftCircleSvg)).png().toBuffer(),
-      left: leftCenterX - DUAL_SIZE / 2,
-      top: centerY - DUAL_SIZE / 2,
-    });
-
-    const resizedLeft = await sharp(assetBuffer)
-      .resize(DUAL_INNER, DUAL_INNER, { fit: "inside", withoutEnlargement: true })
-      .png().toBuffer();
-    const leftMeta = await sharp(resizedLeft).metadata();
-    composites.push({
-      input: resizedLeft,
-      left: leftCenterX - Math.round((leftMeta.width ?? DUAL_INNER) / 2),
-      top: centerY - Math.round((leftMeta.height ?? DUAL_INNER) / 2),
-    });
-
-    // Right circle (second logo)
-    const secondColor = options.secondBgColor ?? "#1a1a2e";
-    const rightCircleSvg = `<svg width="${DUAL_SIZE}" height="${DUAL_SIZE}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2}" fill="${secondColor}" fill-opacity="0.85"/>
-      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2 - 3}" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
-    </svg>`;
-    composites.push({
-      input: await sharp(Buffer.from(rightCircleSvg)).png().toBuffer(),
-      left: rightCenterX - DUAL_SIZE / 2,
-      top: centerY - DUAL_SIZE / 2,
-    });
-
-    const resizedRight = await sharp(options.secondLogoBuffer)
-      .resize(DUAL_INNER, DUAL_INNER, { fit: "inside", withoutEnlargement: true })
-      .png().toBuffer();
-    const rightMeta = await sharp(resizedRight).metadata();
-    composites.push({
-      input: resizedRight,
-      left: rightCenterX - Math.round((rightMeta.width ?? DUAL_INNER) / 2),
-      top: centerY - Math.round((rightMeta.height ?? DUAL_INNER) / 2),
-    });
-  } else {
-    // ── HERO LAYOUT: Single large centered logo ──
-    const centerX = Math.round(W / 2);
-    const centerY = Math.round(H * 0.22); // upper third
-
-    // Dark circle backdrop with subtle border (like @evolving.ai style)
-    const circleSvg = `<svg width="${LOGO_SIZE}" height="${LOGO_SIZE}" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="${LOGO_SIZE / 2}" cy="${LOGO_SIZE / 2}" r="${LOGO_SIZE / 2}" fill="${bgColor}" fill-opacity="0.85"/>
-      <circle cx="${LOGO_SIZE / 2}" cy="${LOGO_SIZE / 2}" r="${LOGO_SIZE / 2 - 3}" fill="none" stroke="white" stroke-opacity="0.15" stroke-width="2"/>
+  // Helper: create one circular badge at given position
+  const createBadge = async (
+    logoBuffer: Buffer,
+    badgeBgColor: string,
+    posX: number,
+    posY: number,
+    size: number,
+    inner: number,
+  ) => {
+    const circleSvg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="${badgeBgColor}" fill-opacity="0.85"/>
+      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 2}" fill="none" stroke="white" stroke-opacity="0.25" stroke-width="1.5"/>
     </svg>`;
     composites.push({
       input: await sharp(Buffer.from(circleSvg)).png().toBuffer(),
-      left: centerX - LOGO_SIZE / 2,
-      top: centerY - LOGO_SIZE / 2,
+      left: posX,
+      top: posY,
     });
-
-    // Center the logo inside the circle
+    const resized = await sharp(logoBuffer)
+      .resize(inner, inner, { fit: "inside", withoutEnlargement: true })
+      .png().toBuffer();
+    const meta = await sharp(resized).metadata();
     composites.push({
-      input: resizedAsset,
-      left: centerX - Math.round(assetW / 2),
-      top: centerY - Math.round(assetH / 2),
+      input: resized,
+      left: posX + Math.round((size - (meta.width ?? inner)) / 2),
+      top: posY + Math.round((size - (meta.height ?? inner)) / 2),
     });
+  };
+
+  if (options?.layout === "dual" && options.secondLogoBuffer) {
+    // ── DUAL BADGE: Two small logos side by side in top-left corner ──
+    const DUAL_BADGE = 90;
+    const DUAL_INNER = 62;
+    const gapX = 14;
+
+    await createBadge(assetBuffer, bgColor, BADGE_MARGIN, BADGE_Y, DUAL_BADGE, DUAL_INNER);
+    await createBadge(
+      options.secondLogoBuffer,
+      options.secondBgColor ?? "#1a1a2e",
+      BADGE_MARGIN + DUAL_BADGE + gapX,
+      BADGE_Y,
+      DUAL_BADGE,
+      DUAL_INNER,
+    );
+  } else {
+    // ── SINGLE BADGE: One small logo in top-left corner ──
+    await createBadge(assetBuffer, bgColor, BADGE_MARGIN, BADGE_Y, BADGE_SIZE, BADGE_INNER);
   }
 
   return sharp(bgBuffer)
