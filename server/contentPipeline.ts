@@ -1357,8 +1357,30 @@ async function _runPipelineStages(
     // The Creative Director analyzes each story and decides the best visual approach:
     // cinematic_scene, scene_with_badge, person_composite, or kling_video.
     // This replaces the old hardcoded videoSlideIndices = new Set([1, 3]).
-    const { creativeDirectorAgent } = await import("./creativeDirector");
-    const creativeBrief = await creativeDirectorAgent(researched, runId);
+    // Wrapped in try/catch: if the Creative Director fails, we fall back to
+    // all-cinematic_scene (pure AI generation) rather than killing the pipeline.
+    let creativeBrief: Awaited<ReturnType<typeof import("./creativeDirector").creativeDirectorAgent>>;
+    try {
+      const { creativeDirectorAgent } = await import("./creativeDirector");
+      creativeBrief = await creativeDirectorAgent(researched, runId);
+    } catch (cdErr: any) {
+      console.error(`[ContentPipeline] ⚠️ Creative Director failed: ${cdErr?.message} — using all-cinematic_scene fallback`);
+      // Build a minimal fallback brief: cover + one video + rest cinematic
+      creativeBrief = {
+        runId,
+        globalStyleNotes: "Fallback: Creative Director unavailable. Using cinematic scenes.",
+        slides: [
+          { slideIndex: 0, strategy: "cinematic_scene", reasoning: "CD fallback", scenePrompt: "", engagementScore: 5 },
+          ...researched.map((_, i) => ({
+            slideIndex: i + 1,
+            strategy: (i === 0 ? "kling_video" : "cinematic_scene") as import("./creativeDirector").VisualStrategy,
+            reasoning: "CD fallback",
+            scenePrompt: "",
+            engagementScore: 5,
+          })),
+        ],
+      };
+    }
 
     // Build a map of slide index → creative brief for Stage 5
     const briefBySlide = new Map(creativeBrief.slides.map(s => [s.slideIndex, s]));
@@ -1489,17 +1511,27 @@ async function _runPipelineStages(
 
       if (strategy === "kling_video" && hasKling) {
         // ── KLING VIDEO: Generate 8-second cinematic video clip ──
+        // PRIORITY: Use the Creative Director's scenePrompt if it has camera motion keywords
+        // (the CD was specifically told to include camera movement for kling_video slides).
+        // Only fall back to Marketing Brain re-generation if the CD prompt is missing/empty.
         let videoSpecificPrompt = scenePrompt;
-        try {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Generating video-specific prompt with camera motion...`);
-          videoSpecificPrompt = await marketingBrainPrompt({
-            headline: slide.headline ?? "",
-            summary: slide.summary ?? "",
-            research: slide.summary ?? "",
-            isVideo: true,
-          });
-        } catch (err: any) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using scene prompt: ${err?.message}`);
+        const hasCameraMotion = /camera|push[- ]in|dolly|orbit|pan|zoom|parallax|tracking|reveal/i.test(scenePrompt);
+
+        if (!scenePrompt || scenePrompt.length < 20 || !hasCameraMotion) {
+          // Creative Director didn't provide a video-quality prompt — regenerate
+          try {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 CD prompt lacks camera motion — generating video-specific prompt...`);
+            videoSpecificPrompt = await marketingBrainPrompt({
+              headline: slide.headline ?? "",
+              summary: slide.summary ?? "",
+              research: slide.summary ?? "",
+              isVideo: true,
+            });
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using scene prompt: ${err?.message}`);
+          }
+        } else {
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Using Creative Director's video prompt (has camera motion)`);
         }
 
         log.klingAttempted = true;

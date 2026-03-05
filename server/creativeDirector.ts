@@ -460,6 +460,46 @@ Return ONLY the JSON object. No explanation, no preamble.`;
       };
     });
 
+    // ── Ensure correct slide count: must have cover (0) + one per topic (1..N) ──
+    const expectedCount = researched.length + 1; // cover + content slides
+    const existingIndices = new Set(sanitizedSlides.map(s => s.slideIndex));
+
+    // Fill in any missing slides with cinematic_scene defaults
+    for (let idx = 0; idx < expectedCount; idx++) {
+      if (!existingIndices.has(idx)) {
+        console.warn(`[CreativeDirector] LLM omitted slide ${idx} — adding cinematic_scene default`);
+        const topicIdx = idx === 0 ? 0 : idx - 1;
+        sanitizedSlides.push({
+          slideIndex: idx,
+          strategy: "cinematic_scene",
+          reasoning: "Auto-filled — LLM omitted this slide",
+          scenePrompt: idx === 0
+            ? researched.map(t => t.headline).join(". ") + ". Dramatic cinematic AI scene, vertical 9:16, no text."
+            : researched[topicIdx]?.videoPrompt ?? "Dramatic cinematic AI technology scene, neon lighting, vertical 9:16",
+          engagementScore: 5,
+        });
+      }
+    }
+
+    // Remove any excess slides beyond expected count
+    if (sanitizedSlides.length > expectedCount) {
+      console.warn(`[CreativeDirector] LLM returned ${sanitizedSlides.length} slides, expected ${expectedCount} — trimming`);
+      // Keep only the expected indices, sorted
+      const validSlides = sanitizedSlides.filter(s => s.slideIndex >= 0 && s.slideIndex < expectedCount);
+      // Deduplicate: keep first occurrence of each slideIndex
+      const seen = new Set<number>();
+      sanitizedSlides.length = 0;
+      for (const s of validSlides) {
+        if (!seen.has(s.slideIndex)) {
+          seen.add(s.slideIndex);
+          sanitizedSlides.push(s);
+        }
+      }
+    }
+
+    // Sort by slideIndex for consistent ordering
+    sanitizedSlides.sort((a, b) => a.slideIndex - b.slideIndex);
+
     // ── Ensure variety: at least 2 different strategies ──
     const uniqueStrategies = new Set(sanitizedSlides.map(s => s.strategy));
     if (uniqueStrategies.size < 2 && sanitizedSlides.length >= 3) {

@@ -537,23 +537,23 @@ export async function compositePersonOnBackground(
 
   // Create a soft vignette mask for non-transparent images.
   // This fades the edges of the person photo so it blends naturally.
+  // IMPORTANT: The mask must have ACTUAL ALPHA TRANSPARENCY — not white-on-white.
+  // A single gradient with opacity stops produces a PNG where alpha varies from
+  // 0 (transparent) at edges to 1 (opaque) in the middle. Combined with dest-in
+  // blending, this creates the soft edge feather effect.
   const maskW = pW;
   const maskH = pH;
-  const feather = Math.round(Math.min(maskW, maskH) * 0.08); // 8% edge feather
+  const featherPct = 12; // 12% edge feather (top and bottom)
   const maskSvg = `<svg width="${maskW}" height="${maskH}" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <linearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1">
+      <linearGradient id="vfade" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="white" stop-opacity="0"/>
-        <stop offset="${(feather / maskH * 100).toFixed(1)}%" stop-color="white" stop-opacity="1"/>
-      </linearGradient>
-      <linearGradient id="fadeBottom" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="${(100 - feather / maskH * 100).toFixed(1)}%" stop-color="white" stop-opacity="1"/>
+        <stop offset="${featherPct}%" stop-color="white" stop-opacity="1"/>
+        <stop offset="${100 - featherPct}%" stop-color="white" stop-opacity="1"/>
         <stop offset="100%" stop-color="white" stop-opacity="0"/>
       </linearGradient>
     </defs>
-    <rect width="${maskW}" height="${maskH}" fill="white"/>
-    <rect width="${maskW}" height="${maskH}" fill="url(#fadeTop)"/>
-    <rect width="${maskW}" height="${maskH}" fill="url(#fadeBottom)"/>
+    <rect width="${maskW}" height="${maskH}" fill="url(#vfade)"/>
   </svg>`;
 
   // Check if the person image has alpha channel (is already transparent)
