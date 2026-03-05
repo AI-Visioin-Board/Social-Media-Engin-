@@ -529,21 +529,8 @@ export const appRouter = router({
           summary: z.string(),
           source: z.string(),
           url: z.string(),
-          scores: z.object({
-            // New virality-weighted criteria
-            shareability: z.number().optional(),
-            saveWorthiness: z.number().optional(),
-            debatePotential: z.number().optional(),
-            informationGap: z.number().optional(),
-            personalImpact: z.number().optional(),
-            // Legacy criteria (backwards compatibility for existing runs)
-            businessOwnerImpact: z.number().optional(),
-            generalPublicRelevance: z.number().optional(),
-            viralPotential: z.number().optional(),
-            worldImportance: z.number().optional(),
-            interestingness: z.number().optional(),
-            total: z.number(),
-          }),
+          // Accept any score field names for backward compatibility — frontend normalizes before sending
+          scores: z.record(z.string(), z.number()).optional().default({}),
         })),
       }))
       .mutation(async ({ input }) => {
@@ -553,15 +540,29 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB not available");
 
+        // Normalize score fields: map any legacy/alternate field names to canonical names
+        const normalizedTopics = input.selectedTopics.map((t) => {
+          const s = t.scores as Record<string, number>;
+          const canonical = {
+            shareability:    s.shareability    ?? s.viralPotential        ?? s.generalPublicRelevance ?? 5,
+            saveWorthiness:  s.saveWorthiness  ?? s.businessOwnerImpact   ?? 5,
+            debatePotential: s.debatePotential ?? s.worldImportance       ?? 5,
+            informationGap:  s.informationGap  ?? s.interestingness       ?? 5,
+            personalImpact:  s.personalImpact  ?? 5,
+            total:           s.total           ?? 70,
+          };
+          return { ...t, scores: canonical };
+        });
+
         await db.update(contentRuns).set({
-          topicsSelected: JSON.stringify(input.selectedTopics),
+          topicsSelected: JSON.stringify(normalizedTopics),
           adminApproved: true,
           status: "researching",
         }).where(eq(contentRuns.id, input.runId));
 
         // Continue pipeline async
         const { continueAfterApproval } = await import("./contentPipeline");
-        continueAfterApproval(input.runId, input.selectedTopics, {
+        continueAfterApproval(input.runId, normalizedTopics, {
           perplexityApiKey: process.env.PERPLEXITY_API_KEY,
           klingAccessKey: ENV.klingAccessKey,
           klingSecretKey: ENV.klingSecretKey,
