@@ -210,19 +210,41 @@ const COMPANY_ALIASES: Record<string, string> = {
 
 /** Try to find a curated logo for a company mentioned in the text */
 export function findLogoForText(text: string): { url: string; bgColor?: string; description: string } | null {
+  const results = findAllLogosForText(text);
+  return results.length > 0 ? results[0] : null;
+}
+
+/**
+ * Find ALL matching logos in the text (for dual-logo competition slides).
+ * Returns up to 2 matches, ordered by position in text (first mentioned = first returned).
+ */
+export function findAllLogosForText(text: string): Array<{ url: string; bgColor?: string; description: string; key: string }> {
   const lower = text.toLowerCase();
+  const found: Array<{ url: string; bgColor?: string; description: string; key: string; pos: number }> = [];
+  const seenKeys = new Set<string>();
 
   // Direct match
   for (const key of Object.keys(LOGO_LIBRARY)) {
-    if (lower.includes(key)) return LOGO_LIBRARY[key];
+    const pos = lower.indexOf(key);
+    if (pos >= 0 && !seenKeys.has(key)) {
+      seenKeys.add(key);
+      found.push({ ...LOGO_LIBRARY[key], key, pos });
+    }
   }
 
   // Alias match
   for (const [alias, canonical] of Object.entries(COMPANY_ALIASES)) {
-    if (lower.includes(alias)) return LOGO_LIBRARY[canonical] ?? null;
+    const pos = lower.indexOf(alias);
+    if (pos >= 0 && !seenKeys.has(canonical)) {
+      seenKeys.add(canonical);
+      const entry = LOGO_LIBRARY[canonical];
+      if (entry) found.push({ ...entry, key: canonical, pos });
+    }
   }
 
-  return null;
+  // Sort by position in text, return first 2
+  found.sort((a, b) => a.pos - b.pos);
+  return found.slice(0, 2);
 }
 
 // ─── Google Custom Search Image API ────────────────────────────────────────────
@@ -340,68 +362,138 @@ export async function downloadImage(imageUrl: string): Promise<Buffer | null> {
 }
 
 /**
- * Composite a logo/asset as a SMALL accent onto a background image.
- * The logo is placed as a semi-transparent badge in the upper-left area (200×200px max),
- * NOT as the main subject. The AI-generated or searched background image is the star.
+ * Composite a logo/asset as a LARGE, PROMINENT circular overlay onto a background image.
+ * Inspired by @evolving.ai / @airesearches style — logos are 300-400px, placed in the
+ * upper portion of the image as a major visual element (not a small badge).
+ *
+ * Layout options:
+ * - "hero": Single large logo centered in upper-third (default)
+ * - "dual": Two logos side by side (for competition/comparison stories)
  *
  * If no backgroundBuffer is provided, creates a cinematic gradient background.
  */
 export async function compositeAssetOnBackground(
   assetBuffer: Buffer,
   bgColor: string = "#0a0a1a",
-  backgroundBuffer?: Buffer
+  backgroundBuffer?: Buffer,
+  options?: { layout?: "hero" | "dual"; secondLogoBuffer?: Buffer; secondBgColor?: string }
 ): Promise<Buffer> {
+  const W = 1080;
+  const H = 1350;
   let bgPipeline: sharp.Sharp;
 
   if (backgroundBuffer) {
-    // Use provided background image, resized to 1080×1350
     bgPipeline = sharp(backgroundBuffer)
-      .resize(1080, 1350, { fit: "cover", position: "center" });
+      .resize(W, H, { fit: "cover", position: "center" });
   } else {
-    // Create a cinematic gradient background (dark with subtle color accent)
-    const gradientSvg = `<svg width="1080" height="1350" xmlns="http://www.w3.org/2000/svg">
+    const gradientSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <radialGradient id="glow" cx="50%" cy="35%" r="65%">
-          <stop offset="0%" stop-color="${bgColor}" stop-opacity="0.4"/>
-          <stop offset="60%" stop-color="#0a0a1a" stop-opacity="0.9"/>
+        <radialGradient id="glow" cx="50%" cy="30%" r="65%">
+          <stop offset="0%" stop-color="${bgColor}" stop-opacity="0.35"/>
+          <stop offset="50%" stop-color="#0a0a1a" stop-opacity="0.85"/>
           <stop offset="100%" stop-color="#000000" stop-opacity="1"/>
         </radialGradient>
       </defs>
-      <rect width="1080" height="1350" fill="#050510"/>
-      <rect width="1080" height="1350" fill="url(#glow)"/>
+      <rect width="${W}" height="${H}" fill="#050510"/>
+      <rect width="${W}" height="${H}" fill="url(#glow)"/>
     </svg>`;
     bgPipeline = sharp(Buffer.from(gradientSvg));
   }
 
   const bgBuffer = await bgPipeline.png().toBuffer();
+  const composites: sharp.OverlayOptions[] = [];
 
-  // Resize logo to be a SMALL accent (max 180px wide, 160px tall)
+  // ── Logo sizing: LARGE and prominent (300-380px) like @evolving.ai ──
+  const LOGO_SIZE = 340; // diameter of the circular logo container
+  const LOGO_INNER = LOGO_SIZE - 40; // logo itself inside the circle (with padding)
+
+  // Resize main logo to fit inside the circle
   const resizedAsset = await sharp(assetBuffer)
-    .resize(180, 160, { fit: "inside", withoutEnlargement: true })
+    .resize(LOGO_INNER, LOGO_INNER, { fit: "inside", withoutEnlargement: true })
     .png()
     .toBuffer();
 
   const assetMeta = await sharp(resizedAsset).metadata();
-  const assetW = assetMeta.width ?? 180;
-  const assetH = assetMeta.height ?? 160;
+  const assetW = assetMeta.width ?? LOGO_INNER;
+  const assetH = assetMeta.height ?? LOGO_INNER;
 
-  // Place logo in upper-right area with some padding (acts as a badge/watermark)
-  const left = 1080 - assetW - 48;
-  const top = 48;
+  if (options?.layout === "dual" && options.secondLogoBuffer) {
+    // ── DUAL LAYOUT: Two logos side by side (competition stories) ──
+    const DUAL_SIZE = 260;
+    const DUAL_INNER = DUAL_SIZE - 30;
+    const gapX = 80; // gap between circles
+    const leftCenterX = Math.round(W / 2 - DUAL_SIZE / 2 - gapX / 2);
+    const rightCenterX = Math.round(W / 2 + DUAL_SIZE / 2 + gapX / 2);
+    const centerY = Math.round(H * 0.22); // 22% from top
 
-  // Create a subtle dark pill behind the logo for contrast
-  const logoBgW = assetW + 32;
-  const logoBgH = assetH + 32;
-  const logoBgSvg = `<svg width="${logoBgW}" height="${logoBgH}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${logoBgW}" height="${logoBgH}" rx="16" ry="16" fill="black" fill-opacity="0.5"/>
-  </svg>`;
-  const logoBgBuffer = await sharp(Buffer.from(logoBgSvg)).png().toBuffer();
+    // Left circle (main logo)
+    const leftCircleSvg = `<svg width="${DUAL_SIZE}" height="${DUAL_SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2}" fill="${bgColor}" fill-opacity="0.85"/>
+      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2 - 3}" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
+    </svg>`;
+    composites.push({
+      input: await sharp(Buffer.from(leftCircleSvg)).png().toBuffer(),
+      left: leftCenterX - DUAL_SIZE / 2,
+      top: centerY - DUAL_SIZE / 2,
+    });
+
+    const resizedLeft = await sharp(assetBuffer)
+      .resize(DUAL_INNER, DUAL_INNER, { fit: "inside", withoutEnlargement: true })
+      .png().toBuffer();
+    const leftMeta = await sharp(resizedLeft).metadata();
+    composites.push({
+      input: resizedLeft,
+      left: leftCenterX - Math.round((leftMeta.width ?? DUAL_INNER) / 2),
+      top: centerY - Math.round((leftMeta.height ?? DUAL_INNER) / 2),
+    });
+
+    // Right circle (second logo)
+    const secondColor = options.secondBgColor ?? "#1a1a2e";
+    const rightCircleSvg = `<svg width="${DUAL_SIZE}" height="${DUAL_SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2}" fill="${secondColor}" fill-opacity="0.85"/>
+      <circle cx="${DUAL_SIZE / 2}" cy="${DUAL_SIZE / 2}" r="${DUAL_SIZE / 2 - 3}" fill="none" stroke="white" stroke-opacity="0.2" stroke-width="2"/>
+    </svg>`;
+    composites.push({
+      input: await sharp(Buffer.from(rightCircleSvg)).png().toBuffer(),
+      left: rightCenterX - DUAL_SIZE / 2,
+      top: centerY - DUAL_SIZE / 2,
+    });
+
+    const resizedRight = await sharp(options.secondLogoBuffer)
+      .resize(DUAL_INNER, DUAL_INNER, { fit: "inside", withoutEnlargement: true })
+      .png().toBuffer();
+    const rightMeta = await sharp(resizedRight).metadata();
+    composites.push({
+      input: resizedRight,
+      left: rightCenterX - Math.round((rightMeta.width ?? DUAL_INNER) / 2),
+      top: centerY - Math.round((rightMeta.height ?? DUAL_INNER) / 2),
+    });
+  } else {
+    // ── HERO LAYOUT: Single large centered logo ──
+    const centerX = Math.round(W / 2);
+    const centerY = Math.round(H * 0.22); // upper third
+
+    // Dark circle backdrop with subtle border (like @evolving.ai style)
+    const circleSvg = `<svg width="${LOGO_SIZE}" height="${LOGO_SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${LOGO_SIZE / 2}" cy="${LOGO_SIZE / 2}" r="${LOGO_SIZE / 2}" fill="${bgColor}" fill-opacity="0.85"/>
+      <circle cx="${LOGO_SIZE / 2}" cy="${LOGO_SIZE / 2}" r="${LOGO_SIZE / 2 - 3}" fill="none" stroke="white" stroke-opacity="0.15" stroke-width="2"/>
+    </svg>`;
+    composites.push({
+      input: await sharp(Buffer.from(circleSvg)).png().toBuffer(),
+      left: centerX - LOGO_SIZE / 2,
+      top: centerY - LOGO_SIZE / 2,
+    });
+
+    // Center the logo inside the circle
+    composites.push({
+      input: resizedAsset,
+      left: centerX - Math.round(assetW / 2),
+      top: centerY - Math.round(assetH / 2),
+    });
+  }
 
   return sharp(bgBuffer)
-    .composite([
-      { input: logoBgBuffer, left: left - 16, top: top - 16 },
-      { input: resizedAsset, left, top },
-    ])
+    .composite(composites)
     .png()
     .toBuffer();
 }
