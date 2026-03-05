@@ -62,14 +62,26 @@ interface ScoredTopic {
   summary: string;
   source: string;
   url: string;
-  scores: {
-    shareability: number;
-    saveWorthiness: number;
-    debatePotential: number;
-    informationGap: number;
-    personalImpact: number;
-    total: number;
-  };
+  // Accept any score field names — legacy runs may use different keys
+  scores: Record<string, number>;
+}
+
+// Normalize any score field names to the canonical pipeline fields
+function normalizeTopicScores(topics: ScoredTopic[]): ScoredTopic[] {
+  return topics.map((t) => {
+    const s = t.scores as Record<string, number>;
+    return {
+      ...t,
+      scores: {
+        shareability:    s.shareability    ?? s.viralPotential        ?? s.generalPublicRelevance ?? 5,
+        saveWorthiness:  s.saveWorthiness  ?? s.businessOwnerImpact   ?? 5,
+        debatePotential: s.debatePotential ?? s.worldImportance       ?? 5,
+        informationGap:  s.informationGap  ?? s.interestingness       ?? 5,
+        personalImpact:  s.personalImpact  ?? 5,
+        total:           s.total           ?? 70,
+      },
+    };
+  });
 }
 
 interface PublishedTopic {
@@ -502,7 +514,7 @@ function RunDetailDialog({
                       </div>
                     </div>
                     <Button
-                      onClick={() => approveTopics.mutate({ runId: run.id, selectedTopics })}
+                      onClick={() => approveTopics.mutate({ runId: run.id, selectedTopics: normalizeTopicScores(selectedTopics) })}
                       disabled={approveTopics.isPending}
                       className="bg-indigo-600 hover:bg-indigo-700 flex-shrink-0"
                       size="sm"
