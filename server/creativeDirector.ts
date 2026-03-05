@@ -139,19 +139,62 @@ const KNOWN_FIGURES: Record<string, string> = {
   "liang wenfeng": "CEO of DeepSeek",
 };
 
-/** Scan text for known public figures and return matches */
+// ─── Company → CEO Inference ─────────────────────────────────────────────────
+// When a topic mentions a company name (e.g. "OpenAI") but not the CEO by name,
+// we infer the CEO so the Creative Director can consider person_composite.
+// This is what was missing — topics saying "OpenAI" never triggered person_composite
+// because detectKnownPeople only looked for "Sam Altman" literally.
+
+const COMPANY_TO_CEO: Record<string, string> = {
+  openai: "sam altman",
+  "open ai": "sam altman",
+  google: "sundar pichai",
+  alphabet: "sundar pichai",
+  deepmind: "demis hassabis",
+  "google deepmind": "demis hassabis",
+  meta: "mark zuckerberg",
+  facebook: "mark zuckerberg",
+  apple: "tim cook",
+  microsoft: "satya nadella",
+  anthropic: "dario amodei",
+  nvidia: "jensen huang",
+  tesla: "elon musk",
+  spacex: "elon musk",
+  xai: "elon musk",
+  amazon: "andy jassy",
+  aws: "andy jassy",
+  ibm: "arvind krishna",
+  palantir: "alex karp",
+  amd: "lisa su",
+  mistral: "arthur mensch",
+  "mistral ai": "arthur mensch",
+  perplexity: "aravind srinivas",
+  "perplexity ai": "aravind srinivas",
+  "stability ai": "emad mostaque",
+  baidu: "robin li",
+  deepseek: "liang wenfeng",
+};
+
+/** Scan text for known public figures and return matches.
+ *  Now also infers CEOs from company name mentions (e.g. "OpenAI" → Sam Altman)
+ *  so the Creative Director can consider person_composite even when the topic
+ *  doesn't name the person explicitly.
+ */
 export function detectKnownPeople(text: string): Array<{ name: string; title: string }> {
   const lower = text.toLowerCase();
   const found: Array<{ name: string; title: string; pos: number }> = [];
+  const foundNames = new Set<string>();
 
+  // 1. Direct full-name matches (highest confidence)
   for (const [name, title] of Object.entries(KNOWN_FIGURES)) {
     const pos = lower.indexOf(name);
-    if (pos >= 0) {
+    if (pos >= 0 && !foundNames.has(name)) {
+      foundNames.add(name);
       found.push({ name, title, pos });
     }
   }
 
-  // Also check last names alone for very famous figures
+  // 2. Last-name-only matches for very famous figures
   const LAST_NAME_MAP: Record<string, string> = {
     altman: "sam altman",
     pichai: "sundar pichai",
@@ -162,19 +205,44 @@ export function detectKnownPeople(text: string): Array<{ name: string; title: st
     hassabis: "demis hassabis",
     lecun: "yann lecun",
     sutskever: "ilya sutskever",
+    bezos: "jeff bezos",
+    jassy: "andy jassy",
+    cook: "tim cook",
+    su: "lisa su",
   };
 
   for (const [lastName, fullName] of Object.entries(LAST_NAME_MAP)) {
-    // Only match if full name wasn't already found
-    if (!found.some(f => f.name === fullName)) {
+    if (!foundNames.has(fullName)) {
       const pos = lower.indexOf(lastName);
       if (pos >= 0) {
+        foundNames.add(fullName);
         found.push({
           name: fullName,
           title: KNOWN_FIGURES[fullName],
           pos,
         });
       }
+    }
+  }
+
+  // 3. Company name → CEO inference (NEW — fixes the "OpenAI" → Sam Altman gap)
+  // Only infer if the CEO wasn't already found by name/last-name above.
+  // Sort COMPANY_TO_CEO keys longest-first so "google deepmind" matches before "google".
+  const companyKeys = Object.keys(COMPANY_TO_CEO).sort((a, b) => b.length - a.length);
+
+  for (const company of companyKeys) {
+    const ceoName = COMPANY_TO_CEO[company];
+    if (foundNames.has(ceoName)) continue; // already found this person
+
+    const pos = lower.indexOf(company);
+    if (pos >= 0) {
+      foundNames.add(ceoName);
+      found.push({
+        name: ceoName,
+        title: KNOWN_FIGURES[ceoName] + " (inferred from company mention)",
+        pos,
+      });
+      console.log(`[CreativeDirector] 🔍 Inferred person "${ceoName}" from company mention "${company}"`);
     }
   }
 

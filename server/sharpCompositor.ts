@@ -93,6 +93,11 @@ async function downloadToTemp(url: string, ext: string): Promise<string> {
 
 /** Wrap text into lines that fit within maxWidth characters. */
 function wrapText(text: string, maxCharsPerLine: number): string[] {
+  // Guard: never return empty array — empty text = empty slide (no visible headline)
+  if (!text || text.trim().length === 0) {
+    console.warn("[SharpCompositor] wrapText() received empty text — using placeholder");
+    return ["BREAKING AI NEWS"];
+  }
   const words = text.split(" ");
   const lines: string[] = [];
   let current = "";
@@ -105,6 +110,8 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
     }
   }
   if (current) lines.push(current);
+  // Double-check: never return empty
+  if (lines.length === 0) lines.push("BREAKING AI NEWS");
   return lines;
 }
 
@@ -194,7 +201,14 @@ function buildOverlaySvg(
   insightLine?: string,
   summary?: string
 ): string {
-  const upper = headline.toUpperCase();
+  // Guard: empty headline = invisible slide — use fallback
+  const safeHeadline = (headline && headline.trim().length > 0)
+    ? headline
+    : "BREAKING AI NEWS";
+  if (headline !== safeHeadline) {
+    console.warn(`[SharpCompositor] buildOverlaySvg received empty headline — using fallback`);
+  }
+  const upper = safeHeadline.toUpperCase();
   // Content slides (non-cover): wrap at 28 chars — wider paragraph-style layout, not narrow columns
   // Cover slides: keep 16 chars for the larger, more dramatic look
   const wrapWidth = isCover ? 16 : 28;

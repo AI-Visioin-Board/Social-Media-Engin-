@@ -1471,10 +1471,17 @@ async function _runPipelineStages(
         return generateCoverHeadline(headlineList, runSlot);
       })(),
     ]);
+    // Validate cover headline — NEVER insert null/empty (causes blank slides)
+    const validCoverHeadline = (coverHeadline && coverHeadline.trim().length > 0)
+      ? coverHeadline
+      : "THE BIGGEST AI STORIES THIS WEEK";
+    if (validCoverHeadline !== coverHeadline) {
+      console.warn(`[ContentPipeline] ⚠️ Cover headline was empty — using fallback`);
+    }
     await db.insert(generatedSlides).values({
       runId,
       slideIndex: 0,
-      headline: coverHeadline,
+      headline: validCoverHeadline,
       summary: researched.map((t) => t.headline).join(" • "),
       videoPrompt: coverImagePrompt,
       isVideoSlide: coverBrief?.strategy === "kling_video" ? 1 : 0,
@@ -1490,10 +1497,17 @@ async function _runPipelineStages(
       const isVideo = slideBrief?.strategy === "kling_video" ? 1 : 0;
       // Use Creative Director's scenePrompt if available, otherwise fall back to research prompt
       const prompt = slideBrief?.scenePrompt || topic.videoPrompt;
+      // Validate headline — NEVER insert null/empty (causes blank slides in assembly)
+      const validHeadline = (topic.headline && topic.headline.trim().length > 0)
+        ? topic.headline
+        : topic.title || `AI NEWS STORY ${slideIndex}`;
+      if (validHeadline !== topic.headline) {
+        console.warn(`[ContentPipeline] ⚠️ Slide ${slideIndex} headline was empty — using fallback: "${validHeadline}"`);
+      }
       await db.insert(generatedSlides).values({
         runId,
         slideIndex,
-        headline: topic.headline,
+        headline: validHeadline,
         summary: topic.summary,
         insightLine: topic.insightLine ?? null,
         citations: JSON.stringify(topic.citations),
@@ -1552,7 +1566,7 @@ async function _runPipelineStages(
 
     // Import asset library + compositing functions
     const {
-      findLogoForText, findAllLogosForText, downloadImage,
+      findLogoForText, findAllLogosForText, downloadImage, downloadLogo,
       compositeAssetOnBackground, compositePersonOnBackground,
       uploadAsset, searchImage, LOGO_LIBRARY,
     } = await import("./assetLibrary");
@@ -1697,11 +1711,11 @@ async function _runPipelineStages(
         const aiImageUrl = await generateSlideImage(scenePrompt);
 
         if (aiImageUrl && strategy === "scene_with_badge" && brief?.logoKeys && brief.logoKeys.length > 0) {
-          // Download logo(s) from the curated library
+          // Download logo(s) from curated library (with S3 caching to avoid Wikimedia 429s)
           const logoKey = brief.logoKeys[0];
           const logoEntry = LOGO_LIBRARY[logoKey];
           if (logoEntry) {
-            const logoBuffer = await downloadImage(logoEntry.url);
+            const logoBuffer = await downloadLogo(logoKey);
             if (logoBuffer) {
               log.logoFound = brief.logoKeys.join(" + ");
               log.logoDownloaded = true;
@@ -1716,7 +1730,7 @@ async function _runPipelineStages(
                     const secondKey = brief.logoKeys[1];
                     const secondEntry = LOGO_LIBRARY[secondKey];
                     if (secondEntry) {
-                      secondLogoBuffer = await downloadImage(secondEntry.url);
+                      secondLogoBuffer = await downloadLogo(secondKey);
                       secondBgColor = secondEntry.bgColor;
                     }
                   }

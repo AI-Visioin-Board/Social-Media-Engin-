@@ -21,7 +21,7 @@ import sharp from "sharp";
 import path from "path";
 import os from "os";
 import fs from "fs";
-import { storagePut } from "./storage";
+import { storagePut, storageGet } from "./storage";
 
 // ─── Curated Logo Library ─────────────────────────────────────────────────────
 // Maps normalized company names → transparent PNG URLs from stable public sources.
@@ -640,6 +640,68 @@ export async function compositeProductOnBackground(
     .composite([{ input: productResized, left, top }])
     .png()
     .toBuffer();
+}
+
+// ─── Logo Download with S3 Cache ─────────────────────────────────────────────
+// Wikimedia CDN aggressively rate-limits (HTTP 429) logo downloads.
+// We cache every logo in S3 on first successful download so subsequent runs
+// never hit Wikimedia again. Lookup order: memory → S3 → Wikimedia → fail.
+
+const logoMemoryCache = new Map<string, Buffer>();
+
+/**
+ * Download a logo by its LOGO_LIBRARY key, with multi-layer caching:
+ *   1. In-memory cache (instant — survives across slides in same run)
+ *   2. S3 cache (fast, no rate limits — survives across runs)
+ *   3. Wikimedia (authoritative source, may 429)
+ *
+ * On Wikimedia success, the logo is uploaded to S3 in the background
+ * so all future runs use the cached copy.
+ */
+export async function downloadLogo(key: string): Promise<Buffer | null> {
+  // 1. In-memory cache (same process lifetime)
+  if (logoMemoryCache.has(key)) {
+    console.log(`[AssetLibrary] ✅ Logo "${key}" from memory cache`);
+    return logoMemoryCache.get(key)!;
+  }
+
+  const entry = LOGO_LIBRARY[key];
+  if (!entry) {
+    console.warn(`[AssetLibrary] ❌ No logo entry for key "${key}"`);
+    return null;
+  }
+
+  const s3Key = `logo-cache/${key}.png`;
+
+  // 2. Try S3 cache first (fast, no rate limits)
+  try {
+    const { url: s3Url } = await storageGet(s3Key);
+    if (s3Url) {
+      const cached = await downloadImage(s3Url);
+      if (cached) {
+        logoMemoryCache.set(key, cached);
+        console.log(`[AssetLibrary] ✅ Logo "${key}" from S3 cache`);
+        return cached;
+      }
+    }
+  } catch {
+    // S3 cache miss — expected on first use, not an error
+  }
+
+  // 3. Download from Wikimedia (may be rate-limited)
+  console.log(`[AssetLibrary] Logo "${key}" not cached — downloading from Wikimedia...`);
+  const buffer = await downloadImage(entry.url);
+  if (buffer) {
+    logoMemoryCache.set(key, buffer);
+    // Upload to S3 in background for next time (don't block the pipeline)
+    storagePut(s3Key, buffer, "image/png")
+      .then(() => console.log(`[AssetLibrary] ✅ Logo "${key}" cached to S3 for future runs`))
+      .catch((err: any) => console.warn(`[AssetLibrary] ⚠️ S3 cache write failed for "${key}": ${err?.message}`));
+    return buffer;
+  }
+
+  console.warn(`[AssetLibrary] ❌ Logo "${key}" download failed from all sources (Wikimedia rate-limited?)`);
+  return null;
 }
 
 // ─── Marketing Brain image strategy types ─────────────────────────────────────

@@ -77,6 +77,7 @@ function escapeXml(str: string): string {
 }
 
 function wrapText(text: string, maxCharsPerLine: number): string[] {
+  if (!text || text.trim().length === 0) return ["BREAKING AI NEWS"];
   const words = text.split(" ");
   const lines: string[] = [];
   let current = "";
@@ -89,6 +90,7 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
     }
   }
   if (current) lines.push(current);
+  if (lines.length === 0) lines.push("BREAKING AI NEWS");
   return lines;
 }
 
@@ -135,7 +137,9 @@ function buildVideoOverlaySvg(
   insightLine?: string,
   summary?: string
 ): string {
-  const upper = headline.toUpperCase();
+  // Guard: empty headline = invisible slide
+  const safeHeadline = (headline && headline.trim().length > 0) ? headline : "BREAKING AI NEWS";
+  const upper = safeHeadline.toUpperCase();
   const lines = wrapText(upper, 18);
 
   // Determine if we have summary text to show
