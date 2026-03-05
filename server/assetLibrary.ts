@@ -210,19 +210,41 @@ const COMPANY_ALIASES: Record<string, string> = {
 
 /** Try to find a curated logo for a company mentioned in the text */
 export function findLogoForText(text: string): { url: string; bgColor?: string; description: string } | null {
+  const results = findAllLogosForText(text);
+  return results.length > 0 ? results[0] : null;
+}
+
+/**
+ * Find ALL matching logos in the text (for dual-logo competition slides).
+ * Returns up to 2 matches, ordered by position in text (first mentioned = first returned).
+ */
+export function findAllLogosForText(text: string): Array<{ url: string; bgColor?: string; description: string; key: string }> {
   const lower = text.toLowerCase();
+  const found: Array<{ url: string; bgColor?: string; description: string; key: string; pos: number }> = [];
+  const seenKeys = new Set<string>();
 
   // Direct match
   for (const key of Object.keys(LOGO_LIBRARY)) {
-    if (lower.includes(key)) return LOGO_LIBRARY[key];
+    const pos = lower.indexOf(key);
+    if (pos >= 0 && !seenKeys.has(key)) {
+      seenKeys.add(key);
+      found.push({ ...LOGO_LIBRARY[key], key, pos });
+    }
   }
 
   // Alias match
   for (const [alias, canonical] of Object.entries(COMPANY_ALIASES)) {
-    if (lower.includes(alias)) return LOGO_LIBRARY[canonical] ?? null;
+    const pos = lower.indexOf(alias);
+    if (pos >= 0 && !seenKeys.has(canonical)) {
+      seenKeys.add(canonical);
+      const entry = LOGO_LIBRARY[canonical];
+      if (entry) found.push({ ...entry, key: canonical, pos });
+    }
   }
 
-  return null;
+  // Sort by position in text, return first 2
+  found.sort((a, b) => a.pos - b.pos);
+  return found.slice(0, 2);
 }
 
 // ─── Google Custom Search Image API ────────────────────────────────────────────
@@ -340,68 +362,108 @@ export async function downloadImage(imageUrl: string): Promise<Buffer | null> {
 }
 
 /**
- * Composite a logo/asset as a SMALL accent onto a background image.
- * The logo is placed as a semi-transparent badge in the upper-left area (200×200px max),
- * NOT as the main subject. The AI-generated or searched background image is the star.
+ * Composite logo(s) as SMALL CORNER BADGES onto a background image.
+ * Matches @evolving.ai style — logos are 80-110px circular badges in the
+ * bottom-left corner. The AI-generated background is the main visual;
+ * logos are supplementary brand identifiers, NOT the focal point.
+ *
+ * Layout options:
+ * - "badge" (default): Single small logo badge in bottom-left corner
+ * - "dual": Two small logos side by side in bottom-left
  *
  * If no backgroundBuffer is provided, creates a cinematic gradient background.
  */
 export async function compositeAssetOnBackground(
   assetBuffer: Buffer,
   bgColor: string = "#0a0a1a",
-  backgroundBuffer?: Buffer
+  backgroundBuffer?: Buffer,
+  options?: { layout?: "badge" | "dual"; secondLogoBuffer?: Buffer; secondBgColor?: string }
 ): Promise<Buffer> {
+  const W = 1080;
+  const H = 1350;
   let bgPipeline: sharp.Sharp;
 
   if (backgroundBuffer) {
-    // Use provided background image, resized to 1080×1350
     bgPipeline = sharp(backgroundBuffer)
-      .resize(1080, 1350, { fit: "cover", position: "center" });
+      .resize(W, H, { fit: "cover", position: "center" });
   } else {
-    // Create a cinematic gradient background (dark with subtle color accent)
-    const gradientSvg = `<svg width="1080" height="1350" xmlns="http://www.w3.org/2000/svg">
+    const gradientSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <radialGradient id="glow" cx="50%" cy="35%" r="65%">
-          <stop offset="0%" stop-color="${bgColor}" stop-opacity="0.4"/>
-          <stop offset="60%" stop-color="#0a0a1a" stop-opacity="0.9"/>
+        <radialGradient id="glow" cx="50%" cy="30%" r="65%">
+          <stop offset="0%" stop-color="${bgColor}" stop-opacity="0.35"/>
+          <stop offset="50%" stop-color="#0a0a1a" stop-opacity="0.85"/>
           <stop offset="100%" stop-color="#000000" stop-opacity="1"/>
         </radialGradient>
       </defs>
-      <rect width="1080" height="1350" fill="#050510"/>
-      <rect width="1080" height="1350" fill="url(#glow)"/>
+      <rect width="${W}" height="${H}" fill="#050510"/>
+      <rect width="${W}" height="${H}" fill="url(#glow)"/>
     </svg>`;
     bgPipeline = sharp(Buffer.from(gradientSvg));
   }
 
   const bgBuffer = await bgPipeline.png().toBuffer();
+  const composites: sharp.OverlayOptions[] = [];
 
-  // Resize logo to be a SMALL accent (max 180px wide, 160px tall)
-  const resizedAsset = await sharp(assetBuffer)
-    .resize(180, 160, { fit: "inside", withoutEnlargement: true })
-    .png()
-    .toBuffer();
+  // ── Logo sizing: SMALL corner badges (80-110px) like @evolving.ai ──
+  // Background image is the hero visual; logos sit in the corner as context identifiers.
+  const BADGE_SIZE = 100;  // outer circle diameter
+  const BADGE_INNER = 70;  // logo itself inside the circle (with padding)
+  const BADGE_MARGIN = 40; // distance from edge of image
+  // Place badges in the upper-left area above the text overlay zone (bottom ~30% = text zone)
+  // Position near top-left so they don't overlap text at bottom
+  const BADGE_Y = 40;
 
-  const assetMeta = await sharp(resizedAsset).metadata();
-  const assetW = assetMeta.width ?? 180;
-  const assetH = assetMeta.height ?? 160;
+  // Helper: create one circular badge at given position
+  const createBadge = async (
+    logoBuffer: Buffer,
+    badgeBgColor: string,
+    posX: number,
+    posY: number,
+    size: number,
+    inner: number,
+  ) => {
+    const circleSvg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="${badgeBgColor}" fill-opacity="0.85"/>
+      <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 2}" fill="none" stroke="white" stroke-opacity="0.25" stroke-width="1.5"/>
+    </svg>`;
+    composites.push({
+      input: await sharp(Buffer.from(circleSvg)).png().toBuffer(),
+      left: posX,
+      top: posY,
+    });
+    const resized = await sharp(logoBuffer)
+      .resize(inner, inner, { fit: "inside", withoutEnlargement: true })
+      .png().toBuffer();
+    const meta = await sharp(resized).metadata();
+    composites.push({
+      input: resized,
+      left: posX + Math.round((size - (meta.width ?? inner)) / 2),
+      top: posY + Math.round((size - (meta.height ?? inner)) / 2),
+    });
+  };
 
-  // Place logo in upper-right area with some padding (acts as a badge/watermark)
-  const left = 1080 - assetW - 48;
-  const top = 48;
+  if (options?.layout === "dual" && options.secondLogoBuffer) {
+    // ── DUAL BADGE: Two small logos side by side in top-left corner ──
+    const DUAL_BADGE = 90;
+    const DUAL_INNER = 62;
+    const gapX = 14;
 
-  // Create a subtle dark pill behind the logo for contrast
-  const logoBgW = assetW + 32;
-  const logoBgH = assetH + 32;
-  const logoBgSvg = `<svg width="${logoBgW}" height="${logoBgH}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${logoBgW}" height="${logoBgH}" rx="16" ry="16" fill="black" fill-opacity="0.5"/>
-  </svg>`;
-  const logoBgBuffer = await sharp(Buffer.from(logoBgSvg)).png().toBuffer();
+    await createBadge(assetBuffer, bgColor, BADGE_MARGIN, BADGE_Y, DUAL_BADGE, DUAL_INNER);
+    await createBadge(
+      options.secondLogoBuffer,
+      options.secondBgColor ?? "#1a1a2e",
+      BADGE_MARGIN + DUAL_BADGE + gapX,
+      BADGE_Y,
+      DUAL_BADGE,
+      DUAL_INNER,
+    );
+  } else {
+    // ── SINGLE BADGE: One small logo in top-left corner ──
+    await createBadge(assetBuffer, bgColor, BADGE_MARGIN, BADGE_Y, BADGE_SIZE, BADGE_INNER);
+  }
 
   return sharp(bgBuffer)
-    .composite([
-      { input: logoBgBuffer, left: left - 16, top: top - 16 },
-      { input: resizedAsset, left, top },
-    ])
+    .composite(composites)
     .png()
     .toBuffer();
 }
@@ -413,6 +475,163 @@ export async function uploadAsset(buffer: Buffer, runId: number, slideIndex: num
   const key = `assets/run-${runId}-slide-${slideIndex}-${Date.now()}.png`;
   const { url } = await storagePut(key, buffer, "image/png");
   return url;
+}
+
+// ─── Person Composite ────────────────────────────────────────────────────────
+// Composites a real person photo (ideally transparent or white-bg) onto an
+// AI-generated background. Used for the "person_composite" strategy.
+// The person is placed in the lower 60% of the frame, above the text zone.
+
+/**
+ * Composite a person photo onto an AI-generated background.
+ * Handles non-transparent images by applying a vignette mask to blend the
+ * person naturally into the scene (soft fade edges).
+ *
+ * @param personBuffer - The person photo (any format — transparent PNG ideal, but JPEG works)
+ * @param backgroundBuffer - AI-generated 1080×1350 background scene
+ * @param placement - Where to position the person: "center", "left", "right"
+ * @returns Composed image buffer (1080×1350 PNG)
+ */
+export async function compositePersonOnBackground(
+  personBuffer: Buffer,
+  backgroundBuffer: Buffer,
+  placement: "center" | "left" | "right" = "center",
+): Promise<Buffer> {
+  const W = 1080;
+  const H = 1350;
+  const PERSON_MAX_HEIGHT = Math.round(H * 0.55); // 55% of canvas height
+  const PERSON_MAX_WIDTH = Math.round(W * 0.65);  // 65% of canvas width
+  // Position person so feet are above the text zone (bottom 30% = ~405px)
+  const TEXT_ZONE_TOP = H - 405;
+
+  // Resize background
+  const bg = await sharp(backgroundBuffer)
+    .resize(W, H, { fit: "cover", position: "center" })
+    .png()
+    .toBuffer();
+
+  // Resize person to fit within bounds
+  const personResized = await sharp(personBuffer)
+    .resize(PERSON_MAX_WIDTH, PERSON_MAX_HEIGHT, { fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+
+  const personMeta = await sharp(personResized).metadata();
+  const pW = personMeta.width ?? PERSON_MAX_WIDTH;
+  const pH = personMeta.height ?? PERSON_MAX_HEIGHT;
+
+  // Calculate position
+  let left: number;
+  switch (placement) {
+    case "left":
+      left = Math.round(W * 0.05);
+      break;
+    case "right":
+      left = Math.round(W * 0.95 - pW);
+      break;
+    default: // center
+      left = Math.round((W - pW) / 2);
+  }
+  // Bottom of person aligns with top of text zone
+  const top = TEXT_ZONE_TOP - pH;
+
+  // Create a soft vignette mask for non-transparent images.
+  // This fades the edges of the person photo so it blends naturally.
+  // IMPORTANT: The mask must have ACTUAL ALPHA TRANSPARENCY — not white-on-white.
+  // A single gradient with opacity stops produces a PNG where alpha varies from
+  // 0 (transparent) at edges to 1 (opaque) in the middle. Combined with dest-in
+  // blending, this creates the soft edge feather effect.
+  const maskW = pW;
+  const maskH = pH;
+  const featherPct = 12; // 12% edge feather (top and bottom)
+  const maskSvg = `<svg width="${maskW}" height="${maskH}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="vfade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="white" stop-opacity="0"/>
+        <stop offset="${featherPct}%" stop-color="white" stop-opacity="1"/>
+        <stop offset="${100 - featherPct}%" stop-color="white" stop-opacity="1"/>
+        <stop offset="100%" stop-color="white" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <rect width="${maskW}" height="${maskH}" fill="url(#vfade)"/>
+  </svg>`;
+
+  // Check if the person image has alpha channel (is already transparent)
+  const hasAlpha = personMeta.channels === 4;
+
+  let personFinal: Buffer;
+  if (hasAlpha) {
+    // Already transparent — use as-is
+    personFinal = personResized;
+  } else {
+    // No transparency — apply the fade mask for soft edge blending
+    const mask = await sharp(Buffer.from(maskSvg))
+      .resize(pW, pH)
+      .greyscale()
+      .png()
+      .toBuffer();
+
+    personFinal = await sharp(personResized)
+      .ensureAlpha()
+      .composite([{ input: mask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+  }
+
+  return sharp(bg)
+    .composite([{ input: personFinal, left, top }])
+    .png()
+    .toBuffer();
+}
+
+// ─── Product Composite ──────────────────────────────────────────────────────
+// For product_shot strategy (future enhancement). Currently a simplified version.
+
+/**
+ * Composite a product image onto an AI-generated background.
+ * Product is placed in the lower-center area, sized to ~35% of canvas width.
+ */
+export async function compositeProductOnBackground(
+  productBuffer: Buffer,
+  backgroundBuffer: Buffer,
+  placement: "center" | "bottom-right" | "bottom-left" = "center",
+): Promise<Buffer> {
+  const W = 1080;
+  const H = 1350;
+  const PRODUCT_MAX = Math.round(W * 0.4); // 40% of canvas width
+  const TEXT_ZONE_TOP = H - 405;
+
+  const bg = await sharp(backgroundBuffer)
+    .resize(W, H, { fit: "cover", position: "center" })
+    .png()
+    .toBuffer();
+
+  const productResized = await sharp(productBuffer)
+    .resize(PRODUCT_MAX, PRODUCT_MAX, { fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+
+  const meta = await sharp(productResized).metadata();
+  const pW = meta.width ?? PRODUCT_MAX;
+  const pH = meta.height ?? PRODUCT_MAX;
+
+  let left: number;
+  switch (placement) {
+    case "bottom-left":
+      left = Math.round(W * 0.08);
+      break;
+    case "bottom-right":
+      left = Math.round(W * 0.92 - pW);
+      break;
+    default:
+      left = Math.round((W - pW) / 2);
+  }
+  const top = TEXT_ZONE_TOP - pH - 20;
+
+  return sharp(bg)
+    .composite([{ input: productResized, left, top }])
+    .png()
+    .toBuffer();
 }
 
 // ─── Marketing Brain image strategy types ─────────────────────────────────────
