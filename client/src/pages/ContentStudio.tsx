@@ -956,7 +956,7 @@ function KlingCredentialsCard() {
         </CardTitle>
         <CardDescription>
           {isActive
-            ? "Kling 2.5 Turbo is active. Each content slide gets a 5-second AI-generated video clip (~$0.42/clip). Nano Banana images are used as fallback."
+            ? "Kling 2.5 Turbo is active. Each content slide gets an 8-second AI-generated video clip (~$0.56/clip). Nano Banana images are used as fallback."
             : "Add your Kling API credentials to enable AI video B-roll for content slides. Without keys, Nano Banana images are used instead (free, still looks great)."}
         </CardDescription>
       </CardHeader>
@@ -965,7 +965,7 @@ function KlingCredentialsCard() {
         <div className="flex items-start gap-2 p-3 bg-white border border-slate-200 rounded-lg">
           <Info className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
           <div className="text-xs text-slate-600 space-y-1">
-            <p><strong>Cost:</strong> ~$0.42 per 5-second clip (std mode) · 5 slides × 2 runs/week ≈ <strong>$17/month</strong></p>
+            <p><strong>Cost:</strong> ~$0.56 per 8-second clip (pro mode) · 5 slides × 2 runs/week ≈ <strong>$22/month</strong></p>
             <p><strong>Start with:</strong> $9.79 trial pack (100 units) to test before committing.</p>
             <a href="https://app.klingai.com/global/dev/document-api/quickStart/authorization" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline flex items-center gap-0.5 mt-1">
               Get API keys at klingai.com <ExternalLink className="w-3 h-3" />
@@ -1511,7 +1511,7 @@ export default function ContentStudio() {
                     {[
                       "6 slides: 1 cover + 5 content slides",
                       "1080×1920 vertical MP4 format",
-                      "5 seconds per slide at 30fps",
+                      "8 seconds per slide at 30fps",
                     ].map((item) => (
                       <div key={item} className="flex items-center gap-2 text-xs text-slate-600">
                         <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />

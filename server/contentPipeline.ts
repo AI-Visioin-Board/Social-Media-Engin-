@@ -835,7 +835,7 @@ async function marketingBrainPrompt({
   isVideo: boolean;
 }): Promise<string> {
   const mediaType = isVideo
-    ? "5-second cinematic video clip (Kling AI text-to-video)"
+    ? "8-second cinematic video clip (Kling AI text-to-video)"
     : "single photorealistic still image (Nano Banana / Google Imagen)";
 
   // Import enhanced specificity rules from virality framework
