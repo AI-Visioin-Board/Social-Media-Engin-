@@ -393,7 +393,7 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
       "-preset", "fast",
       "-crf", "22",
       "-pix_fmt", "yuv420p",
-      "-t", "8",
+      "-t", "5",  // Must match Kling 2.5 Turbo output (5s clips)
       "-movflags", "+faststart",
       tmpOutputPath,
     ];

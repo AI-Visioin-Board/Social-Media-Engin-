@@ -49,7 +49,7 @@ import { findAllLogosForText, LOGO_LIBRARY } from "./assetLibrary";
  *                      Best for: CEO announcements, founder drama, executive moves.
  *                      ONLY for well-known public figures with many available photos.
  *
- * "kling_video"      — 8-second cinematic video clip via Kling 2.5 Turbo.
+ * "kling_video"      — 5-second cinematic video clip via Kling 2.5 Turbo.
  *                      Most engaging format. 1-2 per carousel max (cost + time).
  *                      Best for: the most dramatic/action-oriented story.
  */
@@ -223,7 +223,7 @@ Carousel facts:
    EXAMPLE: "Sam Altman announces GPT-5" → cutout of Sam Altman on a dramatic tech background.
    CONSTRAINT: ONLY use for these verified public figures: ${Object.entries(KNOWN_FIGURES).map(([n, t]) => `${n} (${t})`).join(", ")}
 
-4. "kling_video" — 8-second cinematic video clip via Kling 2.5 Turbo AI. Video prompts MUST include camera movement (slow push-in, orbit, dolly zoom, parallax) and dynamic action.
+4. "kling_video" — 5-second cinematic video clip via Kling 2.5 Turbo AI. Video prompts MUST include camera movement (slow push-in, orbit, dolly zoom, parallax) and dynamic action.
    WHEN: The story has dramatic visual potential — action, confrontation, transformation, or spectacle.
    ENGAGEMENT: Highest P(dwell). Very high P(share) for dramatic clips. Instagram mixed-media carousels outperform.
    LIMIT: Assign to exactly 1-2 slides per carousel (expensive, slow, rate-limited).
@@ -243,7 +243,7 @@ COVER SLIDE (index 0) = 80% OF THE POST:
 VIDEO STRATEGY:
 - Assign kling_video to exactly 1-2 slides (indices 1-4, NOT the cover unless it's spectacular).
 - Choose stories with the MOST DYNAMIC visual potential for video.
-- Video prompts MUST describe: camera movement type, action/motion, lighting changes, 8-second arc.
+- Video prompts MUST describe: camera movement type, action/motion, lighting changes, 5-second arc.
 
 SCENE PROMPT QUALITY (PROMPTHIS Framework):
 Every scenePrompt must follow this structure for maximum AI image quality:
