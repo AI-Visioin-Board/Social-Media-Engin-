@@ -397,7 +397,7 @@ export async function scoreAndSelectTopics(
   // Take up to 50 candidates — 6 parallel GPT-4o searches + Reddit can yield 30-50 topics
   const candidates = deduped.slice(0, 50);
 
-  const systemPrompt = `You are a world-class social media content strategist for @suggestedbygpt, an AI news Instagram page with a highly engaged audience of entrepreneurs, business owners, and tech-curious everyday people. Your job is to select the 5 BEST AI news stories from a large pool of candidates for this week's Instagram carousel.
+  const systemPrompt = `You are a world-class social media content strategist for @suggestedbygpt, an AI news Instagram page with a highly engaged audience of entrepreneurs, business owners, and tech-curious everyday people. Your job is to select the 4 BEST AI news stories from a large pool of candidates for this week's Instagram carousel.
 
 AUDIENCE PROFILE:
 - Small/medium business owners who want to use AI to grow their business
@@ -405,12 +405,19 @@ AUDIENCE PROFILE:
 - Entrepreneurs and investors tracking AI trends
 - Tech enthusiasts who share viral AI content
 
-SCORING CRITERIA (rate each 1-10):
-1. businessOwnerImpact: How directly does this affect small/medium business owners? (tools, costs, automation, competition)
-2. generalPublicRelevance: How relevant is this to everyday people? (jobs, privacy, daily life, consumer products)
-3. viralPotential: How likely is this to be shared on Instagram? (shocking, surprising, controversial, inspiring)
-4. worldImportance: How significant is this for society? (regulation, safety, geopolitics, scientific impact)
-5. interestingness: How surprising, novel, or fascinating is this? (unexpected, counterintuitive, first-of-its-kind)
+INSTAGRAM 2026 ALGORITHM INSIGHT (from real data):
+- DM SHARES are the #1 ranking signal — weighted 3-5x more than likes
+- SAVES are #2 — content that gets bookmarked gets Explore page distribution
+- Comments >5 words = "high social relevance" signal
+- Instagram now reshows UNSWIPED carousel slides as new content — every slide is a fresh engagement opportunity
+- Shares per reach is the single strongest predictor of post going viral
+
+SCORING CRITERIA (rate each 1-10, with VIRALITY WEIGHTS):
+1. shareability (WEIGHT: 5x): Would someone DM this to a friend? Insider knowledge, career impact, controversy, "tag someone who..."
+2. saveWorthiness (WEIGHT: 3.5x): Would someone bookmark this? Actionable data, tools, predictions, reference-worthy stats
+3. debatePotential (WEIGHT: 2.5x): Would people argue about this? Strong opinions, winners vs losers, moral implications
+4. informationGap (WEIGHT: 2x): How much do people NOT know about this? Unknown > "heard something" > "old news"
+5. personalImpact (WEIGHT: 1x): Does this affect the viewer's life/career directly?
 
 SELECTION RULES:
 - Select exactly 4 topics with maximum variety (no two from the same company or angle)
@@ -419,10 +426,11 @@ SELECTION RULES:
 - At least 1 topic should be directly actionable for business owners
 - At least 1 topic should be broadly relatable to non-technical people
 - Avoid: pure research papers, niche developer tools, incremental updates to existing products
+- WEIGHTED SCORE = (shareability × 5) + (saveWorthiness × 3.5) + (debatePotential × 2.5) + (informationGap × 2) + (personalImpact × 1). Topics scoring below 50 total should be REPLACED.
 ${recentExclusions.length > 0 ? `
 DO NOT SELECT these recently published topics or anything closely similar:\n${recentExclusions.slice(0, 20).join("\n")}` : ""}`;
 
-  const userPrompt = `Here are the candidate topics. Score each on all 5 criteria and select the best 5.
+  const userPrompt = `Here are the candidate topics. Score each on the 5 virality-weighted criteria and select the best 4.
 
 CANDIDATES:
 ${candidates.map((t, i) => `${i + 1}. "${t.title}" (source: ${t.source})`).join("\n")}
@@ -434,14 +442,16 @@ Return a JSON array of exactly 4 objects with this structure:
   "source": "youtube|tiktok|reddit",
   "url": "original url",
   "scores": {
-    "businessOwnerImpact": 8,
-    "generalPublicRelevance": 7,
-    "viralPotential": 9,
-    "worldImportance": 6,
-    "interestingness": 8,
-    "total": 38
+    "shareability": 8,
+    "saveWorthiness": 7,
+    "debatePotential": 9,
+    "informationGap": 6,
+    "personalImpact": 8,
+    "total": 104
   }
-}`;
+}
+
+NOTE: "total" = (shareability × 5) + (saveWorthiness × 3.5) + (debatePotential × 2.5) + (informationGap × 2) + (personalImpact × 1)`;
 
   try {
     const response = await invokeLLM({
@@ -469,14 +479,14 @@ Return a JSON array of exactly 4 objects with this structure:
                     scores: {
                       type: "object",
                       properties: {
-                        businessOwnerImpact: { type: "number" },
-                        generalPublicRelevance: { type: "number" },
-                        viralPotential: { type: "number" },
-                        worldImportance: { type: "number" },
-                        interestingness: { type: "number" },
+                        shareability: { type: "number" },
+                        saveWorthiness: { type: "number" },
+                        debatePotential: { type: "number" },
+                        informationGap: { type: "number" },
+                        personalImpact: { type: "number" },
                         total: { type: "number" },
                       },
-                      required: ["businessOwnerImpact", "generalPublicRelevance", "viralPotential", "worldImportance", "interestingness", "total"],
+                      required: ["shareability", "saveWorthiness", "debatePotential", "informationGap", "personalImpact", "total"],
                       additionalProperties: false,
                     },
                   },
@@ -865,7 +875,7 @@ Technical requirements:
 - ABSOLUTELY NO TEXT in the image — no letters, no words, no numbers, no readable characters of any kind. Any text must be completely blurred, out-of-focus, or abstracted into illegible marks.
 - NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — show the EMOTION or CONSEQUENCE instead
 - Dramatic lighting, high contrast, professional composition
-- For videos: describe camera movement, action, and duration (5 seconds)
+- For videos: describe camera movement, action, and duration (8 seconds). Include DYNAMIC camera movements: slow push-in, dolly zoom, parallax shifts, rotating orbit shots, or dramatic reveal movements. The video must have VISIBLE MOTION — never a static image.
 - For images: describe the exact scene, lighting, depth, and emotional tone${marketingEnhancement}`,
       },
       {
@@ -922,7 +932,7 @@ async function generateCoverImagePrompt(headlines: string[]): Promise<string> {
     messages: [
       {
         role: "system",
-        content: "You create stunning, cinematic image prompts for Nano Banana (Google Imagen). Each prompt describes a single photorealistic still image.",
+        content: "You create stunning, cinematic image prompts for Nano Banana (Google Imagen). Each prompt describes a single photorealistic still image that COMPOSITES MULTIPLE SUBJECTS together in one dramatic scene.",
       },
       {
         role: "user",
@@ -931,17 +941,27 @@ async function generateCoverImagePrompt(headlines: string[]): Promise<string> {
 This week's AI topics to synthesize visually:
 ${headlines.map((h, i) => `${i + 1}. ${h}`).join("\n")}
 
+CRITICAL COMPOSITION RULE — MULTIPLE SUBJECTS:
+The cover image MUST combine MULTIPLE elements from the week's stories into ONE dramatic scene. Think of it like a movie poster that teases ALL the stories at once.
+
+MULTI-SUBJECT COMPOSITION TECHNIQUES (pick ONE):
+1. COLLISION: Two or three symbolic objects in brand colors clashing/colliding in mid-air (e.g., a green glowing sphere and a red-blue sphere smashing together with sparks)
+2. LAYERED SCENE: Foreground + middle ground + background each represent different stories (e.g., a hand holding a cracked phone in foreground, a towering robot silhouette in midground, a burning cityscape in background)
+3. SPLIT COMPOSITION: Diagonal or vertical split showing two contrasting scenes side by side (e.g., left half = creation/building, right half = destruction/disruption)
+4. ENSEMBLE: 3-5 symbolic objects or figures arranged together (e.g., silhouettes of 3 figures at podiums each with different brand-color lighting, facing a crowd)
+5. SWIRL/VORTEX: Multiple brand-color elements spiraling together in a dramatic vortex or explosion
+
+DO NOT create a single-subject image. The cover MUST visually represent at least 2-3 of the week's stories.
+
 STYLE GUIDELINES (non-negotiable):
 - EDGY and MODERN — not corporate, not safe, not generic
-- SCI-FI aesthetic: think Blade Runner 2049, Ex Machina, Ghost in the Shell, Westworld
+- SCI-FI aesthetic: think Blade Runner 2049, Ex Machina, Westworld
 - Hyper-cinematic: anamorphic lens flares, volumetric light rays, god rays, chromatic aberration
 - Color palette: deep blacks, neon electric blue (#00f0ff), hot magenta (#ff00aa), molten gold — high contrast
-- Dramatic tension: something feels like it's about to change the world
-- Could include: a humanoid AI face emerging from data, a cracked digital mirror showing a robot eye, glowing neural pathways inside a human silhouette, a city skyline being rewritten by code
-- Composition: rule of thirds, strong foreground subject, depth layers, 9:16 vertical portrait
+- Composition: rule of thirds, multiple depth layers, 9:16 vertical portrait
 - Photorealistic, 8K quality, hyperdetailed
-- NO text, NO logos, NO watermarks in the image
-- The image should feel like a movie poster for the future of AI
+- ABSOLUTELY NO text, NO logos, NO watermarks, NO readable characters in the image
+- NEVER attempt to draw real people's faces (will look wrong). Use silhouettes, from-behind shots, or symbolic representations with brand colors instead.
 
 Return ONLY the image prompt, no explanation, no preamble.`,
       },
@@ -951,7 +971,7 @@ Return ONLY the image prompt, no explanation, no preamble.`,
   const raw = response?.choices?.[0]?.message?.content;
   const text = typeof raw === "string" ? raw : "";
   return text.trim() ||
-    "Hyper-cinematic 8K portrait: a humanoid AI face half-emerging from a shattered digital mirror, one eye glowing neon electric blue, the other a deep void of cascading code, surrounded by volumetric light rays and chromatic aberration, deep black background with neon magenta and gold accents, anamorphic lens flare, Blade Runner 2049 aesthetic, rule of thirds composition, 9:16 vertical, photorealistic hyperdetailed";
+    "Hyper-cinematic 8K vertical portrait: three glowing orbs in green, blue, and red hovering above a dark cityscape at night, each orb cracking open to reveal swirling energy inside, lightning arcs connecting them, a massive crowd of silhouettes below looking up in awe, volumetric god rays piercing through storm clouds, neon reflections on wet streets, anamorphic lens flare, chromatic aberration, Blade Runner 2049 meets Akira aesthetic, rule of thirds, multiple depth layers, photorealistic hyperdetailed";
 }
 
 // ─── Stage 5: Video / Image Generation ──────────────────────────────────────
@@ -969,7 +989,7 @@ async function generateKlingJWT(accessKey: string, secretKey: string): Promise<s
 }
 
 /**
- * Generate a 5-second video clip using Kling 2.5 Turbo API.
+ * Generate an 8-second video clip using Kling 2.5 Turbo API.
  * Returns the video URL on success, null on failure.
  */
 export async function generateKlingVideo(
@@ -994,7 +1014,7 @@ export async function generateKlingVideo(
         negative_prompt: "text, watermark, blurry, low quality, distorted, looping, repetitive motion",
         cfg_scale: 0.5,
         mode: "pro",  // "pro" produces more coherent, non-repetitive motion vs "std"
-        duration: "5",
+        duration: "8",
       }),
     });
 
@@ -1395,49 +1415,64 @@ async function _runPipelineStages(
       let mediaUrl: string | null = null;
       const wantsVideo = slide.isVideoSlide === 1;
 
-      // ── Strategy 1: Try real-image sourcing first (logos, dynamic search) ──
+      // ── Strategy 1: Real-image sourcing — logos as ACCENTS on AI backgrounds ──
       // Only for non-cover, non-video image slides
       if (!wantsVideo && slide.slideIndex !== 0) {
-        // Check curated logo library first (free, instant)
+        // Check curated logo library (will be used as small accent badge, NOT as main image)
         const headlineText = (slide.headline ?? "") + " " + (slide.summary ?? "");
         const logoMatch = findLogoForText(headlineText);
+        let logoBuffer: Buffer | null = null;
+
         if (logoMatch) {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: found curated logo → ${logoMatch.description}`);
-          const logoBuffer = await downloadImage(logoMatch.url);
-          if (logoBuffer) {
-            try {
-              const composed = await compositeAssetOnBackground(logoBuffer, logoMatch.bgColor ?? "#0a0a1a");
-              mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: real logo composited and uploaded`);
-            } catch (err: any) {
-              console.warn(`[ContentPipeline] Logo compositing failed: ${err?.message} — falling back to AI generation`);
-            }
-          }
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: found curated logo → ${logoMatch.description} (will use as accent)`);
+          logoBuffer = await downloadImage(logoMatch.url);
         }
 
-        // If no logo found, try Google Custom Search (if configured)
-        if (!mediaUrl) {
-          const searchResult = await searchImage(
-            `${slide.headline ?? ""} AI technology high quality`,
-            { portrait: true }
-          );
-          if (searchResult) {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Google CSE found → ${searchResult.title}`);
-            const imgBuffer = await downloadImage(searchResult.url);
-            if (imgBuffer) {
-              try {
-                // Upload raw image — Sharp compositor will resize/crop to 1080×1350
-                const { url } = await (await import("./storage")).storagePut(
-                  `assets/run-${runId}-slide-${slide.slideIndex}-search-${Date.now()}.png`,
-                  imgBuffer,
-                  "image/png"
-                );
-                mediaUrl = url;
-                console.log(`[ContentPipeline] Slide ${slide.slideIndex}: search image uploaded`);
-              } catch (err: any) {
-                console.warn(`[ContentPipeline] Search image upload failed: ${err?.message}`);
-              }
+        // Try Google Custom Search for a REAL background image (if configured)
+        let searchBgBuffer: Buffer | null = null;
+        const searchResult = await searchImage(
+          `${slide.headline ?? ""} AI technology high quality`,
+          { portrait: true }
+        );
+        if (searchResult) {
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Google CSE found → ${searchResult.title}`);
+          searchBgBuffer = await downloadImage(searchResult.url);
+        }
+
+        // If we have a logo, composite it as a small accent on the background
+        if (logoBuffer) {
+          try {
+            // Use search image as background if available, otherwise AI generation will provide the bg
+            const composed = await compositeAssetOnBackground(
+              logoBuffer,
+              logoMatch?.bgColor ?? "#0a0a1a",
+              searchBgBuffer ?? undefined
+            );
+            if (searchBgBuffer) {
+              // We have logo + real background — upload the composite
+              mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: logo accent on search background uploaded`);
+            } else {
+              // We have logo but no search bg — let AI generate the background below,
+              // then the logo accent will be overlaid during assembly
+              // For now, skip — AI generation will handle the main image
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: logo found but no search bg — falling through to AI generation`);
             }
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Logo compositing failed: ${err?.message} — falling back to AI generation`);
+          }
+        } else if (searchBgBuffer) {
+          // No logo match, but we have a search image — use it directly
+          try {
+            const { url } = await (await import("./storage")).storagePut(
+              `assets/run-${runId}-slide-${slide.slideIndex}-search-${Date.now()}.png`,
+              searchBgBuffer,
+              "image/png"
+            );
+            mediaUrl = url;
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: search image uploaded as background`);
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Search image upload failed: ${err?.message}`);
           }
         }
       }

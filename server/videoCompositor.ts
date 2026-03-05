@@ -163,9 +163,9 @@ function buildVideoOverlaySvg(
     summaryBlockH = summaryPadTop + summaryWrapped.length * summaryLineH;
   }
 
-  // Text zone: VIDEO_ZONE_H to SLIDE_H - 100
+  // Text zone: VIDEO_ZONE_H to SLIDE_H - 120 (with Instagram crop safety margin)
   const textZoneTop = VIDEO_ZONE_H + 20;
-  const textZoneBottom = SLIDE_H - 100;
+  const textZoneBottom = SLIDE_H - 120;
   const textZoneH = textZoneBottom - textZoneTop;
   const totalContentH = totalTextH + summaryBlockH;
   const textBlockTop = textZoneTop + Math.max(0, (textZoneH - totalContentH) / 2);
@@ -226,7 +226,7 @@ function buildVideoOverlaySvg(
   </text>`;
   }
 
-  // Insight bubble (above headline in video zone overlap area)
+  // Insight bubble (BELOW headline + summary, matching sharpCompositor layout)
   let insightBubbleSvg = "";
   if (insightLine && insightLine.trim().length > 3) {
     const insightWords = insightLine.trim().split(" ");
@@ -248,18 +248,25 @@ function buildVideoOverlaySvg(
     const iBubbleW = Math.min(SLIDE_W - 80, 680);
     const iBubbleH = insightLines.length * iLineH + iPad * 2;
     const iBubbleX = (SLIDE_W - iBubbleW) / 2;
-    const iBubbleY = textBlockTop - iBubbleH - 20;
     const iTailSize = 10;
 
-    // Only render if bubble fits within the visible area
-    if (iBubbleY > VIDEO_ZONE_H * 0.4) {
+    // Position BELOW the last content block (summary if present, else headline)
+    const lastHeadlineY = textBlockTop + (lines.length - 1) * lineHeight + fontSize;
+    const anchorY = hasSummary
+      ? lastHeadlineY + summaryPadTop + summaryWrapped.length * summaryLineH
+      : lastHeadlineY;
+    const iBubbleY = anchorY + 20; // 20px gap below the anchor
+
+    // Only render if it fits above the watermark area (SLIDE_H - 90)
+    if (iBubbleY + iBubbleH < SLIDE_H - 90) {
       const iTextLines = insightLines.map((line, i) =>
         `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 4}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
       ).join("\n    ");
 
       insightBubbleSvg = `
+  <!-- Tail pointing UP toward the headline/summary above -->
+  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY} ${SLIDE_W / 2 + iTailSize},${iBubbleY} ${SLIDE_W / 2},${iBubbleY - iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="12" ry="12" fill="white" fill-opacity="0.92"/>
-  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2 + iTailSize},${iBubbleY + iBubbleH} ${SLIDE_W / 2},${iBubbleY + iBubbleH + iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
   ${iTextLines}`;
     }
   }
@@ -308,11 +315,11 @@ function buildVideoOverlaySvg(
 
   ${summarySvg}
 
-  <!-- SuggestedByGPT watermark -->
-  <text x="52" y="${SLIDE_H - 58}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
+  <!-- SuggestedByGPT watermark — positioned within Instagram crop-safe area -->
+  <text x="52" y="${SLIDE_H - 88}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
 
-  <!-- Swipe hint -->
-  <text x="${SLIDE_W / 2}" y="${SLIDE_H - 28}" font-family="'Arial', sans-serif" font-size="28" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>
+  <!-- Swipe hint — moved up for Instagram crop safety -->
+  <text x="${SLIDE_W / 2}" y="${SLIDE_H - 62}" font-family="'Arial', sans-serif" font-size="28" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>
 </svg>`;
 }
 
@@ -386,7 +393,7 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
       "-preset", "fast",
       "-crf", "22",
       "-pix_fmt", "yuv420p",
-      "-t", "5",
+      "-t", "8",
       "-movflags", "+faststart",
       tmpOutputPath,
     ];

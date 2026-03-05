@@ -574,7 +574,7 @@ function RunDetailDialog({
                             const slide = slides[activeSlide];
                             const src = slide?.assembledUrl || slide?.videoUrl;
                             return (
-                              <div className="relative w-[220px] h-[275px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
+                              <div className="relative w-[270px] h-[338px] bg-black rounded-2xl overflow-hidden border-2 border-indigo-500 shadow-xl ring-2 ring-indigo-400/30">
                                 {src ? (
                                   isImageUrl(src) ? (
                                     <img key={src} src={src} className="w-full h-full object-contain" alt={slide?.headline || "slide"} />
@@ -730,7 +730,7 @@ function RunDetailDialog({
                             <ChevronLeft className="w-6 h-6 text-white" />
                           </button>
                           {/* Slide — 4:5 ratio matching 1080x1350 Instagram portrait */}
-                          <div className="w-[360px] h-[450px] bg-black rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
+                          <div className="w-[405px] h-[506px] bg-black rounded-3xl overflow-hidden border-4 border-white/20 shadow-2xl">
                             {src ? (
                               isImageUrl(src) ? (
                                 <img key={src} src={src} className="w-full h-full object-contain" alt="slide" />

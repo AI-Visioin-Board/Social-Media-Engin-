@@ -288,3 +288,178 @@ export const COMMENT_PROMPT_TEMPLATES = [
   "Which of these will have the biggest impact? Tell us 👇",
   "Did we miss a story? Drop it in the comments 💡",
 ];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTEGRATED MARKETING INTELLIGENCE — GitHub Research (March 2026)
+//
+// Sources:
+// - twitter/the-algorithm (62k★) — X/Twitter open-source ranking system
+// - xai-org/x-algorithm — Grok-based engagement prediction model
+// - langchain-ai/social-media-agent (1.8k★) — AI content curation pipeline
+// - Social-Media-Engagement-Forecasting — Prophet + XGBoost engagement models
+// - EngagementGNN (ACM ICMR 2023) — Graph neural network engagement prediction
+// - pyviralcontent — Readability + virality scoring (Keener's method)
+// - Buffer, Sprout Social, Emplifi 2026 research reports
+// - Instagram Algorithm December 2025 update analysis
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Instagram Algorithm Signal Hierarchy (2026 Update) ─────────────────────
+// Instagram runs 4 SEPARATE algorithms: Feed, Reels, Stories, Explore
+// Each has different ranking priorities. For carousel posts (our format):
+
+export const ALGORITHM_SIGNAL_WEIGHTS = {
+  // Ranked by impact on distribution (from X/Twitter algorithm + Instagram research)
+  sends_per_reach: { weight: 5.0, description: "DM shares — weighted 3-5x higher than likes" },
+  saves_per_reach: { weight: 3.5, description: "Bookmarks — signals lasting reference value" },
+  comments_quality: { weight: 2.5, description: "Comments >5 words — conversation depth" },
+  dwell_time: { weight: 2.0, description: "Time spent on post — caption + carousel swipes" },
+  likes_per_reach: { weight: 1.0, description: "Weakest signal — baseline engagement" },
+  // Negative signals (from twitter/the-algorithm)
+  not_interested: { weight: -3.0, description: "Hide/not interested clicks tank distribution" },
+  unfollow_after: { weight: -5.0, description: "Unfollow after seeing = strong negative signal" },
+} as const;
+
+// ─── Content Format Performance Benchmarks ──────────────────────────────────
+// Data from Emplifi (399M posts) + Buffer (9.6M Instagram posts, 2026)
+
+export const FORMAT_BENCHMARKS = {
+  reels: { engagementRate: 2.08, reachMultiplier: 1.0, note: "Best for discovery" },
+  carousel: { engagementRate: 1.70, reachMultiplier: 1.9, note: "Our format — 1.9x reach vs single images. Instagram reshows unswiped slides as NEW content" },
+  single_image: { engagementRate: 1.17, reachMultiplier: 1.0, note: "Baseline" },
+} as const;
+
+// ─── Engagement Probability Model ───────────────────────────────────────────
+// Adapted from twitter/the-algorithm + xai-org/x-algorithm engagement prediction.
+// The X algorithm predicts P(favorite), P(reply), P(repost), P(share), P(dwell), etc.
+// We adapt this for Instagram content scoring:
+
+export const VIRALITY_SCORE_FORMULA = `
+VIRALITY SCORING MODEL (use for topic selection and content ranking):
+
+For each piece of content, estimate these probabilities (0.0 to 1.0):
+  P(share)     — Will viewers DM this to a friend? (MOST IMPORTANT)
+  P(save)      — Will viewers bookmark this for later?
+  P(comment)   — Will viewers write a meaningful comment (>5 words)?
+  P(dwell)     — Will viewers read the full caption + swipe all slides?
+  P(like)      — Will viewers double-tap? (least important)
+
+WEIGHTED SCORE = (P(share) × 5.0) + (P(save) × 3.5) + (P(comment) × 2.5) + (P(dwell) × 2.0) + (P(like) × 1.0)
+
+Topics scoring 8.0+ are EXCELLENT (strong virality potential)
+Topics scoring 5.0-8.0 are GOOD (solid engagement)
+Topics scoring <5.0 should be REPLACED with better topics
+
+WHAT DRIVES EACH SIGNAL:
+- P(share) ↑: Controversy, "tag a friend who...", insider knowledge, industry gossip, career impact
+- P(save) ↑: How-to value, reference data, statistics, predictions, tool recommendations
+- P(comment) ↑: Debate-worthy claims, "agree or disagree?", predictions people want to weigh in on
+- P(dwell) ↑: Surprising stats, multi-step stories, narrative tension, curiosity gaps
+- P(like) ↑: Aesthetically pleasing, relatable, feel-good, community identity
+
+WHAT KILLS ENGAGEMENT:
+- Generic/vague headlines (no specific names, numbers, or stakes)
+- Topics that feel "old news" (even 3 days old can feel stale in AI)
+- Corporate PR announcements with no controversy or consequence
+- Topics the audience can't relate to (too niche, too academic)
+`;
+
+// ─── Instagram 2026 Algorithm Rules ─────────────────────────────────────────
+// Compiled from December 2025 algorithm update + 2026 data
+
+export const INSTAGRAM_2026_RULES = `
+INSTAGRAM ALGORITHM RULES (2026):
+
+1. KEYWORD SEO > HASHTAGS: Instagram removed hashtag following in Dec 2024. The platform
+   now works like a search engine. Use keyword-rich captions with natural SEO terms
+   (AI, artificial intelligence, machine learning, tech news). Hashtags are secondary (3-5 max).
+
+2. FOUR SEPARATE ALGORITHMS: Feed, Reels, Stories, and Explore each rank content differently.
+   Our carousel posts are ranked by the Feed algorithm (relationship signals, engagement velocity,
+   recency, content type preference).
+
+3. CAROUSEL RESHOWING: Unswiped slides get re-served as "new content" to followers who didn't
+   swipe through the whole carousel. This means each slide is a NEW engagement opportunity.
+   Design slides to be independently compelling.
+
+4. EARLY ENGAGEMENT VELOCITY: Posts that get engagement in the first 30-60 minutes get boosted.
+   Post during peak engagement windows and have engagement-ready captions.
+
+5. MICRO-NICHE CATEGORIZATION: Instagram's AI categorizes your account based on your last
+   9-12 posts. Maintain consistent AI/tech news topic focus for algorithmic trust.
+
+6. TRIAL REELS: Instagram now tests content with non-followers first. Even though we post
+   carousels, this reveals the algorithm's preference: CONTENT THAT WORKS WITH STRANGERS
+   gets the most distribution.
+
+7. POSTING FREQUENCY: 6-9 posts per week is optimal. Our Mon/Fri schedule (2 posts/week)
+   is below optimal — consider adding mid-week content.
+
+8. CONSISTENCY > TIMING: While timing matters (Tue-Thu 11am-6pm), consistency of posting
+   schedule matters MORE for building algorithmic trust.
+`;
+
+// ─── Virality Scoring for Topic Selection ───────────────────────────────────
+// Injected into the GPT scoring agent prompt for Stage 2
+
+export const TOPIC_VIRALITY_SCORING_PROMPT = `
+VIRALITY ASSESSMENT (score each factor 1-10):
+
+1. SHAREABILITY (weight: 5x) — Would someone DM this to a friend?
+   - 10: "OMG you NEED to see this" — career-threatening, life-changing, or hilarious
+   - 7-9: "Interesting, you should check this out" — notable but not urgent
+   - 4-6: "Huh, that's cool" — interesting but not share-worthy
+   - 1-3: "Meh" — no impulse to share
+
+2. SAVE-WORTHINESS (weight: 3.5x) — Would someone bookmark this?
+   - 10: Actionable data, tool recommendations, career advice
+   - 7-9: Reference-worthy stats or predictions
+   - 4-6: Interesting but no lasting value
+   - 1-3: Purely ephemeral news
+
+3. DEBATE POTENTIAL (weight: 2.5x) — Would people argue about this?
+   - 10: Deeply controversial, moral implications, winners vs losers
+   - 7-9: Strong opinions likely, reasonable people disagree
+   - 4-6: Some discussion, mostly agreement
+   - 1-3: Nothing to debate
+
+4. INFORMATION GAP (weight: 2x) — How much do people NOT know about this?
+   - 10: "Wait, WHAT?!" — completely unknown to most people
+   - 7-9: "I heard something but didn't know the details"
+   - 4-6: "Yeah, I saw the headline"
+   - 1-3: "Old news, everyone knows"
+
+5. PERSONAL IMPACT (weight: 1x) — Does this affect the viewer's life/career?
+   - 10: Direct job/income/tool impact
+   - 7-9: Indirect but real impact
+   - 4-6: Interesting but no personal stakes
+   - 1-3: Academic/abstract
+
+WEIGHTED VIRALITY SCORE = (Shareability × 5) + (SaveWorthiness × 3.5) + (DebatePotential × 2.5) + (InformationGap × 2) + (PersonalImpact × 1) / 14
+
+Topics with Virality Score < 5.0 should be REPLACED.
+`;
+
+// ─── Content Readability Optimization ───────────────────────────────────────
+// From pyviralcontent research — content virality correlates with readability
+
+export const READABILITY_RULES = `
+READABILITY FOR VIRALITY (backed by research):
+- Headlines: 6-12 words. Flesch-Kincaid grade level 4-6 (5th grader can understand)
+- Slide text: Max 10-15 words per slide. ONE idea per slide.
+- Caption: 150-250 words. Grade level 6-8. Short sentences (under 20 words each).
+- Use CONCRETE language: specific numbers, names, actions — never abstract concepts
+- The "bar test": if you couldn't explain this headline to a stranger at a bar, it's too complex
+`;
+
+// ─── Dynamic Engagement Boosters ────────────────────────────────────────────
+// Carousel-specific tactics derived from Emplifi + Hootsuite 2026 data
+
+export const CAROUSEL_ENGAGEMENT_TACTICS = {
+  slideCount: "5-10 slides optimal (we use 5 — the sweet spot for news roundups)",
+  firstSlide: "Slide 1 = HOOK. Must create enough curiosity to swipe. Show the BIGGEST story.",
+  lastSlide: "Slide 5 = CTA. End with a save-worthy takeaway + engagement question.",
+  progression: "Each slide should escalate in intensity or relevance. Never put the best story first — build to it.",
+  independentValue: "Each slide must be independently valuable — Instagram reshows unswiped slides as standalone content.",
+  textDensity: "Low text, high visual impact. The image does the work; the headline creates context.",
+  colorConsistency: "Consistent dark theme + cyan accents across ALL slides builds brand recognition.",
+} as const;

@@ -226,8 +226,8 @@ function buildOverlaySvg(
     summaryBlockHeight = summaryPadTop + summaryWrapped.length * summaryLineH;
   }
 
-  // Text block sits 160px from bottom (above watermark + swipe hint)
-  const textBlockBottom = SLIDE_H - 160;
+  // Text block sits 180px from bottom (above watermark + swipe hint, with Instagram crop safety margin)
+  const textBlockBottom = SLIDE_H - 180;
   const textStartY = textBlockBottom - totalTextHeight - summaryBlockHeight;
 
   // Highlighted words
@@ -274,7 +274,8 @@ function buildOverlaySvg(
   }
 
   // Swipe hint
-  const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 52}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
+  // Swipe hint — moved up for Instagram crop safety (bottom ~60px can get cut)
+  const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 62}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
 
   // Font-face declaration
   const fontFace = font.path
@@ -373,8 +374,8 @@ function buildOverlaySvg(
 
   ${insightBubbleSvg}
 
-  <!-- SuggestedByGPT watermark -->
-  <text x="52" y="${SLIDE_H - 58}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
+  <!-- SuggestedByGPT watermark — positioned safely within Instagram's visible crop area -->
+  <text x="52" y="${SLIDE_H - 88}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
 
   ${swipeHint}
 </svg>`;

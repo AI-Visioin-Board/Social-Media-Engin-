@@ -340,39 +340,68 @@ export async function downloadImage(imageUrl: string): Promise<Buffer | null> {
 }
 
 /**
- * Composite a logo/asset onto a dark background, ready for use as a slide background.
- * Creates a 1080×1350 image with the logo centered in the upper 60% of the frame.
+ * Composite a logo/asset as a SMALL accent onto a background image.
+ * The logo is placed as a semi-transparent badge in the upper-left area (200×200px max),
+ * NOT as the main subject. The AI-generated or searched background image is the star.
+ *
+ * If no backgroundBuffer is provided, creates a cinematic gradient background.
  */
 export async function compositeAssetOnBackground(
   assetBuffer: Buffer,
-  bgColor: string = "#0a0a1a"
+  bgColor: string = "#0a0a1a",
+  backgroundBuffer?: Buffer
 ): Promise<Buffer> {
-  // Create dark background
-  const bg = sharp({
-    create: {
-      width: 1080,
-      height: 1350,
-      channels: 4,
-      background: bgColor,
-    },
-  }).png();
+  let bgPipeline: sharp.Sharp;
 
-  // Resize asset to fit in center (max 600px wide, 500px tall)
+  if (backgroundBuffer) {
+    // Use provided background image, resized to 1080×1350
+    bgPipeline = sharp(backgroundBuffer)
+      .resize(1080, 1350, { fit: "cover", position: "center" });
+  } else {
+    // Create a cinematic gradient background (dark with subtle color accent)
+    const gradientSvg = `<svg width="1080" height="1350" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="glow" cx="50%" cy="35%" r="65%">
+          <stop offset="0%" stop-color="${bgColor}" stop-opacity="0.4"/>
+          <stop offset="60%" stop-color="#0a0a1a" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#000000" stop-opacity="1"/>
+        </radialGradient>
+      </defs>
+      <rect width="1080" height="1350" fill="#050510"/>
+      <rect width="1080" height="1350" fill="url(#glow)"/>
+    </svg>`;
+    bgPipeline = sharp(Buffer.from(gradientSvg));
+  }
+
+  const bgBuffer = await bgPipeline.png().toBuffer();
+
+  // Resize logo to be a SMALL accent (max 180px wide, 160px tall)
   const resizedAsset = await sharp(assetBuffer)
-    .resize(600, 500, { fit: "inside", withoutEnlargement: true })
+    .resize(180, 160, { fit: "inside", withoutEnlargement: true })
     .png()
     .toBuffer();
 
   const assetMeta = await sharp(resizedAsset).metadata();
-  const assetW = assetMeta.width ?? 600;
-  const assetH = assetMeta.height ?? 500;
+  const assetW = assetMeta.width ?? 180;
+  const assetH = assetMeta.height ?? 160;
 
-  // Center in upper 60% of frame
-  const left = Math.round((1080 - assetW) / 2);
-  const top = Math.round((1350 * 0.6 - assetH) / 2);  // center in upper 60%
+  // Place logo in upper-right area with some padding (acts as a badge/watermark)
+  const left = 1080 - assetW - 48;
+  const top = 48;
 
-  return bg
-    .composite([{ input: resizedAsset, left, top }])
+  // Create a subtle dark pill behind the logo for contrast
+  const logoBgW = assetW + 32;
+  const logoBgH = assetH + 32;
+  const logoBgSvg = `<svg width="${logoBgW}" height="${logoBgH}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${logoBgW}" height="${logoBgH}" rx="16" ry="16" fill="black" fill-opacity="0.5"/>
+  </svg>`;
+  const logoBgBuffer = await sharp(Buffer.from(logoBgSvg)).png().toBuffer();
+
+  return sharp(bgBuffer)
+    .composite([
+      { input: logoBgBuffer, left: left - 16, top: top - 16 },
+      { input: resizedAsset, left, top },
+    ])
     .png()
     .toBuffer();
 }
