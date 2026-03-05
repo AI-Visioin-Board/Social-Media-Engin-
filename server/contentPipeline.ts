@@ -185,7 +185,7 @@ async function runSingleGPT4oSearch(query: string, openAiKey: string): Promise<R
         tools: [{ type: "web_search_preview" }],
         input: query,
       }),
-      signal: AbortSignal.timeout(45_000), // 45s timeout for GPT-4o discovery search
+      signal: AbortSignal.timeout(90_000), // 90s timeout for GPT-4o discovery search (web search can be slow)
     });
     if (!response.ok) return [];
     const data = await response.json() as any;
@@ -642,7 +642,7 @@ Topic: "${topic.title}"
 
 Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,
     }),
-    signal: AbortSignal.timeout(60_000), // 60s timeout for GPT-4o deep research
+    signal: AbortSignal.timeout(120_000), // 2 min timeout for GPT-4o deep research (web search + synthesis)
   });
 
   if (!response.ok) {
@@ -1298,8 +1298,8 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
 /** Maximum time a pipeline run is allowed before auto-failing (15 minutes) */
 const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
 
-/** Per-slide maximum generation time (3 minutes) */
-const SLIDE_TIMEOUT_MS = 3 * 60 * 1000;
+/** Per-slide maximum generation time (5 minutes) — must exceed Kling poll cycle (4 min) */
+const SLIDE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export async function continueAfterApproval(
   runId: number,
