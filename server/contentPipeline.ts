@@ -1353,9 +1353,21 @@ async function _runPipelineStages(
       throw new Error(`Only ${researched.length} topics passed verification (need at least 3)`);
     }
 
-    // Create slide records
+    // ── Stage 4.5: Creative Director — decides visual strategy per slide ──
+    // The Creative Director analyzes each story and decides the best visual approach:
+    // cinematic_scene, scene_with_badge, person_composite, or kling_video.
+    // This replaces the old hardcoded videoSlideIndices = new Set([1, 3]).
+    const { creativeDirectorAgent } = await import("./creativeDirector");
+    const creativeBrief = await creativeDirectorAgent(researched, runId);
+
+    // Build a map of slide index → creative brief for Stage 5
+    const briefBySlide = new Map(creativeBrief.slides.map(s => [s.slideIndex, s]));
+
+    // Create slide records using the creative brief
     // Cover slide (index 0) — edgy, eye-catching cover image with provocative headline
-    const coverImagePrompt = await generateCoverImagePrompt(researched.map((t) => t.headline));
+    const coverBrief = briefBySlide.get(0);
+    const coverImagePrompt = coverBrief?.scenePrompt
+      || await generateCoverImagePrompt(researched.map((t) => t.headline));
     // Read runSlot from DB since _runPipelineStages doesn't receive it directly
     const [runRecord] = await db.select({ runSlot: contentRuns.runSlot }).from(contentRuns).where(eq(contentRuns.id, runId));
     const runSlot = runRecord?.runSlot ?? "monday";
@@ -1366,16 +1378,19 @@ async function _runPipelineStages(
       headline: coverHeadline,
       summary: researched.map((t) => t.headline).join(" • "),
       videoPrompt: coverImagePrompt,
-      isVideoSlide: 0, // cover is always a still image
+      isVideoSlide: coverBrief?.strategy === "kling_video" ? 1 : 0,
       status: "pending",
     });
 
     // Content slides (index 1-4)
-    // Slides 1 and 3 are video slides, slides 2 and 4 are still images — mixed carousel
-    const videoSlideIndices = new Set([1, 3]);
+    // Video/image assignment now comes from Creative Director (not hardcoded)
     for (let i = 0; i < researched.length; i++) {
       const topic = researched[i];
       const slideIndex = i + 1;
+      const slideBrief = briefBySlide.get(slideIndex);
+      const isVideo = slideBrief?.strategy === "kling_video" ? 1 : 0;
+      // Use Creative Director's scenePrompt if available, otherwise fall back to research prompt
+      const prompt = slideBrief?.scenePrompt || topic.videoPrompt;
       await db.insert(generatedSlides).values({
         runId,
         slideIndex,
@@ -1383,8 +1398,8 @@ async function _runPipelineStages(
         summary: topic.summary,
         insightLine: topic.insightLine ?? null,
         citations: JSON.stringify(topic.citations),
-        videoPrompt: topic.videoPrompt,
-        isVideoSlide: videoSlideIndices.has(slideIndex) ? 1 : 0,
+        videoPrompt: prompt,
+        isVideoSlide: isVideo,
         status: "pending",
       });
     }
@@ -1430,25 +1445,31 @@ async function _runPipelineStages(
     console.log(`[ContentPipeline] Kling video: ${hasKling ? "✅ ENABLED" : "❌ DISABLED (no credentials — all video slides will be still images)"}`);
     console.log(`[ContentPipeline] Slides to generate: ${slides.length}`);
 
-    // Import asset library
-    const { findLogoForText, findAllLogosForText, downloadImage, compositeAssetOnBackground, uploadAsset, searchImage } =
-      await import("./assetLibrary");
+    // Import asset library + compositing functions
+    const {
+      findLogoForText, findAllLogosForText, downloadImage,
+      compositeAssetOnBackground, compositePersonOnBackground,
+      uploadAsset, searchImage, LOGO_LIBRARY,
+    } = await import("./assetLibrary");
 
-    // ── Generate all slides in PARALLEL (not sequential) ──
+    // ── Strategy-based media generation (driven by Creative Director brief) ──
     const generateSlideMedia = async (slide: typeof slides[0]): Promise<void> => {
       const slideStart = Date.now();
       if (!slide.videoPrompt) return;
 
+      const brief = briefBySlide.get(slide.slideIndex);
+      const strategy = brief?.strategy ?? (slide.isVideoSlide === 1 ? "kling_video" : "cinematic_scene");
+
       const log: typeof decisionLog[0] = {
         slideIndex: slide.slideIndex,
         headline: slide.headline ?? "",
-        wantsVideo: slide.isVideoSlide === 1,
+        wantsVideo: strategy === "kling_video",
         logoFound: null,
         logoDownloaded: false,
         searchBgFound: false,
         klingAttempted: false,
         klingSucceeded: false,
-        strategy: "unknown",
+        strategy,
         timeMs: 0,
         mediaUrl: null,
       };
@@ -1458,67 +1479,27 @@ async function _runPipelineStages(
         .where(eq(generatedSlides.id, slide.id));
 
       let mediaUrl: string | null = null;
-      const wantsVideo = slide.isVideoSlide === 1;
+      const scenePrompt = brief?.scenePrompt || slide.videoPrompt;
 
-      // ── Step 1: Find logos for ALL content slides (not just non-video) ──
-      const headlineText = (slide.headline ?? "") + " " + (slide.summary ?? "");
-      const allLogos = slide.slideIndex !== 0 ? findAllLogosForText(headlineText) : [];
-      const logoMatch = allLogos.length > 0 ? allLogos[0] : null;
-      const secondLogoMatch = allLogos.length > 1 ? allLogos[1] : null;
-      let logoBuffer: Buffer | null = null;
-      let secondLogoBuffer: Buffer | null = null;
+      console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Strategy: ${strategy} | "${(slide.headline ?? "").slice(0, 50)}..."`);
 
-      if (logoMatch) {
-        log.logoFound = allLogos.map(l => l.description).join(" + ");
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🏷️ Logo(s) found → ${log.logoFound}`);
-        logoBuffer = await downloadImage(logoMatch.url);
-        log.logoDownloaded = !!logoBuffer;
-        if (!logoBuffer) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Logo download failed (Wikimedia URL may be broken)`);
-        }
-        // Download second logo for dual-layout slides (competition/comparison stories)
-        if (secondLogoMatch) {
-          secondLogoBuffer = await downloadImage(secondLogoMatch.url);
-          if (secondLogoBuffer) {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🏷️ Second logo downloaded → ${secondLogoMatch.description}`);
-          }
-        }
-      }
+      // ════════════════════════════════════════════════════════════════════════
+      // STRATEGY DISPATCH — each strategy has its own execution path + fallback
+      // ════════════════════════════════════════════════════════════════════════
 
-      // ── Step 2: Try Google CSE for background (runs in parallel with logo) ──
-      let searchBgBuffer: Buffer | null = null;
-      if (!wantsVideo && slide.slideIndex !== 0) {
-        const searchResult = await searchImage(
-          `${slide.headline ?? ""} AI technology high quality`,
-          { portrait: true }
-        );
-        if (searchResult) {
-          log.searchBgFound = true;
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔍 Google CSE found → ${searchResult.title}`);
-          searchBgBuffer = await downloadImage(searchResult.url);
-        }
-      }
-
-      // ── Step 3: Generate media based on available assets ──
-
-      if (wantsVideo && hasKling) {
-        // VIDEO SLIDE with Kling available
-        // ── BUG 8 FIX: Re-generate prompt with isVideo:true for Kling ──
-        // The research phase generates ALL prompts with isVideo:false (still-image style).
-        // Kling needs camera motion, dynamic action, and movement descriptions to produce
-        // quality 8-second video clips. Re-run Marketing Brain with isVideo:true.
-        let videoSpecificPrompt = slide.videoPrompt;
+      if (strategy === "kling_video" && hasKling) {
+        // ── KLING VIDEO: Generate 8-second cinematic video clip ──
+        let videoSpecificPrompt = scenePrompt;
         try {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Re-generating prompt with video motion for Kling...`);
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Generating video-specific prompt with camera motion...`);
           videoSpecificPrompt = await marketingBrainPrompt({
             headline: slide.headline ?? "",
             summary: slide.summary ?? "",
             research: slide.summary ?? "",
             isVideo: true,
           });
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Video prompt generated (${videoSpecificPrompt.length} chars)`);
         } catch (err: any) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using original: ${err?.message}`);
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using scene prompt: ${err?.message}`);
         }
 
         log.klingAttempted = true;
@@ -1529,50 +1510,129 @@ async function _runPipelineStages(
           log.strategy = "kling_video";
           console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling video generated`);
         } else {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to still image`);
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to cinematic_scene`);
+          // Kling failed: fall through to cinematic_scene below
         }
       }
 
-      if (!mediaUrl) {
-        // STILL IMAGE path — generate AI background first, then composite logo on top
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🖼️ Generating Nano Banana image...`);
-        const aiImageUrl = await generateSlideImage(slide.videoPrompt);
+      if (!mediaUrl && strategy === "person_composite") {
+        // ── PERSON COMPOSITE: Real person photo on AI background ──
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite — searching for person photo...`);
+        let personFailed = false;
 
-        if (aiImageUrl && logoBuffer) {
-          // ✅ KEY FIX: Logo found + AI background → composite logo PROMINENTLY on top
-          try {
-            const isDualLogo = !!secondLogoBuffer;
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔀 Compositing ${isDualLogo ? "dual" : "single"} logo badge(s) onto AI background...`);
-            const aiImageBuffer = await downloadImage(aiImageUrl);
-            if (aiImageBuffer) {
-              const composed = await compositeAssetOnBackground(
-                logoBuffer,
-                logoMatch?.bgColor ?? "#0a0a1a",
-                aiImageBuffer,
-                isDualLogo ? { layout: "dual", secondLogoBuffer: secondLogoBuffer!, secondBgColor: secondLogoMatch?.bgColor ?? "#1a1a2e" } : undefined
-              );
-              mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
-              log.strategy = isDualLogo ? "dual_logo_on_ai_background" : "logo_on_ai_background";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ ${isDualLogo ? "Dual logos" : "Logo"} composited on AI background`);
+        try {
+          // Step 1: Generate AI background
+          const aiBgUrl = await generateSlideImage(scenePrompt);
+          const aiBgBuffer = aiBgUrl ? await downloadImage(aiBgUrl) : null;
+
+          if (aiBgBuffer && brief?.personSearchQuery) {
+            // Step 2: Search Google CSE for person photo
+            const personResult = await searchImage(brief.personSearchQuery, { portrait: true });
+            if (personResult) {
+              log.searchBgFound = true;
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔍 Person photo found → ${personResult.title}`);
+              const personBuffer = await downloadImage(personResult.url);
+
+              if (personBuffer) {
+                // Step 3: Composite person onto AI background
+                const composed = await compositePersonOnBackground(
+                  personBuffer,
+                  aiBgBuffer,
+                  brief.personPlacement ?? "center",
+                );
+                mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
+                log.strategy = "person_composite";
+                console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Person composited onto AI background`);
+              } else {
+                console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Person photo download failed`);
+                personFailed = true;
+              }
             } else {
-              mediaUrl = aiImageUrl;
-              log.strategy = "ai_image_logo_download_failed";
+              console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ No person photo found via Google CSE`);
+              personFailed = true;
             }
-          } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Logo compositing failed: ${err?.message}`);
-            mediaUrl = aiImageUrl; // fallback to raw AI image
-            log.strategy = "ai_image_compositing_failed";
+
+            // Fallback: use raw AI image if person compositing failed
+            if (personFailed && aiBgUrl) {
+              mediaUrl = aiBgUrl;
+              log.strategy = "cinematic_scene_person_fallback";
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ↩️ Falling back to AI image (person not found)`);
+            }
+          } else if (aiBgUrl) {
+            mediaUrl = aiBgUrl;
+            log.strategy = "cinematic_scene_no_bg";
           }
-        } else if (aiImageUrl && searchBgBuffer && !logoBuffer) {
-          // Search background available but no logo — use AI image (better quality than search)
-          mediaUrl = aiImageUrl;
-          log.strategy = "ai_image_no_logo";
+        } catch (err: any) {
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Person composite failed: ${err?.message}`);
+          // Fall through to cinematic_scene below
+        }
+      }
+
+      if (!mediaUrl && (strategy === "scene_with_badge" || strategy === "cinematic_scene" || strategy === "kling_video" || strategy === "person_composite")) {
+        // ── SCENE WITH BADGE or CINEMATIC SCENE (also Kling/person fallback) ──
+        // Generate AI background image, optionally add logo badge(s)
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🖼️ Generating AI image (Nano Banana)...`);
+        const aiImageUrl = await generateSlideImage(scenePrompt);
+
+        if (aiImageUrl && strategy === "scene_with_badge" && brief?.logoKeys && brief.logoKeys.length > 0) {
+          // Download logo(s) from the curated library
+          const logoKey = brief.logoKeys[0];
+          const logoEntry = LOGO_LIBRARY[logoKey];
+          if (logoEntry) {
+            const logoBuffer = await downloadImage(logoEntry.url);
+            if (logoBuffer) {
+              log.logoFound = brief.logoKeys.join(" + ");
+              log.logoDownloaded = true;
+
+              try {
+                const aiImageBuffer = await downloadImage(aiImageUrl);
+                if (aiImageBuffer) {
+                  // Check for dual logo
+                  let secondLogoBuffer: Buffer | null = null;
+                  let secondBgColor: string | undefined;
+                  if (brief.logoKeys.length > 1) {
+                    const secondKey = brief.logoKeys[1];
+                    const secondEntry = LOGO_LIBRARY[secondKey];
+                    if (secondEntry) {
+                      secondLogoBuffer = await downloadImage(secondEntry.url);
+                      secondBgColor = secondEntry.bgColor;
+                    }
+                  }
+
+                  const isDual = !!secondLogoBuffer;
+                  console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔀 Compositing ${isDual ? "dual" : "single"} logo badge(s)...`);
+                  const composed = await compositeAssetOnBackground(
+                    logoBuffer,
+                    logoEntry.bgColor ?? "#0a0a1a",
+                    aiImageBuffer,
+                    isDual ? { layout: "dual", secondLogoBuffer: secondLogoBuffer!, secondBgColor: secondBgColor ?? "#1a1a2e" } : undefined,
+                  );
+                  mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
+                  log.strategy = isDual ? "scene_with_dual_badge" : "scene_with_badge";
+                  console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Logo badge(s) composited`);
+                } else {
+                  mediaUrl = aiImageUrl;
+                  log.strategy = "cinematic_scene_badge_dl_fail";
+                }
+              } catch (err: any) {
+                console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Badge compositing failed: ${err?.message}`);
+                mediaUrl = aiImageUrl;
+                log.strategy = "cinematic_scene_badge_fail";
+              }
+            } else {
+              // Logo download failed — just use AI image
+              mediaUrl = aiImageUrl;
+              log.strategy = "cinematic_scene_logo_dl_fail";
+            }
+          } else {
+            mediaUrl = aiImageUrl;
+            log.strategy = "cinematic_scene_no_logo_entry";
+          }
         } else if (aiImageUrl) {
-          // No logo, no search bg — just the AI image
+          // Pure cinematic scene (or badge strategy with no logos) — just the AI image
           mediaUrl = aiImageUrl;
-          log.strategy = wantsVideo ? "ai_image_kling_fallback" : "ai_image_only";
+          log.strategy = strategy === "kling_video" ? "cinematic_scene_kling_fallback" : "cinematic_scene";
         } else {
-          // All generation failed
           log.strategy = "all_failed";
           console.error(`[ContentPipeline] Slide ${slide.slideIndex}: ❌ ALL media generation failed`);
         }
@@ -1592,16 +1652,13 @@ async function _runPipelineStages(
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Done in ${(log.timeMs / 1000).toFixed(1)}s — strategy: ${log.strategy}`);
     };
 
-    // Run all slide generation in parallel (except Kling video slides which are rate-limited)
+    // ── Parallel generation: image slides concurrent, video slides sequential (Kling rate limit) ──
     const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasKling && s.videoPrompt);
     const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasKling) && s.videoPrompt);
 
-    // Generate image slides in parallel (Nano Banana has no rate limit)
     console.log(`[ContentPipeline] Generating ${imageSlides.length} image slides in parallel + ${videoSlides.length} video slides sequentially...`);
     await Promise.all([
-      // Image slides: all at once
       Promise.all(imageSlides.map(s => generateSlideMedia(s))),
-      // Video slides: sequential (Kling rate limit)
       (async () => {
         for (const s of videoSlides) {
           await generateSlideMedia(s);
@@ -1629,9 +1686,19 @@ async function _runPipelineStages(
 
       // If topicsRaw is an array (the normal case), wrap it in an object to add the log
       // If it's already an object (from a previous run), just add the log key
+      // Include both the creative brief and the execution decision log
+      const creativeBriefSummary = creativeBrief.slides.map(s => ({
+        slideIndex: s.slideIndex,
+        strategy: s.strategy,
+        reasoning: s.reasoning,
+        engagementScore: s.engagementScore,
+        logoKeys: s.logoKeys,
+        personSearchQuery: s.personSearchQuery ? s.personSearchQuery.slice(0, 60) : undefined,
+      }));
+
       const wrapped = Array.isArray(parsed)
-        ? { topics: parsed, mediaDecisionLog: decisionLog }
-        : { ...parsed, mediaDecisionLog: decisionLog };
+        ? { topics: parsed, creativeBrief: creativeBriefSummary, mediaDecisionLog: decisionLog }
+        : { ...parsed, creativeBrief: creativeBriefSummary, mediaDecisionLog: decisionLog };
 
       await db.update(contentRuns)
         .set({ topicsRaw: JSON.stringify(wrapped) })

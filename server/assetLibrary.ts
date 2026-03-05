@@ -477,6 +477,163 @@ export async function uploadAsset(buffer: Buffer, runId: number, slideIndex: num
   return url;
 }
 
+// ─── Person Composite ────────────────────────────────────────────────────────
+// Composites a real person photo (ideally transparent or white-bg) onto an
+// AI-generated background. Used for the "person_composite" strategy.
+// The person is placed in the lower 60% of the frame, above the text zone.
+
+/**
+ * Composite a person photo onto an AI-generated background.
+ * Handles non-transparent images by applying a vignette mask to blend the
+ * person naturally into the scene (soft fade edges).
+ *
+ * @param personBuffer - The person photo (any format — transparent PNG ideal, but JPEG works)
+ * @param backgroundBuffer - AI-generated 1080×1350 background scene
+ * @param placement - Where to position the person: "center", "left", "right"
+ * @returns Composed image buffer (1080×1350 PNG)
+ */
+export async function compositePersonOnBackground(
+  personBuffer: Buffer,
+  backgroundBuffer: Buffer,
+  placement: "center" | "left" | "right" = "center",
+): Promise<Buffer> {
+  const W = 1080;
+  const H = 1350;
+  const PERSON_MAX_HEIGHT = Math.round(H * 0.55); // 55% of canvas height
+  const PERSON_MAX_WIDTH = Math.round(W * 0.65);  // 65% of canvas width
+  // Position person so feet are above the text zone (bottom 30% = ~405px)
+  const TEXT_ZONE_TOP = H - 405;
+
+  // Resize background
+  const bg = await sharp(backgroundBuffer)
+    .resize(W, H, { fit: "cover", position: "center" })
+    .png()
+    .toBuffer();
+
+  // Resize person to fit within bounds
+  const personResized = await sharp(personBuffer)
+    .resize(PERSON_MAX_WIDTH, PERSON_MAX_HEIGHT, { fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+
+  const personMeta = await sharp(personResized).metadata();
+  const pW = personMeta.width ?? PERSON_MAX_WIDTH;
+  const pH = personMeta.height ?? PERSON_MAX_HEIGHT;
+
+  // Calculate position
+  let left: number;
+  switch (placement) {
+    case "left":
+      left = Math.round(W * 0.05);
+      break;
+    case "right":
+      left = Math.round(W * 0.95 - pW);
+      break;
+    default: // center
+      left = Math.round((W - pW) / 2);
+  }
+  // Bottom of person aligns with top of text zone
+  const top = TEXT_ZONE_TOP - pH;
+
+  // Create a soft vignette mask for non-transparent images.
+  // This fades the edges of the person photo so it blends naturally.
+  const maskW = pW;
+  const maskH = pH;
+  const feather = Math.round(Math.min(maskW, maskH) * 0.08); // 8% edge feather
+  const maskSvg = `<svg width="${maskW}" height="${maskH}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="fadeTop" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="white" stop-opacity="0"/>
+        <stop offset="${(feather / maskH * 100).toFixed(1)}%" stop-color="white" stop-opacity="1"/>
+      </linearGradient>
+      <linearGradient id="fadeBottom" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="${(100 - feather / maskH * 100).toFixed(1)}%" stop-color="white" stop-opacity="1"/>
+        <stop offset="100%" stop-color="white" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <rect width="${maskW}" height="${maskH}" fill="white"/>
+    <rect width="${maskW}" height="${maskH}" fill="url(#fadeTop)"/>
+    <rect width="${maskW}" height="${maskH}" fill="url(#fadeBottom)"/>
+  </svg>`;
+
+  // Check if the person image has alpha channel (is already transparent)
+  const hasAlpha = personMeta.channels === 4;
+
+  let personFinal: Buffer;
+  if (hasAlpha) {
+    // Already transparent — use as-is
+    personFinal = personResized;
+  } else {
+    // No transparency — apply the fade mask for soft edge blending
+    const mask = await sharp(Buffer.from(maskSvg))
+      .resize(pW, pH)
+      .greyscale()
+      .png()
+      .toBuffer();
+
+    personFinal = await sharp(personResized)
+      .ensureAlpha()
+      .composite([{ input: mask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+  }
+
+  return sharp(bg)
+    .composite([{ input: personFinal, left, top }])
+    .png()
+    .toBuffer();
+}
+
+// ─── Product Composite ──────────────────────────────────────────────────────
+// For product_shot strategy (future enhancement). Currently a simplified version.
+
+/**
+ * Composite a product image onto an AI-generated background.
+ * Product is placed in the lower-center area, sized to ~35% of canvas width.
+ */
+export async function compositeProductOnBackground(
+  productBuffer: Buffer,
+  backgroundBuffer: Buffer,
+  placement: "center" | "bottom-right" | "bottom-left" = "center",
+): Promise<Buffer> {
+  const W = 1080;
+  const H = 1350;
+  const PRODUCT_MAX = Math.round(W * 0.4); // 40% of canvas width
+  const TEXT_ZONE_TOP = H - 405;
+
+  const bg = await sharp(backgroundBuffer)
+    .resize(W, H, { fit: "cover", position: "center" })
+    .png()
+    .toBuffer();
+
+  const productResized = await sharp(productBuffer)
+    .resize(PRODUCT_MAX, PRODUCT_MAX, { fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+
+  const meta = await sharp(productResized).metadata();
+  const pW = meta.width ?? PRODUCT_MAX;
+  const pH = meta.height ?? PRODUCT_MAX;
+
+  let left: number;
+  switch (placement) {
+    case "bottom-left":
+      left = Math.round(W * 0.08);
+      break;
+    case "bottom-right":
+      left = Math.round(W * 0.92 - pW);
+      break;
+    default:
+      left = Math.round((W - pW) / 2);
+  }
+  const top = TEXT_ZONE_TOP - pH - 20;
+
+  return sharp(bg)
+    .composite([{ input: productResized, left, top }])
+    .png()
+    .toBuffer();
+}
+
 // ─── Marketing Brain image strategy types ─────────────────────────────────────
 
 export type ImageStrategy =
