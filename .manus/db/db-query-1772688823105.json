@@ -1,0 +1,25 @@
+{
+  "query": "SELECT * FROM content_runs LIMIT 1;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT * FROM content_runs LIMIT 1;",
+  "rows": [
+    {
+      "id": "1",
+      "runSlot": "monday",
+      "status": "failed",
+      "topicsRaw": "[]",
+      "topicsShortlisted": "[]",
+      "topicsSelected": "[]",
+      "errorMessage": "Only 0 topics passed verification (need at least 3)",
+      "adminApproved": "1",
+      "instagramPostId": "NULL",
+      "createdAt": "2026-03-02 19:51:23",
+      "updatedAt": "2026-03-02 19:51:59",
+      "instagramCaption": "NULL",
+      "postApproved": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\trunSlot\tstatus\ttopicsRaw\ttopicsShortlisted\ttopicsSelected\terrorMessage\tadminApproved\tinstagramPostId\tcreatedAt\tupdatedAt\tinstagramCaption\tpostApproved\n1\tmonday\tfailed\t[]\t[]\t[]\tOnly 0 topics passed verification (need at least 3)\t1\tNULL\t2026-03-02 19:51:23\t2026-03-02 19:51:59\tNULL\t0\n",
+  "stderr": "",
+  "execution_time_ms": 358
+}

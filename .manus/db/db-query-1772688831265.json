@@ -1,0 +1,60 @@
+{
+  "query": "\nUPDATE content_runs \nSET status = 'failed'\nWHERE status IN ('assembling', 'generating', 'researching', 'scoring', 'discovering', 'posting', 'pending');\nSELECT id, status, runSlot FROM content_runs ORDER BY id DESC LIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute \nUPDATE content_runs \nSET status = 'failed'\nWHERE status IN ('assembling', 'generating', 'researching', 'scoring', 'discovering', 'posting', 'pending');\nSELECT id, status, runSlot FROM content_runs ORDER BY id DESC LIMIT 10;\n",
+  "rows": [
+    {
+      "id": "360005",
+      "status": "failed",
+      "runSlot": "monday"
+    },
+    {
+      "id": "360004",
+      "status": "pending_post",
+      "runSlot": "monday"
+    },
+    {
+      "id": "360003",
+      "status": "review",
+      "runSlot": "friday"
+    },
+    {
+      "id": "360002",
+      "status": "review",
+      "runSlot": "monday"
+    },
+    {
+      "id": "360001",
+      "status": "review",
+      "runSlot": "monday"
+    },
+    {
+      "id": "330001",
+      "status": "pending_post",
+      "runSlot": "monday"
+    },
+    {
+      "id": "300001",
+      "status": "pending_post",
+      "runSlot": "monday"
+    },
+    {
+      "id": "270001",
+      "status": "pending_post",
+      "runSlot": "monday"
+    },
+    {
+      "id": "240002",
+      "status": "pending_post",
+      "runSlot": "monday"
+    },
+    {
+      "id": "240001",
+      "status": "pending_post",
+      "runSlot": "monday"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\trunSlot\n360005\tfailed\tmonday\n360004\tpending_post\tmonday\n360003\treview\tfriday\n360002\treview\tmonday\n360001\treview\tmonday\n330001\tpending_post\tmonday\n300001\tpending_post\tmonday\n270001\tpending_post\tmonday\n240002\tpending_post\tmonday\n240001\tpending_post\tmonday\n",
+  "stderr": "",
+  "execution_time_ms": 425
+}

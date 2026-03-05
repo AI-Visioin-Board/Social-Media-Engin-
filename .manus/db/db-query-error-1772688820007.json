@@ -1,0 +1,8 @@
+{
+  "query": "\nUPDATE content_runs \nSET status = 'failed'\nWHERE status IN ('assembling', 'generating_video', 'researching', 'generating_slides', 'pending');\nSELECT id, status, created_at FROM content_runs ORDER BY id DESC LIMIT 10;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute \nUPDATE content_runs \nSET status = 'failed'\nWHERE status IN ('assembling', 'generating_video', 'researching', 'generating_slides', 'pending');\nSELECT id, status, created_at FROM content_runs ORDER BY id DESC LIMIT 10;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 5: Unknown column 'created_at' in 'field list'"
+  ]
+}
