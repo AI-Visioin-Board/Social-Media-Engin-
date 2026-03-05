@@ -359,6 +359,14 @@ function RunDetailDialog({
     }
   );
 
+  const reassembleRun = trpc.reassembleRun.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Re-assembled ${data.updated}/${data.total} slides with text overlays ✅`);
+      refetch();
+    },
+    onError: (e) => toast.error(`Reassemble failed: ${e.message}`),
+  });
+
   const approvePost = trpc.contentStudio.approvePost.useMutation({
     onSuccess: (data) => {
       if (data.posted) {
@@ -838,6 +846,19 @@ function RunDetailDialog({
                     )}
                   </div>
 
+                  {/* Fix text overlays button */}
+                  <Button
+                    variant="outline"
+                    className="w-full border-slate-300 text-slate-600 hover:bg-slate-50 text-sm mb-2"
+                    disabled={reassembleRun.isPending}
+                    onClick={() => reassembleRun.mutate({ runId: run.id })}
+                  >
+                    {reassembleRun.isPending ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Re-assembling slides...</>
+                    ) : (
+                      <><RefreshCw className="w-4 h-4 mr-2" /> Fix Text Overlays (Re-assemble)</>
+                    )}
+                  </Button>
                   {/* Approve to Post button */}
                   <Button
                     className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-3 text-base"

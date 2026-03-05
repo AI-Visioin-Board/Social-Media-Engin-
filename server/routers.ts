@@ -1031,5 +1031,42 @@ export const appRouter = router({
         }
       }),
   }),
+
+  // Re-run Stage 6 (Sharp assembly) on an existing run — fixes slides assembled without proper fonts
+  reassembleRun: adminProcedure
+    .input(z.object({ runId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const { generatedSlides } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { assembleAllSlides } = await import("./sharpCompositor");
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, input.runId));
+      if (slides.length === 0) throw new Error("No slides found for run");
+      const assembled = await assembleAllSlides(
+        slides.map((s: typeof slides[0]) => ({
+          runId: input.runId,
+          slideIndex: s.slideIndex,
+          headline: s.headline ?? "",
+          summary: s.summary ?? undefined,
+          insightLine: s.insightLine ?? undefined,
+          mediaUrl: s.videoUrl ?? null,
+          isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
+          isCover: s.slideIndex === 0,
+        }))
+      );
+      let updated = 0;
+      for (const result of assembled) {
+        const slide = slides.find((s: typeof slides[0]) => s.slideIndex === result.slideIndex);
+        if (slide && result.url) {
+          await db.update(generatedSlides)
+            .set({ assembledUrl: result.url, status: "ready" })
+            .where(eq(generatedSlides.id, slide.id));
+          updated++;
+        }
+      }
+      return { updated, total: slides.length };
+    }),
 });
 export type AppRouter = typeof appRouter;

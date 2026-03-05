@@ -41,14 +41,12 @@ const ANTON_FONT = path.join(FONTS_DIR, "Anton-Regular.ttf");
 const OSWALD_FONT = path.join(FONTS_DIR, "Oswald-Bold.ttf");
 
 // Pick the best available font
+// NOTE: Sharp uses librsvg for SVG rendering. librsvg resolves fonts via fontconfig (system fonts),
+// NOT via @font-face with local file paths. The fonts must be installed system-wide.
+// Anton and Oswald are installed at /usr/share/fonts/truetype/custom/ by the server startup routine.
 function getBestFont(): { path: string; name: string } {
-  if (fs.existsSync(ANTON_FONT) && fs.statSync(ANTON_FONT).size > 10000) {
-    return { path: ANTON_FONT, name: "Anton" };
-  }
-  if (fs.existsSync(OSWALD_FONT) && fs.statSync(OSWALD_FONT).size > 10000) {
-    return { path: OSWALD_FONT, name: "Oswald" };
-  }
-  return { path: "", name: "Impact, 'Arial Black', sans-serif" };
+  // Always prefer Anton (installed system-wide via fontconfig)
+  return { path: "", name: "Anton" };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -248,9 +246,8 @@ function buildOverlaySvg(
   const highlightedWords = getHighlightedWords(upper);
 
   // Font family CSS string
-  const fontFamily = font.name.includes(",")
-    ? font.name
-    : `'${font.name}', Impact, 'Arial Black', sans-serif`;
+  // Use Anton directly (installed via fontconfig). Fallback chain for safety.
+  const fontFamily = `Anton, Impact, 'Arial Black', sans-serif`;
 
   // Build tspan lines with highlighting
   const textLines = lines.map((line, i) => {
@@ -291,10 +288,8 @@ function buildOverlaySvg(
   // Swipe hint — moved up for Instagram crop safety (bottom ~60px can get cut)
   const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 62}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
 
-  // Font-face declaration
-  const fontFace = font.path
-    ? `<style>@font-face { font-family: '${font.name}'; src: url('${font.path}'); }</style>`
-    : "";
+  // No @font-face needed — librsvg resolves fonts via fontconfig (system-wide install)
+  const fontFace = "";
 
   // Chat bubble insight line (shown below summary if present, or below headline if no summary)
   // Skip if it would overflow into watermark area (SLIDE_H - 100)

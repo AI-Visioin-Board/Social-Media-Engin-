@@ -1,0 +1,8 @@
+{
+  "query": "SELECT r.id, r.status, r.run_type, COUNT(s.id) as slide_count, SUM(CASE WHEN s.video_url IS NOT NULL THEN 1 ELSE 0 END) as slides_with_media FROM content_runs r LEFT JOIN generated_slides s ON s.run_id = r.id WHERE r.id IN (360002, 360003, 360004) GROUP BY r.id, r.status, r.run_type;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT r.id, r.status, r.run_type, COUNT(s.id) as slide_count, SUM(CASE WHEN s.video_url IS NOT NULL THEN 1 ELSE 0 END) as slides_with_media FROM content_runs r LEFT JOIN generated_slides s ON s.run_id = r.id WHERE r.id IN (360002, 360003, 360004) GROUP BY r.id, r.status, r.run_type;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 's.run_id' in 'on clause'"
+  ]
+}

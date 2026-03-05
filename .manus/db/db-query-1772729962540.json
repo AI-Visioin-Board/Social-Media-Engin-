@@ -1,0 +1,22 @@
+{
+  "query": "SELECT id, status FROM content_runs WHERE id IN (360002, 360003, 360004);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, status FROM content_runs WHERE id IN (360002, 360003, 360004);",
+  "rows": [
+    {
+      "id": "360002",
+      "status": "generating"
+    },
+    {
+      "id": "360003",
+      "status": "generating"
+    },
+    {
+      "id": "360004",
+      "status": "pending_post"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tstatus\n360002\tgenerating\n360003\tgenerating\n360004\tpending_post\n",
+  "stderr": "",
+  "execution_time_ms": 370
+}

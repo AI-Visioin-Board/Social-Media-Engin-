@@ -231,3 +231,10 @@
 - [x] Kill stuck run #390001 (ghost generating status after server restart)
 - [x] Fix Kling duration error — API rejects value '8', switch to supported duration (5)
 - [x] Add server-restart recovery: on startup, auto-fail any runs stuck in generating/assembling
+
+## Critical Bug Fix — Text Overlay (March 5 2026)
+- [x] Fix: Sharp/librsvg ignores @font-face file path — text rendered as tiny garbled system font on all slides
+- [x] Fix: Remove broken @font-face declaration from SVG template, use fontconfig name directly
+- [x] Fix: Add server startup font installer (Anton + Oswald Bold) so fonts always available on fresh deployments
+- [x] Add: reassembleRun tRPC procedure — re-runs Stage 6 Sharp assembly on existing runs to fix text overlays
+- [x] Add: "Fix Text Overlays (Re-assemble)" button in run detail dialog for pending_post runs

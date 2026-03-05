@@ -1,0 +1,8 @@
+{
+  "query": "SELECT id, slide_index, headline, image_url, video_url, visual_strategy FROM generated_slides WHERE content_run_id IN (360001, 360002, 360003) ORDER BY content_run_id, slide_index;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3BMt98Y6933b8wn.a26cf65c5d5d --database gydcH5xscZ9R6SrGgu5bZS --execute SELECT id, slide_index, headline, image_url, video_url, visual_strategy FROM generated_slides WHERE content_run_id IN (360001, 360002, 360003) ORDER BY content_run_id, slide_index;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'content_run_id' in 'order clause'"
+  ]
+}
