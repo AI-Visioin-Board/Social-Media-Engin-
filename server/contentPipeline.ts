@@ -1792,22 +1792,26 @@ async function _runPipelineStages(
     const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasKling && s.videoPrompt);
     const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasKling) && s.videoPrompt);
 
-    // ── Per-slide timeout: wrap each call in a 3-minute race ──
+    // ── Per-slide timeout: wrap each call in a race with proper cleanup ──
     // If a single slide hangs (e.g. Kling poll stuck), it won't block the entire run.
+    // Timer is cleared when the slide completes to avoid lingering handles.
     const generateSlideWithTimeout = async (slide: typeof slides[0]): Promise<void> => {
       const slideLabel = `Slide ${slide.slideIndex}`;
+      let slideTimer: ReturnType<typeof setTimeout> | null = null;
       try {
         await Promise.race([
           generateSlideMedia(slide),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`${slideLabel} timed out after ${SLIDE_TIMEOUT_MS / 60000} min`)), SLIDE_TIMEOUT_MS)
-          ),
+          new Promise<never>((_, reject) => {
+            slideTimer = setTimeout(() => reject(new Error(`${slideLabel} timed out after ${SLIDE_TIMEOUT_MS / 60000} min`)), SLIDE_TIMEOUT_MS);
+          }),
         ]);
       } catch (err: any) {
         console.error(`[ContentPipeline] ⏱️ ${slideLabel}: ${err?.message ?? "timeout"} — marking as failed`);
         await db.update(generatedSlides)
           .set({ status: "ready", videoUrl: null })
           .where(eq(generatedSlides.id, slide.id));
+      } finally {
+        if (slideTimer) clearTimeout(slideTimer);
       }
     };
 

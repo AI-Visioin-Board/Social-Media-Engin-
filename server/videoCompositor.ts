@@ -46,22 +46,40 @@ const CYAN = "#00E5FF";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Download a URL to a temp file */
+/** Download a URL to a temp file (with redirect limit + timeout to prevent hangs) */
 async function downloadToTemp(url: string, ext: string): Promise<string> {
   const tmpPath = path.join(os.tmpdir(), `sbgpt-vid-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+  const DOWNLOAD_TIMEOUT_MS = 60_000; // 60s — videos can be large
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; reject(new Error(`Download timed out after 60s: ${url.slice(0, 80)}`)); }
+    }, DOWNLOAD_TIMEOUT_MS);
+
     const file = fs.createWriteStream(tmpPath);
-    const doGet = (u: string) => {
+    const doGet = (u: string, redirects = 0) => {
+      if (redirects > 5) { clearTimeout(timer); reject(new Error("Too many redirects")); return; }
       const protocol = u.startsWith("https") ? https : http;
-      protocol.get(u, (res) => {
+      const req = protocol.get(u, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          doGet(res.headers.location);
+          doGet(res.headers.location, redirects + 1);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          clearTimeout(timer);
+          reject(new Error(`HTTP ${res.statusCode} downloading ${u.slice(0, 80)}`));
           return;
         }
         res.pipe(file);
-        file.on("finish", () => { file.close(); resolve(tmpPath); });
-        file.on("error", reject);
-      }).on("error", reject);
+        file.on("finish", () => {
+          file.close();
+          clearTimeout(timer);
+          if (!settled) { settled = true; resolve(tmpPath); }
+        });
+        file.on("error", (e) => { clearTimeout(timer); reject(e); });
+      });
+      req.on("error", (e) => { clearTimeout(timer); reject(e); });
+      req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => { req.destroy(new Error("Socket timeout")); });
     };
     doGet(url);
   });

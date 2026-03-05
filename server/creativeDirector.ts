@@ -175,6 +175,18 @@ const COMPANY_TO_CEO: Record<string, string> = {
   deepseek: "liang wenfeng",
 };
 
+/**
+ * Check if a match at position `pos` in `text` sits at a word boundary.
+ * Prevents "meta" from matching inside "metadata", "su" from matching inside "results", etc.
+ * A word boundary means the character before and after the match is non-alphanumeric
+ * (or it's the start/end of the string).
+ */
+function isWordBoundary(text: string, pos: number, matchLen: number): boolean {
+  const before = pos > 0 ? text[pos - 1] : " ";
+  const after = pos + matchLen < text.length ? text[pos + matchLen] : " ";
+  return !/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after);
+}
+
 /** Scan text for known public figures and return matches.
  *  Now also infers CEOs from company name mentions (e.g. "OpenAI" → Sam Altman)
  *  so the Creative Director can consider person_composite even when the topic
@@ -185,7 +197,7 @@ export function detectKnownPeople(text: string): Array<{ name: string; title: st
   const found: Array<{ name: string; title: string; pos: number }> = [];
   const foundNames = new Set<string>();
 
-  // 1. Direct full-name matches (highest confidence)
+  // 1. Direct full-name matches (highest confidence — multi-word, very specific)
   for (const [name, title] of Object.entries(KNOWN_FIGURES)) {
     const pos = lower.indexOf(name);
     if (pos >= 0 && !foundNames.has(name)) {
@@ -195,6 +207,9 @@ export function detectKnownPeople(text: string): Array<{ name: string; title: st
   }
 
   // 2. Last-name-only matches for very famous figures
+  // IMPORTANT: Word boundary check prevents "huang" matching inside "huangshan",
+  // "cook" inside "cookie", etc. Short names (≤3 chars like "su", "li") are excluded
+  // entirely — too many false positives even with boundaries.
   const LAST_NAME_MAP: Record<string, string> = {
     altman: "sam altman",
     pichai: "sundar pichai",
@@ -208,13 +223,14 @@ export function detectKnownPeople(text: string): Array<{ name: string; title: st
     bezos: "jeff bezos",
     jassy: "andy jassy",
     cook: "tim cook",
-    su: "lisa su",
+    // "su" REMOVED — 2 chars matches inside "results", "issue", "visual", etc.
+    // Lisa Su is still detected via full name "lisa su" or company "amd" → CEO inference.
   };
 
   for (const [lastName, fullName] of Object.entries(LAST_NAME_MAP)) {
     if (!foundNames.has(fullName)) {
       const pos = lower.indexOf(lastName);
-      if (pos >= 0) {
+      if (pos >= 0 && isWordBoundary(lower, pos, lastName.length)) {
         foundNames.add(fullName);
         found.push({
           name: fullName,
@@ -225,9 +241,11 @@ export function detectKnownPeople(text: string): Array<{ name: string; title: st
     }
   }
 
-  // 3. Company name → CEO inference (NEW — fixes the "OpenAI" → Sam Altman gap)
+  // 3. Company name → CEO inference (fixes the "OpenAI" → Sam Altman gap)
   // Only infer if the CEO wasn't already found by name/last-name above.
   // Sort COMPANY_TO_CEO keys longest-first so "google deepmind" matches before "google".
+  // WORD BOUNDARY CHECK is critical here — prevents "meta" matching "metadata",
+  // "aws" matching "laws", "amd" matching "commanded", etc.
   const companyKeys = Object.keys(COMPANY_TO_CEO).sort((a, b) => b.length - a.length);
 
   for (const company of companyKeys) {
@@ -235,7 +253,7 @@ export function detectKnownPeople(text: string): Array<{ name: string; title: st
     if (foundNames.has(ceoName)) continue; // already found this person
 
     const pos = lower.indexOf(company);
-    if (pos >= 0) {
+    if (pos >= 0 && isWordBoundary(lower, pos, company.length)) {
       foundNames.add(ceoName);
       found.push({
         name: ceoName,

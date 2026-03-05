@@ -64,28 +64,37 @@ export interface SharpSlideInput {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Download a URL to a temp file and return the local path. */
+/** Download a URL to a temp file and return the local path (with timeout + redirect limit). */
 async function downloadToTemp(url: string, ext: string): Promise<string> {
   const tmpPath = path.join(os.tmpdir(), `sbgpt-sharp-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+  const DOWNLOAD_TIMEOUT_MS = 30_000; // 30s — images are typically small
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(tmpPath);
-    const protocol = url.startsWith("https") ? https : http;
-    protocol.get(url, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // Follow one redirect
-        const redirectUrl = res.headers.location;
-        const proto2 = redirectUrl.startsWith("https") ? https : http;
-        proto2.get(redirectUrl, (res2) => {
-          res2.pipe(file);
-          file.on("finish", () => { file.close(); resolve(tmpPath); });
-          file.on("error", reject);
-        }).on("error", reject);
-      } else {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; reject(new Error(`Download timed out after 30s: ${url.slice(0, 80)}`)); }
+    }, DOWNLOAD_TIMEOUT_MS);
+
+    const doGet = (u: string, redirects = 0) => {
+      if (redirects > 3) { clearTimeout(timer); reject(new Error("Too many redirects")); return; }
+      const protocol = u.startsWith("https") ? https : http;
+      const req = protocol.get(u, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          doGet(res.headers.location, redirects + 1);
+          return;
+        }
+        const file = fs.createWriteStream(tmpPath);
         res.pipe(file);
-        file.on("finish", () => { file.close(); resolve(tmpPath); });
-        file.on("error", reject);
-      }
-    }).on("error", reject);
+        file.on("finish", () => {
+          file.close();
+          clearTimeout(timer);
+          if (!settled) { settled = true; resolve(tmpPath); }
+        });
+        file.on("error", (e) => { clearTimeout(timer); reject(e); });
+      });
+      req.on("error", (e) => { clearTimeout(timer); reject(e); });
+      req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => { req.destroy(new Error("Socket timeout")); });
+    };
+    doGet(url);
   });
 }
 
