@@ -530,11 +530,18 @@ export const appRouter = router({
           source: z.string(),
           url: z.string(),
           scores: z.object({
-            shareability: z.number(),
-            saveWorthiness: z.number(),
-            debatePotential: z.number(),
-            informationGap: z.number(),
-            personalImpact: z.number(),
+            // New virality-weighted criteria
+            shareability: z.number().optional(),
+            saveWorthiness: z.number().optional(),
+            debatePotential: z.number().optional(),
+            informationGap: z.number().optional(),
+            personalImpact: z.number().optional(),
+            // Legacy criteria (backwards compatibility for existing runs)
+            businessOwnerImpact: z.number().optional(),
+            generalPublicRelevance: z.number().optional(),
+            viralPotential: z.number().optional(),
+            worldImportance: z.number().optional(),
+            interestingness: z.number().optional(),
             total: z.number(),
           }),
         })),

@@ -63,11 +63,17 @@ interface ScoredTopic {
   source: string;
   url: string;
   scores: {
-    shareability: number;
-    saveWorthiness: number;
-    debatePotential: number;
-    informationGap: number;
-    personalImpact: number;
+    shareability?: number;
+    saveWorthiness?: number;
+    debatePotential?: number;
+    informationGap?: number;
+    personalImpact?: number;
+    // Legacy fields (backwards compatibility)
+    businessOwnerImpact?: number;
+    generalPublicRelevance?: number;
+    viralPotential?: number;
+    worldImportance?: number;
+    interestingness?: number;
     total: number;
   };
 }

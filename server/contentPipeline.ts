@@ -43,11 +43,18 @@ export interface ScoredTopic {
   source: string;
   url: string;
   scores: {
-    shareability: number;    // 1-10, weight 5x — would someone DM this?
-    saveWorthiness: number;  // 1-10, weight 3.5x — would someone bookmark?
-    debatePotential: number; // 1-10, weight 2.5x — would people argue?
-    informationGap: number;  // 1-10, weight 2x — how unknown is this?
-    personalImpact: number;  // 1-10, weight 1x — affects viewer's life?
+    // New virality-weighted criteria
+    shareability?: number;    // 1-10, weight 5x — would someone DM this?
+    saveWorthiness?: number;  // 1-10, weight 3.5x — would someone bookmark?
+    debatePotential?: number; // 1-10, weight 2.5x — would people argue?
+    informationGap?: number;  // 1-10, weight 2x — how unknown is this?
+    personalImpact?: number;  // 1-10, weight 1x — affects viewer's life?
+    // Legacy criteria (backwards compatibility)
+    businessOwnerImpact?: number;
+    generalPublicRelevance?: number;
+    viralPotential?: number;
+    worldImportance?: number;
+    interestingness?: number;
     total: number;           // weighted sum
   };
 }
