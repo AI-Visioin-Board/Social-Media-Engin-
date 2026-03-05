@@ -1,7 +1,7 @@
 /**
  * videoCompositor.ts
  *
- * Composites a Kling AI video into an Instagram-ready 1080×1350 MP4 with:
+ * Composites a Kling AI video into an Instagram-ready 1080×1350 MP4 (10s, looped 2×) with:
  * - Video fills the TOP 70% of the frame (945px), cropped/scaled to fit edge-to-edge
  * - Solid black BOTTOM 30% (405px) where the headline text lives
  * - Smooth gradient transition between video and black (starts at ~52%, fully black at 70%)
@@ -163,9 +163,10 @@ function buildVideoOverlaySvg(
     summaryBlockH = summaryPadTop + summaryWrapped.length * summaryLineH;
   }
 
-  // Text zone: VIDEO_ZONE_H to SLIDE_H - 120 (with Instagram crop safety margin)
+  // Text zone: VIDEO_ZONE_H to SLIDE_H - 180 (matches sharpCompositor's safety margin)
+  // Was 120px — caused text to fall off the bottom on slides with long headlines.
   const textZoneTop = VIDEO_ZONE_H + 20;
-  const textZoneBottom = SLIDE_H - 120;
+  const textZoneBottom = SLIDE_H - 180;
   const textZoneH = textZoneBottom - textZoneTop;
   const totalContentH = totalTextH + summaryBlockH;
   const textBlockTop = textZoneTop + Math.max(0, (textZoneH - totalContentH) / 2);
@@ -368,6 +369,17 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
   // 3. FFmpeg composite
   const tmpOutputPath = path.join(os.tmpdir(), `sbgpt-composed-${Date.now()}.mp4`);
 
+  // ── VIDEO LOOP: Concat the 5s Kling clip twice → 10s total ──
+  // Uses FFmpeg concat demuxer for seamless looping with zero quality loss.
+  // For still images, we just loop the single frame (no concat needed).
+  const tmpConcatPath = path.join(os.tmpdir(), `sbgpt-concat-${Date.now()}.txt`);
+  const VIDEO_DURATION = isActuallyImage ? "10" : "10"; // 10s for both (image loops, video plays 2x)
+
+  if (!isActuallyImage) {
+    // Write concat demuxer file: play the Kling clip twice back-to-back
+    fs.writeFileSync(tmpConcatPath, `file '${tmpVideoPath}'\nfile '${tmpVideoPath}'\n`);
+  }
+
   try {
     // Filter graph:
     // [0:v] = video/image input → scale to fill 1080×945 (top zone)
@@ -382,8 +394,10 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
 
     const args = [
       "-y",
-      ...(isActuallyImage ? ["-loop", "1"] : []),
-      "-i", tmpVideoPath,       // [0:v] Kling video or image
+      // Input 0: video (concat 2x) or image (loop single frame)
+      ...(isActuallyImage
+        ? ["-loop", "1", "-i", tmpVideoPath]
+        : ["-f", "concat", "-safe", "0", "-i", tmpConcatPath]),
       "-loop", "1",
       "-i", tmpOverlayPath,     // [1:v] Sharp overlay PNG (static, looped)
       "-filter_complex", filterComplex,
@@ -393,7 +407,7 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
       "-preset", "fast",
       "-crf", "22",
       "-pix_fmt", "yuv420p",
-      "-t", "5",  // Must match Kling 2.5 Turbo output (5s clips)
+      "-t", VIDEO_DURATION,     // 10s: Kling 5s clip × 2 loops
       "-movflags", "+faststart",
       tmpOutputPath,
     ];
@@ -411,7 +425,7 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
 
     return url;
   } finally {
-    [tmpVideoPath, tmpOverlayPath, tmpOutputPath].forEach(f => {
+    [tmpVideoPath, tmpOverlayPath, tmpOutputPath, tmpConcatPath].forEach(f => {
       try { fs.unlinkSync(f); } catch { /* ignore */ }
     });
   }

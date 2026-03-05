@@ -1681,7 +1681,7 @@ export default function ContentStudio() {
                     {[
                       "6 slides: 1 cover + 5 content slides",
                       "1080×1920 vertical MP4 format",
-                      "5 seconds per slide at 30fps",
+                      "10 seconds per video slide (5s clip × 2 loops)",
                     ].map((item) => (
                       <div key={item} className="flex items-center gap-2 text-xs text-slate-600">
                         <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
