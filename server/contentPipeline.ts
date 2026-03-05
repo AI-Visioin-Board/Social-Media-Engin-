@@ -127,7 +127,7 @@ async function discoverFromNewsAPI(runType: "monday" | "friday"): Promise<RawTop
     queries.map(async (q) => {
       try {
         const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&from=${from}&sortBy=popularity&pageSize=10&language=en&apiKey=${apiKey}`;
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
         if (!res.ok) return;
         const data = await res.json() as any;
         if (data.status !== "ok") return;
@@ -185,6 +185,7 @@ async function runSingleGPT4oSearch(query: string, openAiKey: string): Promise<R
         tools: [{ type: "web_search_preview" }],
         input: query,
       }),
+      signal: AbortSignal.timeout(45_000), // 45s timeout for GPT-4o discovery search
     });
     if (!response.ok) return [];
     const data = await response.json() as any;
@@ -212,6 +213,7 @@ async function discoverFromRedditJSON(): Promise<RawTopic[]> {
       try {
         const res = await fetch(`https://www.reddit.com/r/${sub}/hot.json?limit=10`, {
           headers: { "User-Agent": "SuggestedByGPT/1.0" },
+          signal: AbortSignal.timeout(10_000),
         });
         if (!res.ok) return;
         const data = await res.json() as any;
@@ -557,32 +559,48 @@ export async function researchTopics(
   _perplexityApiKey?: string // kept for API compatibility, no longer used
 ): Promise<ResearchedTopic[]> {
   const openAiKey = process.env.OPENAI_API_KEY;
-  const results: ResearchedTopic[] = [];
 
-  for (const topic of topics) {
-    try {
-      const researched = openAiKey
-        ? await researchWithGPT4oWebSearch(topic, openAiKey)
-        : await researchWithGPT(topic);
-      results.push(researched);
-    } catch (err) {
-      console.error(`[ContentPipeline] Research failed for "${topic.title}":`, err);
-      // Add with Gemini fallback so we never lose a topic
+  // ── PARALLEL RESEARCH: all 4 topics concurrently ──
+  // Each topic does GPT-4o web search (~15s) + Marketing Brain (~10s) = ~25s per topic.
+  // Sequential: 4 × 25s = 100s. Parallel: ~25s. Saves ~75 seconds.
+  console.log(`[ContentPipeline] Researching ${topics.length} topics in PARALLEL...`);
+  const startMs = Date.now();
+
+  const settled = await Promise.allSettled(
+    topics.map(async (topic) => {
       try {
-        results.push(await researchWithGPT(topic));
-      } catch {
-        results.push({
-          title: topic.title,
-          headline: topic.title.slice(0, 80),
-          summary: topic.summary,
-          citations: [],
-          videoPrompt: "Cinematic shot of a futuristic AI interface with glowing data streams, clean minimal design, 4K quality",
-          verified: false,
-        });
+        return openAiKey
+          ? await researchWithGPT4oWebSearch(topic, openAiKey)
+          : await researchWithGPT(topic);
+      } catch (err) {
+        console.error(`[ContentPipeline] Research failed for "${topic.title}":`, err);
+        // Fallback to Gemini (no web search)
+        return await researchWithGPT(topic);
       }
+    })
+  );
+
+  const results: ResearchedTopic[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i];
+    if (result.status === "fulfilled") {
+      results.push(result.value);
+    } else {
+      // Both GPT-4o and Gemini failed — use minimal fallback
+      console.error(`[ContentPipeline] All research methods failed for "${topics[i].title}": ${result.reason}`);
+      results.push({
+        title: topics[i].title,
+        headline: topics[i].title.slice(0, 80),
+        summary: topics[i].summary,
+        citations: [],
+        videoPrompt: "Cinematic shot of a futuristic AI interface with glowing data streams, clean minimal design, 4K quality",
+        verified: false,
+      });
     }
   }
 
+  const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+  console.log(`[ContentPipeline] Research complete: ${results.length} topics in ${elapsed}s (parallel)`);
   return results;
 }
 
@@ -597,6 +615,7 @@ async function researchWithGPT4oWebSearch(
   const cutoffStr = cutoffDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   // OpenAI Responses API with built-in web_search_preview tool
+  // 60s timeout — GPT-4o web search is the slowest call in the pipeline
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -623,6 +642,7 @@ Topic: "${topic.title}"
 
 Respond ONLY with valid JSON matching: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "...", "sources": [{"title": "...", "url": "..."}] }`,
     }),
+    signal: AbortSignal.timeout(60_000), // 60s timeout for GPT-4o deep research
   });
 
   if (!response.ok) {
@@ -1008,7 +1028,7 @@ export async function generateKlingVideo(
     const token = await generateKlingJWT(accessKey, secretKey);
     const baseUrl = "https://api-singapore.klingai.com";
 
-    // Submit task
+    // Submit task (30s timeout)
     const submitRes = await fetch(`${baseUrl}/v1/videos/text2video`, {
       method: "POST",
       headers: {
@@ -1023,6 +1043,7 @@ export async function generateKlingVideo(
         mode: "pro",  // "pro" produces more coherent, non-repetitive motion vs "std"
         duration: "5",  // kling-v2-5-turbo only supports 5s; 8s returns error 1201
       }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!submitRes.ok) {
@@ -1046,6 +1067,7 @@ export async function generateKlingVideo(
       const pollToken = await generateKlingJWT(accessKey, secretKey);
       const pollRes = await fetch(`${baseUrl}/v1/videos/text2video/${taskId}`, {
         headers: { "Authorization": `Bearer ${pollToken}` },
+        signal: AbortSignal.timeout(15_000), // 15s per poll attempt
       });
 
       if (!pollRes.ok) continue;
@@ -1143,6 +1165,7 @@ export async function triggerInstagramPost(
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         type: "carousel_post",
         instagram_page: "suggestedbygpt",
@@ -1272,8 +1295,11 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
   }
 }
 
-/** Maximum time a pipeline run is allowed before auto-failing (30 minutes) */
-const PIPELINE_TIMEOUT_MS = 30 * 60 * 1000;
+/** Maximum time a pipeline run is allowed before auto-failing (15 minutes) */
+const PIPELINE_TIMEOUT_MS = 15 * 60 * 1000;
+
+/** Per-slide maximum generation time (3 minutes) */
+const SLIDE_TIMEOUT_MS = 3 * 60 * 1000;
 
 export async function continueAfterApproval(
   runId: number,
@@ -1283,20 +1309,23 @@ export async function continueAfterApproval(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Auto-fail if the pipeline hangs for more than 30 minutes
+  // ── CREDIT SAFEGUARD: AbortController kills ALL pending work when timeout fires ──
+  // The old Promise.race approach marked the DB as "failed" but left _runPipelineStages
+  // still running in the background, making API calls and burning credits all night.
+  // The AbortController propagates to all fetch() calls via the signal.
+  const pipelineAbort = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => {
-      reject(new Error(`Pipeline timed out after 30 minutes — run #${runId} auto-failed`));
-    }, PIPELINE_TIMEOUT_MS);
-  });
+
+  timeoutHandle = setTimeout(() => {
+    console.error(`[ContentPipeline] ⛔ PIPELINE TIMEOUT — killing all pending work for run #${runId}`);
+    pipelineAbort.abort(new Error(`Pipeline timed out after ${PIPELINE_TIMEOUT_MS / 60000} minutes — run #${runId} auto-failed`));
+  }, PIPELINE_TIMEOUT_MS);
 
   try {
-    await Promise.race([
-      _runPipelineStages(runId, topics, options, db),
-      timeoutPromise,
-    ]);
+    await _runPipelineStages(runId, topics, options, db, pipelineAbort.signal);
   } catch (err: any) {
+    // Abort any remaining work if we haven't already
+    if (!pipelineAbort.signal.aborted) pipelineAbort.abort();
     await db.update(contentRuns).set({
       status: "failed",
       errorMessage: err?.message ?? "Unknown error",
@@ -1305,6 +1334,7 @@ export async function continueAfterApproval(
     throw err;
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (!pipelineAbort.signal.aborted) pipelineAbort.abort(); // cleanup any stragglers
   }
 }
 
@@ -1358,7 +1388,8 @@ async function _runPipelineStages(
   runId: number,
   topics: ScoredTopic[],
   options: Omit<PipelineOptions, "runSlot" | "requireAdminApproval">,
-  db: NonNullable<Awaited<ReturnType<typeof getDb>>>
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  abortSignal?: AbortSignal,
 ): Promise<void> {
   try {
     // If topics array is empty, load from DB (handles case where UI sent empty array)
@@ -1374,7 +1405,15 @@ async function _runPipelineStages(
       throw new Error("No topics available for research — run topic discovery first");
     }
 
+    // ── Helper: bail if pipeline was aborted ──
+    const checkAbort = () => {
+      if (abortSignal?.aborted) {
+        throw new Error(`Pipeline aborted: ${(abortSignal.reason as Error)?.message ?? "timeout"}`);
+      }
+    };
+
     // Stage 4: Deep Research
+    checkAbort();
     await db.update(contentRuns).set({ status: "researching" }).where(eq(contentRuns.id, runId));
 
     const researched = await researchTopics(resolvedTopics, options.perplexityApiKey);
@@ -1385,6 +1424,7 @@ async function _runPipelineStages(
     }
 
     // ── Stage 4.5: Creative Director — decides visual strategy per slide ──
+    checkAbort();
     // The Creative Director analyzes each story and decides the best visual approach:
     // cinematic_scene, scene_with_badge, person_composite, or kling_video.
     // This replaces the old hardcoded videoSlideIndices = new Set([1, 3]).
@@ -1418,13 +1458,19 @@ async function _runPipelineStages(
 
     // Create slide records using the creative brief
     // Cover slide (index 0) — edgy, eye-catching cover image with provocative headline
+    // ── PARALLEL: cover image prompt + cover headline + runSlot query run concurrently ──
     const coverBrief = briefBySlide.get(0);
-    const coverImagePrompt = coverBrief?.scenePrompt
-      || await generateCoverImagePrompt(researched.map((t) => t.headline));
-    // Read runSlot from DB since _runPipelineStages doesn't receive it directly
-    const [runRecord] = await db.select({ runSlot: contentRuns.runSlot }).from(contentRuns).where(eq(contentRuns.id, runId));
-    const runSlot = runRecord?.runSlot ?? "monday";
-    const coverHeadline = await generateCoverHeadline(researched.map((t) => t.headline), runSlot);
+    const headlineList = researched.map((t) => t.headline);
+    const [coverImagePrompt, coverHeadline] = await Promise.all([
+      coverBrief?.scenePrompt
+        ? Promise.resolve(coverBrief.scenePrompt)
+        : generateCoverImagePrompt(headlineList),
+      (async () => {
+        const [runRecord] = await db.select({ runSlot: contentRuns.runSlot }).from(contentRuns).where(eq(contentRuns.id, runId));
+        const runSlot = runRecord?.runSlot ?? "monday";
+        return generateCoverHeadline(headlineList, runSlot);
+      })(),
+    ]);
     await db.insert(generatedSlides).values({
       runId,
       slideIndex: 0,
@@ -1458,6 +1504,7 @@ async function _runPipelineStages(
     }
 
     // Stage 5: Video / Image Generation (Kling primary, Nano Banana fallback)
+    checkAbort();
     // ═══════════════════════════════════════════════════════════════════════════
     // DECISION LOG: Track every decision per slide for debugging
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1494,8 +1541,13 @@ async function _runPipelineStages(
       }
     }
     const hasKling = !!(klingAK && klingSK);
+    // ── CREDIT SAFEGUARD: Cap Kling attempts per run ──
+    // Each Kling video costs credits and takes ~3 min. Cap at 3 attempts max per run
+    // to prevent runaway costs if retries/fallbacks loop unexpectedly.
+    const MAX_KLING_ATTEMPTS = 3;
+    let klingAttemptsUsed = 0;
     console.log(`[ContentPipeline] ═══ Stage 5: Media Generation ═══`);
-    console.log(`[ContentPipeline] Kling video: ${hasKling ? "✅ ENABLED" : "❌ DISABLED (no credentials — all video slides will be still images)"}`);
+    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials — all video slides will be still images)"}`);
     console.log(`[ContentPipeline] Slides to generate: ${slides.length}`);
 
     // Import asset library + compositing functions
@@ -1540,8 +1592,11 @@ async function _runPipelineStages(
       // STRATEGY DISPATCH — each strategy has its own execution path + fallback
       // ════════════════════════════════════════════════════════════════════════
 
-      if (strategy === "kling_video" && hasKling) {
+      if (strategy === "kling_video" && hasKling && klingAttemptsUsed < MAX_KLING_ATTEMPTS) {
         // ── KLING VIDEO: Generate 5-second cinematic video clip ──
+        // CREDIT SAFEGUARD: Check attempt limit before each Kling call
+        klingAttemptsUsed++;
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Kling attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS}`);
         // PRIORITY: Use the Creative Director's scenePrompt if it has camera motion keywords
         // (the CD was specifically told to include camera movement for kling_video slides).
         // Only fall back to Marketing Brain re-generation if the CD prompt is missing/empty.
@@ -1576,6 +1631,10 @@ async function _runPipelineStages(
           console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to cinematic_scene`);
           // Kling failed: fall through to cinematic_scene below
         }
+      }
+
+      if (strategy === "kling_video" && hasKling && klingAttemptsUsed >= MAX_KLING_ATTEMPTS && !mediaUrl) {
+        console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_ATTEMPTS}) — falling back to cinematic_scene`);
       }
 
       if (!mediaUrl && strategy === "person_composite") {
@@ -1719,12 +1778,32 @@ async function _runPipelineStages(
     const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasKling && s.videoPrompt);
     const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasKling) && s.videoPrompt);
 
+    // ── Per-slide timeout: wrap each call in a 3-minute race ──
+    // If a single slide hangs (e.g. Kling poll stuck), it won't block the entire run.
+    const generateSlideWithTimeout = async (slide: typeof slides[0]): Promise<void> => {
+      const slideLabel = `Slide ${slide.slideIndex}`;
+      try {
+        await Promise.race([
+          generateSlideMedia(slide),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`${slideLabel} timed out after ${SLIDE_TIMEOUT_MS / 60000} min`)), SLIDE_TIMEOUT_MS)
+          ),
+        ]);
+      } catch (err: any) {
+        console.error(`[ContentPipeline] ⏱️ ${slideLabel}: ${err?.message ?? "timeout"} — marking as failed`);
+        await db.update(generatedSlides)
+          .set({ status: "ready", videoUrl: null })
+          .where(eq(generatedSlides.id, slide.id));
+      }
+    };
+
     console.log(`[ContentPipeline] Generating ${imageSlides.length} image slides in parallel + ${videoSlides.length} video slides sequentially...`);
     await Promise.all([
-      Promise.all(imageSlides.map(s => generateSlideMedia(s))),
+      Promise.all(imageSlides.map(s => generateSlideWithTimeout(s))),
       (async () => {
         for (const s of videoSlides) {
-          await generateSlideMedia(s);
+          checkAbort();
+          await generateSlideWithTimeout(s);
         }
       })(),
     ]);
@@ -1769,6 +1848,7 @@ async function _runPipelineStages(
     } catch { /* don't fail pipeline over logging */ }
 
     // Stage 6: Assembly — Sharp compositor (@evolving.ai style, fast, no external API)
+    checkAbort();
     await db.update(contentRuns).set({ status: "assembling" }).where(eq(contentRuns.id, runId));
     const slidesForAssembly = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
 
@@ -1812,6 +1892,7 @@ async function _runPipelineStages(
     }
 
     // Stage 7: Generate caption and wait for admin approval before posting
+    checkAbort();
     console.log(`[ContentPipeline] Stage 7: Generating Instagram caption for run #${runId}`);
     const finalSlides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
     const caption = await generateCaption(researched);

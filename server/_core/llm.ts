@@ -312,6 +312,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
+  // 90-second timeout on LLM calls — prevents hung connections from burning credits forever
   const response = await fetch(resolveApiUrl(), {
     method: "POST",
     headers: {
@@ -319,6 +320,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       authorization: `Bearer ${ENV.forgeApiKey}`,
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(90_000),
   });
 
   if (!response.ok) {

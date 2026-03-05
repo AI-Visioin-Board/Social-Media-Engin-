@@ -50,6 +50,7 @@ export async function generateImage(
     baseUrl
   ).toString();
 
+  // 60-second timeout — image generation should not hang indefinitely
   const response = await fetch(fullUrl, {
     method: "POST",
     headers: {
@@ -62,6 +63,7 @@ export async function generateImage(
       prompt: options.prompt,
       original_images: options.originalImages || [],
     }),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!response.ok) {

@@ -327,22 +327,30 @@ export async function searchImage(
 export async function downloadImage(imageUrl: string): Promise<Buffer | null> {
   try {
     const tmpPath = path.join(os.tmpdir(), `sbgpt-asset-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+    const DOWNLOAD_TIMEOUT_MS = 30_000; // 30s hard timeout on image downloads
 
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) { settled = true; reject(new Error(`Download timed out after 30s: ${imageUrl.slice(0, 80)}`)); }
+      }, DOWNLOAD_TIMEOUT_MS);
+
       const doGet = (u: string, redirects = 0) => {
-        if (redirects > 3) { reject(new Error("Too many redirects")); return; }
+        if (redirects > 3) { clearTimeout(timer); reject(new Error("Too many redirects")); return; }
         const protocol = u.startsWith("https") ? https : http;
-        protocol.get(u, { headers: { "User-Agent": "SuggestedByGPT/1.0" } }, (res) => {
+        const req = protocol.get(u, { headers: { "User-Agent": "SuggestedByGPT/1.0" } }, (res) => {
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             doGet(res.headers.location, redirects + 1);
             return;
           }
-          if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+          if (res.statusCode !== 200) { clearTimeout(timer); reject(new Error(`HTTP ${res.statusCode}`)); return; }
           const file = fs.createWriteStream(tmpPath);
           res.pipe(file);
-          file.on("finish", () => { file.close(); resolve(); });
-          file.on("error", reject);
-        }).on("error", reject);
+          file.on("finish", () => { file.close(); clearTimeout(timer); if (!settled) { settled = true; resolve(); } });
+          file.on("error", (e) => { clearTimeout(timer); reject(e); });
+        });
+        req.on("error", (e) => { clearTimeout(timer); reject(e); });
+        req.setTimeout(DOWNLOAD_TIMEOUT_MS, () => { req.destroy(new Error("Socket timeout")); });
       };
       doGet(imageUrl);
     });
@@ -644,10 +652,10 @@ export type ImageStrategy =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fetchJson(url: string): Promise<any> {
+function fetchJson(url: string, timeoutMs = 15_000): Promise<any> {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith("https") ? https : http;
-    protocol.get(url, (res) => {
+    const req = protocol.get(url, (res) => {
       let data = "";
       res.on("data", (chunk) => { data += chunk; });
       res.on("end", () => {
@@ -655,6 +663,11 @@ function fetchJson(url: string): Promise<any> {
         catch { reject(new Error("Invalid JSON")); }
       });
       res.on("error", reject);
-    }).on("error", reject);
+    });
+    req.on("error", reject);
+    // Hard timeout — kills hung connections
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`fetchJson timed out after ${timeoutMs / 1000}s`));
+    });
   });
 }
