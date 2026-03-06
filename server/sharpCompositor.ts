@@ -60,6 +60,18 @@ export interface SharpSlideInput {
   mediaUrl: string | null; // S3/CDN URL of the Nano Banana image (or Kling video)
   isVideo?: boolean;       // if true, skip image assembly and return mediaUrl directly
   isCover?: boolean;
+
+  // ── Cover template fields (only used when isCover=true) ──────────────────
+  /** Which of the 8 cover templates to use for slide 0 */
+  coverTemplate?: import('./creativeDirector').CoverTemplate;
+  /** Pre-fetched + bg-removed primary person buffer */
+  personBuffer?: Buffer | null;
+  /** Pre-fetched + bg-removed additional person buffers (for multi-person templates) */
+  additionalPersonBuffers?: Array<Buffer | null>;
+  /** Pre-fetched logo buffers in order */
+  logoBuffers?: Array<Buffer | null>;
+  /** For screenshot_overlay template: the captured/generated product screenshot (1080×742 PNG) */
+  screenshotBuffer?: Buffer | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -465,6 +477,30 @@ export async function assembleSlideWithSharp(
       console.log(`[SharpCompositor] Background image downloaded (${bgImageBuffer.length} bytes)`);
     } catch (err: any) {
       console.warn(`[SharpCompositor] Failed to download background image: ${err?.message} — using solid color fallback`);
+    }
+  }
+
+  // ── Cover slide: route to 8-template compositor ───────────────────────────
+  if (isCover && slide.coverTemplate) {
+    try {
+      console.log(`[SharpCompositor] Cover slide — routing to template: ${slide.coverTemplate}`);
+      const { composeCoverTemplate } = await import("./coverTemplateCompositor");
+      const coverBuffer = await composeCoverTemplate({
+        template: slide.coverTemplate,
+        backgroundBuffer: bgImageBuffer,
+        headline,
+        mainPersonBuffer: slide.personBuffer ?? undefined,
+        supportingPersonBuffers: (slide.additionalPersonBuffers ?? []).filter(Boolean) as Buffer[],
+        logoBuffers: (slide.logoBuffers ?? []).filter(Boolean) as Buffer[],
+        screenshotBuffer: slide.screenshotBuffer ?? undefined,
+      });
+      const s3Key = `sharp-slides/run-${runId}-cover-${slide.coverTemplate}-${Date.now()}.png`;
+      const { url } = await storagePut(s3Key, coverBuffer, "image/png");
+      console.log(`[SharpCompositor] Cover (${slide.coverTemplate}) uploaded → ${url.slice(0, 80)}...`);
+      return url;
+    } catch (err: any) {
+      console.warn(`[SharpCompositor] Cover template compositor failed (${err?.message}) — falling back to generic overlay`);
+      // Fall through to generic overlay below
     }
   }
 

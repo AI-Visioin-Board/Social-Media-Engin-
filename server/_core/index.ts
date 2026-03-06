@@ -31,39 +31,108 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function installFonts() {
-  // Install Anton and Oswald fonts system-wide so Sharp/librsvg can find them via fontconfig.
-  // librsvg does NOT support @font-face with local file paths — fonts must be in the system font cache.
+  // Install Anton and Oswald fonts so Sharp/librsvg can find them via fontconfig.
+  // librsvg does NOT support @font-face with local file paths — fonts must be discoverable via fontconfig.
+  //
+  // Railway (and most Docker containers) don't have sudo, so we use USER-SPACE font directories
+  // and a custom fontconfig configuration. This works without any elevated privileges.
   try {
-    const { execSync } = await import("child_process");
-    const { existsSync, copyFileSync, mkdirSync } = await import("fs");
+    const { existsSync, copyFileSync, mkdirSync, writeFileSync } = await import("fs");
     const { join, dirname } = await import("path");
     const { fileURLToPath } = await import("url");
+    const { execFile } = await import("child_process");
+    const { promisify } = await import("util");
+    const execFileAsync = promisify(execFile);
     const __dir = dirname(fileURLToPath(import.meta.url));
     const fontsDir = join(__dir, "../fonts");
-    const systemFontsDir = "/usr/share/fonts/truetype/custom";
+    const homeDir = process.env.HOME || "/app";
 
-    if (!existsSync(systemFontsDir)) {
-      execSync(`sudo mkdir -p ${systemFontsDir}`, { stdio: "ignore" });
+    // ── Step 1: Copy fonts to user-space font directory (no sudo needed) ──
+    const userFontsDir = join(homeDir, ".local", "share", "fonts");
+    if (!existsSync(userFontsDir)) {
+      mkdirSync(userFontsDir, { recursive: true });
     }
 
     const fonts = ["Anton-Regular.ttf", "Oswald-Bold.ttf"];
     let installed = 0;
     for (const font of fonts) {
       const src = join(fontsDir, font);
-      const dest = join(systemFontsDir, font);
+      const dest = join(userFontsDir, font);
       if (existsSync(src) && !existsSync(dest)) {
-        execSync(`sudo cp "${src}" "${dest}"`, { stdio: "ignore" });
+        copyFileSync(src, dest);
         installed++;
       }
     }
+
+    // ── Step 2: Create a custom fontconfig configuration ──
+    // This is CRITICAL for Railway where the default fontconfig config may be missing.
+    // The "Fontconfig error: Cannot load default config file: No such file: (null)" error
+    // means fontconfig can't find fonts.conf — we create one that points to our fonts.
+    const fontconfigDir = join(homeDir, ".config", "fontconfig");
+    if (!existsSync(fontconfigDir)) {
+      mkdirSync(fontconfigDir, { recursive: true });
+    }
+
+    const cacheDir = join(homeDir, ".cache", "fontconfig");
+    if (!existsSync(cacheDir)) {
+      mkdirSync(cacheDir, { recursive: true });
+    }
+
+    // Write a complete fontconfig configuration that includes both our custom fonts
+    // and any system fonts that might exist on the container
+    const fontsConf = `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <!-- Custom fonts bundled with the app -->
+  <dir>${fontsDir}</dir>
+  <dir>${userFontsDir}</dir>
+  <!-- Standard system font directories (may or may not exist) -->
+  <dir>/usr/share/fonts</dir>
+  <dir>/usr/local/share/fonts</dir>
+  <!-- Font cache directory -->
+  <cachedir>${cacheDir}</cachedir>
+  <!-- Alias Anton as a fallback for Impact (common substitution) -->
+  <alias>
+    <family>Anton</family>
+    <prefer><family>Anton</family></prefer>
+    <default><family>Impact</family></default>
+  </alias>
+</fontconfig>`;
+
+    writeFileSync(join(fontconfigDir, "fonts.conf"), fontsConf);
+
+    // ── Step 3: Set FONTCONFIG_FILE env var BEFORE any Sharp/librsvg usage ──
+    // This tells fontconfig exactly where to find our config file.
+    // Must be set before Sharp processes any SVG text.
+    process.env.FONTCONFIG_FILE = join(fontconfigDir, "fonts.conf");
+    process.env.FONTCONFIG_PATH = fontconfigDir;
+
+    // ── Step 4: Refresh font cache (no sudo needed for user fonts) ──
+    try {
+      await execFileAsync("fc-cache", ["-f", userFontsDir, fontsDir], { timeout: 10_000 });
+    } catch {
+      // fc-cache might not be available or might fail — fontconfig will still work
+      // because we explicitly set FONTCONFIG_FILE pointing to our fonts.conf
+    }
+
     if (installed > 0) {
-      execSync("sudo fc-cache -f", { stdio: "ignore" });
-      console.log(`[Startup] Installed ${installed} font(s) to ${systemFontsDir} and refreshed fontconfig cache`);
+      console.log(`[Startup] Installed ${installed} font(s) to ${userFontsDir} (user-space, no sudo needed)`);
     } else {
-      console.log("[Startup] Fonts already installed — fontconfig cache up to date");
+      console.log("[Startup] Fonts already in place — fontconfig configured");
+    }
+    console.log(`[Startup] FONTCONFIG_FILE=${process.env.FONTCONFIG_FILE}`);
+    console.log(`[Startup] Font directories: ${fontsDir}, ${userFontsDir}`);
+
+    // Verify fonts are accessible
+    try {
+      const { stdout } = await execFileAsync("fc-list", [":", "family"], { encoding: "utf-8", timeout: 5_000 });
+      const antonMatch = stdout.split("\n").filter((l: string) => /anton|oswald/i.test(l));
+      console.log(`[Startup] Fontconfig sees: ${antonMatch.length > 0 ? antonMatch.join(", ") : "no Anton/Oswald found — check fonts.conf"}`);
+    } catch {
+      console.log("[Startup] fc-list not available — fonts.conf written, should work when Sharp loads");
     }
   } catch (e: any) {
-    console.warn("[Startup] Font installation skipped (non-critical):", e?.message);
+    console.warn("[Startup] Font installation failed:", e?.message);
   }
 }
 
@@ -80,9 +149,11 @@ async function startServer() {
     const sql = postgres.default(process.env.DATABASE_URL!);
     // Mark all in-flight runs as failed
     // Valid enum: pending, discovering, scoring, researching, generating, assembling, review, pending_post, posting, completed, failed
+    // IMPORTANT: pending_post and posting are STABLE states (pipeline finished, waiting for admin approval / actively posting)
+    // They must NOT be marked as failed — only truly in-flight stages should be recovered.
     const result = await sql`
       UPDATE content_runs SET status = 'failed'
-      WHERE status NOT IN ('completed','failed','review','pending')
+      WHERE status NOT IN ('completed','failed','review','pending','pending_post','posting')
     `;
     if (Number(result.count) > 0) {
       console.log(`[Startup] Auto-failed ${result.count} ghost run(s) left in-flight from previous session`);

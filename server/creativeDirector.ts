@@ -59,6 +59,20 @@ export type VisualStrategy =
   | "person_composite"
   | "kling_video";
 
+/**
+ * The 8 cover template layouts the Creative Director can choose for the cover slide (index 0).
+ * Each template is a plug-and-play layout schema — the CD fills in the actual images and logos.
+ */
+export type CoverTemplate =
+  | "council_of_players"
+  | "backs_to_the_storm"
+  | "solo_machine"
+  | "person_floating_orbs"
+  | "real_photo_corner_badges"
+  | "left_column_logos"
+  | "duo_reaction"
+  | "screenshot_overlay";
+
 /** Per-slide creative brief — the output of the Creative Director for one slide */
 export interface SlideCreativeBrief {
   slideIndex: number;
@@ -91,6 +105,33 @@ export interface SlideCreativeBrief {
    * For person_composite: where to place the person on the 1080×1350 canvas.
    */
   personPlacement?: "center" | "left" | "right";
+
+  /**
+   * For the COVER SLIDE (index 0) only: which of the 8 cover templates to use.
+   * Determines the layout schema for compositing figures, logos, and background.
+   * Content slides (index 1+) do not use this field.
+   */
+  coverTemplate?: CoverTemplate;
+
+  /**
+   * For cover templates that require multiple people (council_of_players, duo_reaction,
+   * backs_to_the_storm): additional person search queries beyond the primary one.
+   * Array of up to 3 additional person search queries.
+   */
+  additionalPersonQueries?: string[];
+
+  /**
+   * For cover templates that require multiple logos (left_column_logos, backs_to_the_storm,
+   * council_of_players): logo keys beyond the primary logoKeys (which is already max 2).
+   * Combined with logoKeys for a total of up to 4 logos.
+   */
+  additionalLogoKeys?: string[];
+
+  /**
+   * For screenshot_overlay template: a description of what the screenshot should show.
+   * Used to generate or source the product screenshot image.
+   */
+  screenshotDescription?: string;
 
   /**
    * Predicted engagement score (0-10) for this visual strategy.
@@ -314,6 +355,62 @@ Carousel facts:
    ENGAGEMENT: Highest P(dwell). Very high P(share) for dramatic clips. Instagram mixed-media carousels outperform.
    LIMIT: Assign to exactly 1-2 slides per carousel (expensive, slow, rate-limited).
 
+═══ PART B: COVER SLIDE TEMPLATES (index 0 only) ═══
+
+The cover slide (index 0) uses a TEMPLATE SYSTEM — 8 plug-and-play layouts derived from the highest-performing AI news accounts. For the cover, you choose BOTH a strategy AND a coverTemplate. The strategy controls the background generation method; the coverTemplate controls the layout schema for compositing.
+
+For the cover slide, set strategy to "cinematic_scene" (or "person_composite" if a person is central) AND set coverTemplate to one of these 8 options:
+
+TEMPLATE 1: "council_of_players"
+  Layout: 1 dominant central figure (full color) + 3-4 supporting figures (desaturated/B&W corners) + 2 circular logo badges centered above text.
+  USE WHEN: Weekly roundups, multi-party stories, industry "who's who" moments.
+  ASSETS NEEDED: personSearchQuery (main figure) + additionalPersonQueries (up to 3 supporting) + logoKeys (2 logos).
+
+TEMPLATE 2: "backs_to_the_storm"
+  Layout: 3 logos in a row above text + dramatic cinematic background.
+  USE WHEN: Multiple AI models/companies doing the same thing, shared industry events.
+  ASSETS NEEDED: logoKeys (up to 3 logos). No persons needed.
+
+TEMPLATE 3: "solo_machine"
+  Layout: 1 AI-generated machine/robot, no logos, dark moody bg, cyan accent text. No human presence.
+  USE WHEN: Abstract AI capability stories, no named company is central.
+  ASSETS NEEDED: Just the scenePrompt. No logos, no persons.
+
+TEMPLATE 4: "person_floating_orbs"
+  Layout: 1 real person center-lower frame + 4-5 floating logo orbs around head/shoulders.
+  USE WHEN: One person disrupting multiple companies, "X vs everyone" stories.
+  ASSETS NEEDED: personSearchQuery (the central figure) + logoKeys (up to 5 logos).
+
+TEMPLATE 5: "real_photo_corner_badges"
+  Layout: Real-world photo fills frame + 2 logo badges stacked top-right corner.
+  USE WHEN: Real events, partnerships, hires, acquisitions.
+  ASSETS NEEDED: logoKeys (2 logos). Background is the photo.
+
+TEMPLATE 6: "left_column_logos"
+  Layout: 3 logos stacked vertically on left edge + dramatic AI background.
+  USE WHEN: Multiple AI models, logos must be prominent, logo-heavy story.
+  ASSETS NEEDED: logoKeys (up to 3 logos).
+
+TEMPLATE 7: "duo_reaction"
+  Layout: 2 people side by side + 2 logos stacked top-left corner.
+  USE WHEN: Two companies/people in conflict or rivalry, debate stories.
+  ASSETS NEEDED: personSearchQuery (person 1) + additionalPersonQueries (person 2) + logoKeys (2 logos).
+
+TEMPLATE 8: "screenshot_overlay"
+  Layout: Screenshot fills upper 55% + dark vignette + 2 logos + YELLOW/GOLD headline.
+  USE WHEN: Product launches, new tool announcements, "here's what it looks like" stories.
+  ASSETS NEEDED: screenshotDescription (what the screenshot shows) + logoKeys (2 logos).
+
+COVER TEMPLATE SELECTION GUIDE:
+  Multi-party/roundup story → council_of_players
+  Multiple AI models same event → backs_to_the_storm or left_column_logos
+  Abstract AI capability, no named company → solo_machine
+  One person vs multiple companies → person_floating_orbs
+  Real event, partnership, hire → real_photo_corner_badges
+  Logo-heavy story → left_column_logos
+  Two people/companies in rivalry → duo_reaction
+  Product launch, new tool → screenshot_overlay
+
 ═══ CRITICAL RULES ═══
 
 VARIETY IS MANDATORY:
@@ -323,8 +420,10 @@ VARIETY IS MANDATORY:
 
 COVER SLIDE (index 0) = 80% OF THE POST:
 - The cover must be the single most scroll-stopping image in the carousel.
-- PREFER: person_composite (if a famous person is central), cinematic_scene (for maximum visual drama), or kling_video (if the biggest story is action-oriented).
-- AVOID: scene_with_badge for the cover — a small corner logo is too subtle for a thumbnail.
+- ALWAYS set coverTemplate for slide 0. Choose the template that best fits the week's stories.
+- For person_floating_orbs or council_of_players: set strategy to "person_composite" and provide personSearchQuery.
+- For all other templates: set strategy to "cinematic_scene".
+- CRITICAL: Do NOT use person-based templates (council_of_players, person_floating_orbs, duo_reaction) just because a person's company is mentioned in a different slide. The cover story itself must feature that person.
 
 VIDEO STRATEGY:
 - Assign kling_video to exactly 1-2 slides (indices 1-4, NOT the cover unless it's spectacular).
@@ -351,13 +450,27 @@ Return valid JSON matching this exact schema:
   "slides": [
     {
       "slideIndex": 0,
+      "strategy": "cinematic_scene" | "person_composite",
+      "coverTemplate": "council_of_players" | "backs_to_the_storm" | "solo_machine" | "person_floating_orbs" | "real_photo_corner_badges" | "left_column_logos" | "duo_reaction" | "screenshot_overlay",
+      "reasoning": "Why this template for this specific cover story (1-2 sentences)",
+      "scenePrompt": "The full PROMPTHIS-structured scene description for AI image generation",
+      "logoKeys": ["openai", "anthropic"] (up to 2 logo keys — see template requirements),
+      "additionalLogoKeys": ["google"] (3rd+ logos for multi-logo templates),
+      "personSearchQuery": "Full Name Title Company photo transparent PNG cutout" (if person-based template),
+      "additionalPersonQueries": ["Person 2 Name Title photo transparent PNG"] (for multi-person templates),
+      "personPlacement": "center" | "left" | "right",
+      "screenshotDescription": "Description of what the product screenshot should show" (only for screenshot_overlay),
+      "engagementScore": 8.5
+    },
+    {
+      "slideIndex": 1,
       "strategy": "cinematic_scene" | "scene_with_badge" | "person_composite" | "kling_video",
       "reasoning": "Why this strategy for this specific story (1-2 sentences)",
       "scenePrompt": "The full PROMPTHIS-structured scene description for AI image/video generation",
       "logoKeys": ["openai"] (only if strategy is scene_with_badge, max 2 keys),
       "personSearchQuery": "Full Name Title Company photo transparent PNG cutout" (only if person_composite),
       "personPlacement": "center" | "left" | "right" (only if person_composite),
-      "engagementScore": 7.5 (your predicted engagement score 0-10 for this visual)
+      "engagementScore": 7.5
     }
   ]
 }`;
@@ -426,10 +539,19 @@ export async function creativeDirectorAgent(
   ${peopleStr}`;
   }).join("\n\n");
 
+  // Collect all detected logos and people across all topics for cover context
+  const allDetectedLogos = Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos)));
+  const allDetectedPeople = topicAnalysis.flatMap(ta => ta.detectedPeople).map(p => `${p.name} (${p.title})`);
+
   const userPrompt = `Decide the visual strategy for each slide in this AI news carousel.
 
 COVER SLIDE (index 0) — must synthesize this week's stories into ONE attention-grabbing visual:
 ${coverContext}
+
+All logos available across all stories: ${allDetectedLogos.length > 0 ? allDetectedLogos.join(", ") : "none"}
+All people mentioned across all stories: ${allDetectedPeople.length > 0 ? allDetectedPeople.join(", ") : "none"}
+
+For the cover, choose the BEST template from the 8 options in the system prompt. Set both "strategy" and "coverTemplate" for slide 0.
 
 CONTENT SLIDES (indices 1-${researched.length}):
 
@@ -437,11 +559,14 @@ ${slideDetails}
 
 Remember:
 - Slide 0 (cover) carries 80% of the post's weight — maximum visual impact
+- ALWAYS set coverTemplate for slide 0
 - Use at least 2 different strategies across all 5 slides
 - Assign kling_video to exactly 1-2 content slides (NOT the cover unless exceptional)
 - person_composite ONLY for verified public figures listed in the system prompt
 - Every scenePrompt must follow PROMPTHIS structure (Setting → Camera → Subject → Lighting → Mood)
 - Scene prompts must contain ZERO text — no letters, words, numbers, or readable characters
+- For cover templates needing 3+ logos, use additionalLogoKeys for the 3rd logo
+- For cover templates needing 2+ people, use additionalPersonQueries for the 2nd and 3rd people
 
 Return ONLY the JSON object. No explanation, no preamble.`;
 
@@ -473,11 +598,15 @@ Return ONLY the JSON object. No explanation, no preamble.`;
       slides?: Array<{
         slideIndex: number;
         strategy: string;
+        coverTemplate?: string;
         reasoning: string;
         scenePrompt: string;
         logoKeys?: string[];
+        additionalLogoKeys?: string[];
         personSearchQuery?: string;
+        additionalPersonQueries?: string[];
         personPlacement?: string;
+        screenshotDescription?: string;
         engagementScore?: number;
       }>;
     };
@@ -490,6 +619,10 @@ Return ONLY the JSON object. No explanation, no preamble.`;
     const validStrategies = new Set<VisualStrategy>([
       "cinematic_scene", "scene_with_badge", "person_composite", "kling_video",
     ]);
+    const validCoverTemplates = new Set<CoverTemplate>([
+      "council_of_players", "backs_to_the_storm", "solo_machine", "person_floating_orbs",
+      "real_photo_corner_badges", "left_column_logos", "duo_reaction", "screenshot_overlay",
+    ]);
 
     const sanitizedSlides: SlideCreativeBrief[] = parsed.slides.map((s) => {
       let strategy = s.strategy as VisualStrategy;
@@ -498,6 +631,19 @@ Return ONLY the JSON object. No explanation, no preamble.`;
       if (!validStrategies.has(strategy)) {
         console.warn(`[CreativeDirector] Invalid strategy "${s.strategy}" for slide ${s.slideIndex} — falling back to cinematic_scene`);
         strategy = "cinematic_scene";
+      }
+
+      // Validate coverTemplate for cover slide
+      let coverTemplate: CoverTemplate | undefined;
+      if (s.slideIndex === 0) {
+        if (s.coverTemplate && validCoverTemplates.has(s.coverTemplate as CoverTemplate)) {
+          coverTemplate = s.coverTemplate as CoverTemplate;
+        } else {
+          // Default cover template based on strategy
+          coverTemplate = strategy === "person_composite" ? "person_floating_orbs" : "solo_machine";
+          console.warn(`[CreativeDirector] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate}`);
+        }
+        console.log(`[CreativeDirector] Cover template: ${coverTemplate}`);
       }
 
       // Validate person_composite: only allow for known figures
@@ -512,11 +658,16 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         if (knownPeople.length === 0) {
           console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite requested but no known figures detected — downgrading to cinematic_scene`);
           strategy = "cinematic_scene";
+          // Re-assign cover template if this was a person-based template
+          if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate)) {
+            coverTemplate = "solo_machine";
+          }
         }
       }
 
       // Validate logoKeys: only allow keys that exist in LOGO_LIBRARY
       let logoKeys = s.logoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2);
+      let additionalLogoKeys = s.additionalLogoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2);
       if (strategy === "scene_with_badge" && (!logoKeys || logoKeys.length === 0)) {
         // Try to auto-detect logos from the topic
         const topicIdx = s.slideIndex === 0 ? -1 : s.slideIndex - 1;
@@ -528,20 +679,41 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         }
       }
 
+      // For cover templates that need logos but none provided, try auto-detect
+      if (s.slideIndex === 0 && coverTemplate && !(["solo_machine"].includes(coverTemplate))) {
+        if (!logoKeys || logoKeys.length === 0) {
+          const uniqueLogos = Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos))).slice(0, 3);
+          if (uniqueLogos.length > 0) {
+            logoKeys = uniqueLogos.slice(0, 2);
+            additionalLogoKeys = uniqueLogos.slice(2);
+            console.log(`[CreativeDirector] Cover: auto-detected logos for template ${coverTemplate}: ${uniqueLogos.join(", ")}`);
+          }
+        }
+      }
+
       // Validate personPlacement
       const validPlacements = new Set(["center", "left", "right"]);
       const personPlacement = validPlacements.has(s.personPlacement ?? "")
         ? (s.personPlacement as "center" | "left" | "right")
         : "center";
 
+      // Validate additionalPersonQueries (only for cover templates that need multiple people)
+      const additionalPersonQueries = Array.isArray(s.additionalPersonQueries)
+        ? s.additionalPersonQueries.filter(q => typeof q === "string" && q.length > 0).slice(0, 3)
+        : undefined;
+
       return {
         slideIndex: s.slideIndex,
         strategy,
+        coverTemplate,
         reasoning: s.reasoning ?? "No reasoning provided",
         scenePrompt: s.scenePrompt ?? "",
-        logoKeys: strategy === "scene_with_badge" ? logoKeys : undefined,
-        personSearchQuery: strategy === "person_composite" ? s.personSearchQuery : undefined,
+        logoKeys: (strategy === "scene_with_badge" || s.slideIndex === 0) ? (logoKeys?.length ? logoKeys : undefined) : undefined,
+        additionalLogoKeys: s.slideIndex === 0 ? (additionalLogoKeys?.length ? additionalLogoKeys : undefined) : undefined,
+        personSearchQuery: (strategy === "person_composite" || s.slideIndex === 0) ? s.personSearchQuery : undefined,
+        additionalPersonQueries: s.slideIndex === 0 ? additionalPersonQueries : undefined,
         personPlacement: strategy === "person_composite" ? personPlacement : undefined,
+        screenshotDescription: s.slideIndex === 0 && coverTemplate === "screenshot_overlay" ? s.screenshotDescription : undefined,
         engagementScore: typeof s.engagementScore === "number" ? s.engagementScore : undefined,
       };
     });
@@ -558,6 +730,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         sanitizedSlides.push({
           slideIndex: idx,
           strategy: "cinematic_scene",
+          coverTemplate: idx === 0 ? "solo_machine" : undefined,
           reasoning: "Auto-filled — LLM omitted this slide",
           scenePrompt: idx === 0
             ? researched.map(t => t.headline).join(". ") + ". Dramatic cinematic AI scene, vertical 9:16, no text."
@@ -652,7 +825,10 @@ Return ONLY the JSON object. No explanation, no preamble.`;
   console.log(`\n[CreativeDirector] ═══ Creative Brief (${elapsed}s) ═══`);
   console.log(`[CreativeDirector] Global: ${brief.globalStyleNotes}`);
   for (const s of brief.slides) {
-    console.log(`[CreativeDirector]   Slide ${s.slideIndex}: ${s.strategy}${s.logoKeys ? ` [${s.logoKeys.join("+")}]` : ""}${s.personSearchQuery ? ` [person: ${s.personSearchQuery.slice(0, 40)}...]` : ""} | engagement: ${s.engagementScore ?? "?"}/10 | ${s.reasoning.slice(0, 80)}`);
+    const templateTag = s.slideIndex === 0 && s.coverTemplate ? ` [template: ${s.coverTemplate}]` : "";
+    const logoTag = s.logoKeys ? ` [logos: ${[...s.logoKeys, ...(s.additionalLogoKeys ?? [])].join("+")}]` : "";
+    const personTag = s.personSearchQuery ? ` [person: ${s.personSearchQuery.slice(0, 40)}...]` : "";
+    console.log(`[CreativeDirector]   Slide ${s.slideIndex}: ${s.strategy}${templateTag}${logoTag}${personTag} | engagement: ${s.engagementScore ?? "?"}/10 | ${s.reasoning.slice(0, 80)}`);
   }
   console.log(`[CreativeDirector] ═══════════════════════════════════════\n`);
 
@@ -680,17 +856,35 @@ function generateFallbackBrief(
 
   // Cover slide (index 0): cinematic_scene or person_composite if a famous person dominates
   const allPeople = topicAnalysis.flatMap(ta => ta.detectedPeople);
+  const allDetectedLogosFB = Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos)));
   const coverStrategy: VisualStrategy = allPeople.length > 0
     ? "person_composite"
     : "cinematic_scene";
 
+  // Choose a sensible fallback cover template
+  let fallbackCoverTemplate: CoverTemplate;
+  if (coverStrategy === "person_composite" && allDetectedLogosFB.length >= 3) {
+    fallbackCoverTemplate = "person_floating_orbs";
+  } else if (coverStrategy === "person_composite") {
+    fallbackCoverTemplate = "real_photo_corner_badges";
+  } else if (allDetectedLogosFB.length >= 3) {
+    fallbackCoverTemplate = "left_column_logos";
+  } else if (allDetectedLogosFB.length >= 2) {
+    fallbackCoverTemplate = "backs_to_the_storm";
+  } else {
+    fallbackCoverTemplate = "solo_machine";
+  }
+
   slides.push({
     slideIndex: 0,
     strategy: coverStrategy,
+    coverTemplate: fallbackCoverTemplate,
     reasoning: coverStrategy === "person_composite"
       ? `Famous person detected: ${allPeople[0].name} — high-impact cover`
       : "Dramatic cinematic scene for maximum scroll-stop impact",
     scenePrompt: researched[0]?.videoPrompt ?? "Dramatic cinematic AI technology scene, neon lighting, vertical 9:16",
+    logoKeys: allDetectedLogosFB.slice(0, 2),
+    additionalLogoKeys: allDetectedLogosFB.slice(2, 4),
     personSearchQuery: coverStrategy === "person_composite"
       ? `${allPeople[0].name} ${allPeople[0].title} photo portrait high quality`
       : undefined,

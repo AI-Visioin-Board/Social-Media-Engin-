@@ -247,8 +247,9 @@ export function findAllLogosForText(text: string): Array<{ url: string; bgColor?
   return found.slice(0, 2);
 }
 
-// ─── Google Custom Search Image API ────────────────────────────────────────────
-// 100 free queries/day. Set GOOGLE_CSE_API_KEY and GOOGLE_CSE_ID env vars.
+// ─── Image Search via SerpApi ──────────────────────────────────────────────────
+// Uses SerpApi (Google Images engine) for person photos, product images, etc.
+// Requires SERP_API_KEY env var. Falls back to Google CSE if SERP not available.
 
 interface ImageSearchResult {
   url: string;
@@ -258,18 +259,62 @@ interface ImageSearchResult {
 }
 
 /**
- * Search Google Images for a specific query and return the top result.
+ * Search Google Images via SerpApi for a specific query and return the top result.
  * Returns null if no API keys configured or no results found.
+ *
+ * Priority: SerpApi (SERP_API_KEY) → Google CSE (GOOGLE_CSE_API_KEY + GOOGLE_CSE_ID) → null
  */
 export async function searchImage(
   query: string,
   opts: { transparent?: boolean; portrait?: boolean } = {}
 ): Promise<ImageSearchResult | null> {
-  let apiKey = process.env.GOOGLE_CSE_API_KEY;
+  // ── Try SerpApi first (preferred — SERP_API_KEY is configured on Railway) ──
+  const serpApiKey = process.env.SERP_API_KEY;
+  if (serpApiKey) {
+    try {
+      const params = new URLSearchParams({
+        api_key: serpApiKey,
+        engine: "google_images",
+        q: query,
+        safe: "active",
+        num: "5",
+      });
+
+      const url = `https://serpapi.com/search.json?${params}`;
+      const res = await fetchJson(url, 20_000);
+
+      if (res.images_results && res.images_results.length > 0) {
+        // Pick the best result — prefer larger images with reasonable dimensions
+        const results = res.images_results.slice(0, 5);
+        const best = results.find((r: any) =>
+          r.original && (r.original_width ?? 0) >= 400 && (r.original_height ?? 0) >= 400
+        ) || results[0];
+
+        if (best?.original) {
+          console.log(`[AssetLibrary] SerpApi found image: "${best.title?.slice(0, 60) ?? query}" (${best.original_width}x${best.original_height})`);
+          return {
+            url: best.original,
+            title: best.title ?? query,
+            width: best.original_width ?? 800,
+            height: best.original_height ?? 800,
+          };
+        }
+      }
+
+      console.log(`[AssetLibrary] SerpApi returned no image results for: "${query.slice(0, 60)}"`);
+      return null;
+    } catch (err: any) {
+      console.warn(`[AssetLibrary] SerpApi image search failed: ${err?.message}`);
+      // Fall through to Google CSE if available
+    }
+  }
+
+  // ── Fallback: Google CSE (legacy — kept for backward compatibility) ──
+  let cseApiKey = process.env.GOOGLE_CSE_API_KEY;
   let cseId = process.env.GOOGLE_CSE_ID;
 
   // Fall back to DB-stored credentials if env vars not set
-  if (!apiKey || !cseId) {
+  if (!cseApiKey || !cseId) {
     try {
       const { getDb } = await import("./db");
       const { appSettings } = await import("../drizzle/schema");
@@ -278,19 +323,21 @@ export async function searchImage(
       if (db) {
         const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "google_cse_api_key"));
         const [ci] = await db.select().from(appSettings).where(eq(appSettings.key, "google_cse_id"));
-        if (ak?.value) apiKey = ak.value;
+        if (ak?.value) cseApiKey = ak.value;
         if (ci?.value) cseId = ci.value;
       }
     } catch { /* ignore */ }
   }
 
-  if (!apiKey || !cseId) {
-    console.log("[AssetLibrary] Google CSE not configured — skipping image search");
+  if (!cseApiKey || !cseId) {
+    if (!serpApiKey) {
+      console.log("[AssetLibrary] No image search API configured (need SERP_API_KEY or GOOGLE_CSE_API_KEY+GOOGLE_CSE_ID)");
+    }
     return null;
   }
 
   const params = new URLSearchParams({
-    key: apiKey,
+    key: cseApiKey,
     cx: cseId,
     q: query,
     searchType: "image",
@@ -307,7 +354,6 @@ export async function searchImage(
 
     if (!res.items || res.items.length === 0) return null;
 
-    // Pick the best result (prefer larger images)
     const item = res.items[0];
     return {
       url: item.link,

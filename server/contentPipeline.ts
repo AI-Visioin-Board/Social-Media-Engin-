@@ -1424,6 +1424,15 @@ async function _runPipelineStages(
       mediaUrl: string | null;
     }> = [];
 
+    // ── Cover template assets: person buffers + logo buffers per slide (for Stage 6) ──
+    // Populated during Stage 5 for cover slide (index 0) when a cover template is set.
+    const coverAssets = new Map<number, {
+      personBuffer: Buffer | null;
+      additionalPersonBuffers: Array<Buffer | null>;
+      logoBuffers: Array<Buffer | null>;
+      screenshotBuffer?: Buffer | null;
+    }>();
+
     // ── Kling credential check (ONCE — fail fast, don't waste 8 min on timeouts) ──
     let klingAK = options.klingAccessKey || ENV.klingAccessKey;
     let klingSK = options.klingSecretKey || ENV.klingSecretKey;
@@ -1564,6 +1573,25 @@ async function _runPipelineStages(
                 mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
                 log.strategy = "person_composite";
                 console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Person composited onto AI background`);
+
+                // ── Cover template: save person buffer for Stage 6 compositor ──
+                if (slide.slideIndex === 0 && brief?.coverTemplate) {
+                  console.log(`[ContentPipeline] Cover slide: collecting assets for template "${brief.coverTemplate}"...`);
+
+                  // Fetch logo buffers for cover template
+                  const logoBuffers: Array<Buffer | null> = [];
+                  const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
+                  if (allLogoKeys.length > 0) {
+                    const logoResults = await Promise.all(
+                      allLogoKeys.map(key => downloadLogo(key).catch(() => null))
+                    );
+                    logoBuffers.push(...logoResults);
+                    console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
+                  }
+
+                  coverAssets.set(0, { personBuffer, additionalPersonBuffers: [], logoBuffers });
+                  console.log(`[ContentPipeline] Cover assets saved for template "${brief.coverTemplate}"`);
+                }
               } else {
                 console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Person photo download failed`);
                 personFailed = true;
@@ -1657,6 +1685,22 @@ async function _runPipelineStages(
           log.strategy = "all_failed";
           console.error(`[ContentPipeline] Slide ${slide.slideIndex}: ❌ ALL media generation failed`);
         }
+      }
+
+      // ── Cover template logo collection (for non-person templates) ────────────────────────
+      // Templates like backs_to_the_storm, solo_machine, left_column_logos, screenshot_overlay
+      // only need logos (no person). Collect them here if not already set by person_composite.
+      if (slide.slideIndex === 0 && brief?.coverTemplate && !coverAssets.has(0)) {
+        const logoBuffers: Array<Buffer | null> = [];
+        const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
+        if (allLogoKeys.length > 0) {
+          const logoResults = await Promise.all(
+            allLogoKeys.map(key => downloadLogo(key).catch(() => null))
+          );
+          logoBuffers.push(...logoResults);
+          console.log(`[ContentPipeline] Cover (logo-only): fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos for template "${brief.coverTemplate}"`);
+        }
+        coverAssets.set(0, { personBuffer: null, additionalPersonBuffers: [], logoBuffers });
       }
 
       log.timeMs = Date.now() - slideStart;
@@ -1758,19 +1802,33 @@ async function _runPipelineStages(
     console.log(`[ContentPipeline] Stage 6: Sharp assembly for run #${runId} (${slidesForAssembly.length} slides)...`);
     try {
       const { assembleAllSlides } = await import("./sharpCompositor");
+
+      // Get the cover slide's creative brief for template routing
+      const coverBriefForAssembly = briefBySlide.get(0);
+
       const assembled = await assembleAllSlides(
-        slidesForAssembly.map((s) => ({
-          runId,
-          slideIndex: s.slideIndex,
-          headline: s.headline ?? "",
-          summary: s.summary ?? undefined,
-          insightLine: s.insightLine ?? undefined,
-          mediaUrl: s.videoUrl ?? null,
-          // A slide is treated as video if: (a) isVideoSlide flag is set AND it has an MP4 URL
-          // Without Kling keys, video slides fall back to still images (no .mp4 URL) so they get composited
-          isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
-          isCover: s.slideIndex === 0,
-        }))
+        slidesForAssembly.map((s) => {
+          const isCover = s.slideIndex === 0;
+          const assets = isCover ? coverAssets.get(0) : undefined;
+          return {
+            runId,
+            slideIndex: s.slideIndex,
+            headline: s.headline ?? "",
+            summary: s.summary ?? undefined,
+            insightLine: s.insightLine ?? undefined,
+            mediaUrl: s.videoUrl ?? null,
+            // A slide is treated as video if: (a) isVideoSlide flag is set AND it has an MP4 URL
+            // Without Kling keys, video slides fall back to still images (no .mp4 URL) so they get composited
+            isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
+            isCover,
+            // ── Cover template fields ──
+            coverTemplate: isCover ? coverBriefForAssembly?.coverTemplate : undefined,
+            personBuffer: assets?.personBuffer ?? undefined,
+            additionalPersonBuffers: assets?.additionalPersonBuffers ?? [],
+            logoBuffers: assets?.logoBuffers ?? [],
+            screenshotBuffer: assets?.screenshotBuffer ?? undefined,
+          };
+        })
       );
       let successCount = 0;
       for (const result of assembled) {
