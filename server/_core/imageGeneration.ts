@@ -41,7 +41,7 @@ export async function generateImage(
       model: "dall-e-3",
       prompt: options.prompt,
       n: 1,
-      size: "1024x1024",
+      size: "1024x1792",
       response_format: "b64_json",
     }),
     signal: AbortSignal.timeout(60_000),

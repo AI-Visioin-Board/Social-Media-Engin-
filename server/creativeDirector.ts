@@ -153,6 +153,7 @@ export interface CarouselCreativeBrief {
 // This prevents hallucination (searching for obscure researchers with no photos).
 
 const KNOWN_FIGURES: Record<string, string> = {
+  // AI / Tech CEOs (core)
   "sam altman": "CEO of OpenAI",
   "sundar pichai": "CEO of Google / Alphabet",
   "elon musk": "CEO of Tesla, SpaceX, xAI",
@@ -160,6 +161,7 @@ const KNOWN_FIGURES: Record<string, string> = {
   "tim cook": "CEO of Apple",
   "satya nadella": "CEO of Microsoft",
   "dario amodei": "CEO of Anthropic",
+  "daniela amodei": "President of Anthropic",
   "jensen huang": "CEO of NVIDIA",
   "demis hassabis": "CEO of Google DeepMind",
   "yann lecun": "Chief AI Scientist at Meta",
@@ -178,6 +180,29 @@ const KNOWN_FIGURES: Record<string, string> = {
   "emad mostaque": "Founder of Stability AI",
   "robin li": "CEO of Baidu",
   "liang wenfeng": "CEO of DeepSeek",
+  // Social / Tech founders
+  "jack dorsey": "Co-founder of Twitter/Square",
+  "susan wojcicki": "Former CEO of YouTube",
+  "evan spiegel": "CEO of Snap",
+  "reed hastings": "Co-founder of Netflix",
+  "brian chesky": "CEO of Airbnb",
+  "patrick collison": "CEO of Stripe",
+  "john collison": "Co-founder of Stripe",
+  // Global tech leaders
+  "lei jun": "CEO of Xiaomi",
+  "pony ma": "CEO of Tencent",
+  "zhang yiming": "Founder of ByteDance",
+  "jack ma": "Founder of Alibaba",
+  "masayoshi son": "CEO of SoftBank",
+  // Political (tech regulation context)
+  "donald trump": "President of the United States",
+  "joe biden": "Former President of the United States",
+  // AI researchers / notable
+  "andrej karpathy": "AI researcher, former Tesla/OpenAI",
+  "fei-fei li": "Stanford AI Lab, former Google VP",
+  "geoffrey hinton": "AI pioneer, Turing Award winner",
+  "yoshua bengio": "AI pioneer, Turing Award winner",
+  "andrew ng": "AI researcher, founder of DeepLearning.AI",
 };
 
 // ─── Company → CEO Inference ─────────────────────────────────────────────────
@@ -189,19 +214,25 @@ const KNOWN_FIGURES: Record<string, string> = {
 const COMPANY_TO_CEO: Record<string, string> = {
   openai: "sam altman",
   "open ai": "sam altman",
+  chatgpt: "sam altman",
+  "gpt-5": "sam altman",
   google: "sundar pichai",
   alphabet: "sundar pichai",
   deepmind: "demis hassabis",
   "google deepmind": "demis hassabis",
   meta: "mark zuckerberg",
   facebook: "mark zuckerberg",
+  whatsapp: "mark zuckerberg",
+  instagram: "mark zuckerberg",
   apple: "tim cook",
   microsoft: "satya nadella",
   anthropic: "dario amodei",
+  claude: "dario amodei",
   nvidia: "jensen huang",
   tesla: "elon musk",
   spacex: "elon musk",
   xai: "elon musk",
+  grok: "elon musk",
   amazon: "andy jassy",
   aws: "andy jassy",
   ibm: "arvind krishna",
@@ -214,6 +245,19 @@ const COMPANY_TO_CEO: Record<string, string> = {
   "stability ai": "emad mostaque",
   baidu: "robin li",
   deepseek: "liang wenfeng",
+  twitter: "jack dorsey",
+  snap: "evan spiegel",
+  snapchat: "evan spiegel",
+  youtube: "susan wojcicki",
+  xiaomi: "lei jun",
+  tencent: "pony ma",
+  bytedance: "zhang yiming",
+  tiktok: "zhang yiming",
+  alibaba: "jack ma",
+  softbank: "masayoshi son",
+  stripe: "patrick collison",
+  netflix: "reed hastings",
+  airbnb: "brian chesky",
 };
 
 /**
@@ -413,10 +457,18 @@ COVER TEMPLATE SELECTION GUIDE:
 
 ═══ CRITICAL RULES ═══
 
+STRATEGY PRIORITY — person_composite FIRST:
+- People-centric content gets 3× more DM shares than abstract scenes (Instagram algorithm data).
+- ALWAYS prefer person_composite when a known figure is detected in the story.
+- For ANY story mentioning a specific CEO or public figure by name, person_composite should be your DEFAULT choice unless there's a compelling visual reason not to.
+- scene_with_badge is your second choice — use it for company news that isn't about a person.
+- cinematic_scene is your fallback — only when no specific company or person is central.
+- Aim for 2-3 person_composite slides per carousel when the stories support it.
+
 VARIETY IS MANDATORY:
 - You MUST use at least 2 DIFFERENT strategies across the 5 slides.
-- NEVER use scene_with_badge on every slide. That's boring repetition.
-- If 3+ stories involve specific companies, vary between cinematic_scene, scene_with_badge, and person_composite.
+- NEVER use the same strategy on every slide. That's boring repetition.
+- Best mix: 2-3 person_composite + 1-2 scene_with_badge + 0-1 cinematic_scene + 1 kling_video.
 
 COVER SLIDE (index 0) = 80% OF THE POST:
 - The cover must be the single most scroll-stopping image in the carousel.
@@ -646,7 +698,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         console.log(`[CreativeDirector] Cover template: ${coverTemplate}`);
       }
 
-      // Validate person_composite: only allow for known figures
+      // Validate person_composite: prefer known figures, but allow if LLM provided a search query
       if (strategy === "person_composite") {
         const topicIdx = s.slideIndex === 0 ? -1 : s.slideIndex - 1;
         const analysis = topicIdx >= 0 ? topicAnalysis[topicIdx] : null;
@@ -656,11 +708,17 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         const knownPeople = detectKnownPeople(allText);
 
         if (knownPeople.length === 0) {
-          console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite requested but no known figures detected — downgrading to cinematic_scene`);
-          strategy = "cinematic_scene";
-          // Re-assign cover template if this was a person-based template
-          if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate)) {
-            coverTemplate = "solo_machine";
+          // If the LLM provided a specific person search query, trust it (soft validation)
+          if (s.personSearchQuery && s.personSearchQuery.trim().length > 10) {
+            console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite for non-verified figure — allowing (LLM query: "${s.personSearchQuery?.slice(0, 50)}")`);
+          } else {
+            // No known figure AND no specific search query — downgrade
+            console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
+            strategy = "scene_with_badge";
+            // Re-assign cover template if this was a person-based template
+            if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate)) {
+              coverTemplate = "backs_to_the_storm";
+            }
           }
         }
       }
@@ -702,13 +760,24 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         ? s.additionalPersonQueries.filter(q => typeof q === "string" && q.length > 0).slice(0, 3)
         : undefined;
 
+      // Auto-detect logos for ALL content slides (not just scene_with_badge)
+      // This enables logo badges on cinematic_scene and person_composite slides too
+      if (s.slideIndex !== 0 && (!logoKeys || logoKeys.length === 0)) {
+        const topicIdx = s.slideIndex - 1;
+        if (topicIdx >= 0 && topicAnalysis[topicIdx]?.detectedLogos.length > 0) {
+          logoKeys = topicAnalysis[topicIdx].detectedLogos.slice(0, 2);
+          console.log(`[CreativeDirector] Slide ${s.slideIndex}: auto-detected logos for ${strategy}: ${logoKeys.join(", ")}`);
+        }
+      }
+
       return {
         slideIndex: s.slideIndex,
         strategy,
         coverTemplate,
         reasoning: s.reasoning ?? "No reasoning provided",
         scenePrompt: s.scenePrompt ?? "",
-        logoKeys: (strategy === "scene_with_badge" || s.slideIndex === 0) ? (logoKeys?.length ? logoKeys : undefined) : undefined,
+        // Pass logoKeys for ALL slides (cover, scene_with_badge, AND content slides for badge compositing)
+        logoKeys: logoKeys?.length ? logoKeys : undefined,
         additionalLogoKeys: s.slideIndex === 0 ? (additionalLogoKeys?.length ? additionalLogoKeys : undefined) : undefined,
         personSearchQuery: (strategy === "person_composite" || s.slideIndex === 0) ? s.personSearchQuery : undefined,
         additionalPersonQueries: s.slideIndex === 0 ? additionalPersonQueries : undefined,

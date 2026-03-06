@@ -563,8 +563,68 @@ export async function assembleSlideWithSharp(
       pipeline = sharp(Buffer.from(fallbackSvg));
     }
 
-    const composited = await pipeline
-      .composite([{ input: Buffer.from(overlaySvg), top: 0, left: 0 }])
+    // ── Content slide logo compositing (non-cover slides) ────────────────
+    // Places 1-2 small circular logo badges in the top-right corner
+    const logoComposites: sharp.OverlayOptions[] = [];
+    if (!isCover && slide.logoBuffers && slide.logoBuffers.length > 0) {
+      const validLogos = slide.logoBuffers.filter((b): b is Buffer => b !== null);
+      for (let i = 0; i < Math.min(validLogos.length, 2); i++) {
+        try {
+          const BADGE_SIZE = 80;
+          const LOGO_PAD = 12;
+          // Resize logo to fit inside badge circle
+          const resizedLogo = await sharp(validLogos[i])
+            .resize(BADGE_SIZE - LOGO_PAD * 2, BADGE_SIZE - LOGO_PAD * 2, { fit: "inside" })
+            .png()
+            .toBuffer();
+          const logoMeta = await sharp(resizedLogo).metadata();
+          const lW = logoMeta.width ?? (BADGE_SIZE - LOGO_PAD * 2);
+          const lH = logoMeta.height ?? (BADGE_SIZE - LOGO_PAD * 2);
+
+          // Create circular badge with dark background
+          const badgeSvg = `<svg width="${BADGE_SIZE}" height="${BADGE_SIZE}" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="${BADGE_SIZE / 2}" cy="${BADGE_SIZE / 2}" r="${BADGE_SIZE / 2 - 2}"
+              fill="rgba(0,0,0,0.65)" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+          </svg>`;
+          const badgeBg = await sharp(Buffer.from(badgeSvg)).png().toBuffer();
+          // Composite logo centered on badge
+          const badge = await sharp(badgeBg)
+            .composite([{
+              input: resizedLogo,
+              left: Math.round((BADGE_SIZE - lW) / 2),
+              top: Math.round((BADGE_SIZE - lH) / 2),
+            }])
+            .png()
+            .toBuffer();
+
+          logoComposites.push({
+            input: badge,
+            left: SLIDE_W - BADGE_SIZE - 24,
+            top: 28 + i * (BADGE_SIZE + 12),
+          });
+          console.log(`[SharpCompositor] Logo badge ${i + 1} composited on content slide ${slideIndex}`);
+        } catch (logoErr: any) {
+          console.warn(`[SharpCompositor] Logo badge compositing failed: ${logoErr?.message}`);
+        }
+      }
+    }
+
+    // ── Color grading: boost saturation and contrast for cinematic look ──
+    let gradedBuffer = await pipeline.png().toBuffer();
+    try {
+      gradedBuffer = await sharp(gradedBuffer)
+        .modulate({ brightness: 1.05, saturation: 1.25 })
+        .linear(1.15, -(128 * 0.15))
+        .sharpen({ sigma: 0.8 })
+        .png()
+        .toBuffer();
+    } catch { /* color grading failed — use raw buffer */ }
+
+    const composited = await sharp(gradedBuffer)
+      .composite([
+        ...logoComposites,
+        { input: Buffer.from(overlaySvg), top: 0, left: 0 },
+      ])
       .png({ quality: 92, compressionLevel: 5 })
       .toBuffer();
 

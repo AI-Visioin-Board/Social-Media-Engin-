@@ -628,23 +628,45 @@ export async function compositePersonOnBackground(
   // Check if the person image has alpha channel (is already transparent)
   const hasAlpha = personMeta.channels === 4;
 
-  let personFinal: Buffer;
+  let personFinal: Buffer = personResized;
   if (hasAlpha) {
     // Already transparent — use as-is
     personFinal = personResized;
   } else {
-    // No transparency — apply the fade mask for soft edge blending
-    const mask = await sharp(Buffer.from(maskSvg))
-      .resize(pW, pH)
-      .greyscale()
-      .png()
-      .toBuffer();
+    // Try AI background removal first (produces clean cutout)
+    let bgRemoved = false;
+    try {
+      const { removeBackground } = await import("@imgly/background-removal-node");
+      console.log(`[AssetLibrary] 🔄 Running AI background removal on person photo...`);
+      const blob = new Blob([personResized as unknown as ArrayBuffer], { type: "image/png" });
+      const resultBlob = await removeBackground(blob, { model: "medium" });
+      const arrayBuf = await resultBlob.arrayBuffer();
+      const removedBuf = Buffer.from(arrayBuf);
+      // Verify it actually has alpha now
+      const meta2 = await sharp(removedBuf).metadata();
+      if (meta2.channels === 4) {
+        personFinal = removedBuf;
+        bgRemoved = true;
+        console.log(`[AssetLibrary] ✅ Background removed successfully (${pW}×${pH})`);
+      }
+    } catch (bgErr: any) {
+      console.warn(`[AssetLibrary] ⚠️ Background removal failed, using vignette mask fallback: ${bgErr?.message}`);
+    }
 
-    personFinal = await sharp(personResized)
-      .ensureAlpha()
-      .composite([{ input: mask, blend: "dest-in" }])
-      .png()
-      .toBuffer();
+    if (!bgRemoved) {
+      // Fallback: apply the fade mask for soft edge blending
+      const mask = await sharp(Buffer.from(maskSvg))
+        .resize(pW, pH)
+        .greyscale()
+        .png()
+        .toBuffer();
+
+      personFinal = await sharp(personResized)
+        .ensureAlpha()
+        .composite([{ input: mask, blend: "dest-in" }])
+        .png()
+        .toBuffer();
+    }
   }
 
   return sharp(bg)
@@ -703,15 +725,22 @@ export async function compositeProductOnBackground(
     .toBuffer();
 }
 
-// ─── Logo Download with S3 Cache ─────────────────────────────────────────────
-// Wikimedia CDN aggressively rate-limits (HTTP 429) logo downloads.
-// We cache every logo in S3 on first successful download so subsequent runs
-// never hit Wikimedia again. Lookup order: memory → S3 → Wikimedia → fail.
+// ─── Logo Download with Bundled + S3 Cache ──────────────────────────────────
+// Lookup order: memory → bundled PNG (in repo) → S3 → Wikimedia → fail.
+// Bundled logos in server/logos/ guarantee availability even when Wikimedia 429s.
 
 const logoMemoryCache = new Map<string, Buffer>();
 
+// Resolve bundled logos directory — works in dev and prod builds
+const LOGOS_DIR = [
+  path.join(__dirname, "logos"),
+  path.join(__dirname, "..", "logos"),
+  path.join(__dirname, "..", "server", "logos"),
+].find(d => fs.existsSync(d)) || path.join(__dirname, "logos");
+
 /**
  * Download a logo by its LOGO_LIBRARY key, with multi-layer caching:
+ *   0. Bundled PNG in repo (instant, always available — no network needed)
  *   1. In-memory cache (instant — survives across slides in same run)
  *   2. S3 cache (fast, no rate limits — survives across runs)
  *   3. Wikimedia (authoritative source, may 429)
@@ -724,6 +753,21 @@ export async function downloadLogo(key: string): Promise<Buffer | null> {
   if (logoMemoryCache.has(key)) {
     console.log(`[AssetLibrary] ✅ Logo "${key}" from memory cache`);
     return logoMemoryCache.get(key)!;
+  }
+
+  // 0. Bundled logos (always available, no network needed)
+  const bundledPath = path.join(LOGOS_DIR, `${key}.png`);
+  try {
+    if (fs.existsSync(bundledPath)) {
+      const buf = fs.readFileSync(bundledPath);
+      if (buf.length > 0) {
+        logoMemoryCache.set(key, buf);
+        console.log(`[AssetLibrary] ✅ Logo "${key}" from bundled file (${Math.round(buf.length / 1024)}KB)`);
+        return buf;
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[AssetLibrary] Bundled logo read failed for "${key}": ${e?.message}`);
   }
 
   const entry = LOGO_LIBRARY[key];
@@ -761,7 +805,7 @@ export async function downloadLogo(key: string): Promise<Buffer | null> {
     return buffer;
   }
 
-  console.warn(`[AssetLibrary] ❌ Logo "${key}" download failed from all sources (Wikimedia rate-limited?)`);
+  console.warn(`[AssetLibrary] ❌ Logo "${key}" download failed from all sources`);
   return null;
 }
 

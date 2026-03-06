@@ -750,7 +750,7 @@ async function marketingBrainPrompt({
     messages: [
       {
         role: "system",
-        content: `You are the Head of Viral Marketing at a top-tier AI news Instagram page with 4 million followers (@evolving.ai style). Your ONE job is to write the perfect visual prompt for a ${mediaType} that will make people stop scrolling.
+        content: `You are the Head of Viral Marketing at a top-tier AI news Instagram page with 4 million followers (@evolving.ai / @airesearches style). Your ONE job is to write the perfect visual prompt for a ${mediaType} that will make people stop scrolling.
 
 Your creative philosophy:
 - Every visual must be IMMEDIATELY recognizable as THIS specific story — not a generic AI scene
@@ -770,14 +770,31 @@ YOUR WORKAROUNDS:
 - For LOGOS: use the company's SIGNATURE COLORS as the visual identifier. OpenAI = green/white swirl shape. Google = red/blue/yellow/green. Meta = blue. Anthropic = orange/brown. Apple = silver/white minimalist. Describe brand-colored objects, not the logo itself.
 - For PRODUCTS: show a phone/laptop screen from a distance with the right color scheme glowing. Show someone's hand holding a device.
 
+MANDATORY PROMPT STRUCTURE — follow this exact formula for every prompt:
+1. SETTING: Specific location with environmental details (e.g., "a glass-walled boardroom overlooking a neon-lit Tokyo skyline at night")
+2. CAMERA: Shot type + focal length + aperture + angle (e.g., "three-quarter shot, 85mm f/1.8, low angle looking up")
+3. SUBJECT: Main visual element with specific materials, colors, textures (e.g., "a pair of hands hovering over a glowing green holographic interface")
+4. LIGHTING: Named lighting recipe with specifics (e.g., "warm Rembrandt lighting from left, soft cyan rim light on shoulders, deep shadows on right")
+5. MOOD: Color palette + emotional tone (e.g., "teal-and-orange cinematic grade, corporate thriller tension, Blade Runner 2049 aesthetic")
+6. QUALITY: Always end with "ultra-photorealistic, editorial quality, 8K detail"
+
 Technical requirements:
-- Photorealistic, cinematic quality
-- Vertical 9:16 portrait frame (1080×1920)
+- Ultra-photorealistic, editorial, high-fashion magazine quality
+- Vertical 4:5 portrait frame (1024×1792) — compose for Instagram portrait
 - ABSOLUTELY NO TEXT in the image — no letters, no words, no numbers, no readable characters of any kind. Any text must be completely blurred, out-of-focus, or abstracted into illegible marks.
 - NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — show the EMOTION or CONSEQUENCE instead
-- Dramatic lighting, high contrast, professional composition
+- Use specific lens/aperture directives (85mm f/1.8 for portraits, 35mm f/2.8 for environments, 24mm for epic wide shots)
+- Use named lighting recipes (Rembrandt, volumetric god rays, golden hour, neon rim light, teal-and-orange grade)
+- Avoid keyword soup ("8k, masterpiece, ultra-detailed") — instead describe HOW elements interact with light and space
 - For videos: describe camera movement, action, and duration (5 seconds). Include DYNAMIC camera movements: slow push-in, dolly zoom, parallax shifts, rotating orbit shots, or dramatic reveal movements. The video must have VISIBLE MOTION — never a static image.
-- For images: describe the exact scene, lighting, depth, and emotional tone${marketingEnhancement}`,
+- For images: describe the exact scene with all 6 structure elements above
+
+NEGATIVE PROMPT AWARENESS — your prompt must NOT produce:
+- Blurry or out-of-focus results
+- Over-smoothed poreless skin (uncanny valley)
+- Generic stock photo compositions
+- CGI or illustration aesthetic
+- Beauty filter look${marketingEnhancement}`,
       },
       {
         role: "user",
@@ -798,19 +815,19 @@ Write a single paragraph describing the ${mediaType}. Be hyper-specific. Name th
 
 THE RECOGNITION TEST: Could someone see ONLY this image (no headline) and guess which AI story it's about? If not, your prompt is too generic. Rewrite it.
 
-Examples of GOOD prompts (notice: NO faces, NO accurate logos — use brand colors and context):
-- "Close-up of a hand hovering over a phone screen glowing green (OpenAI's brand color), finger about to tap a delete button, dramatic warm lighting, shallow depth of field, photorealistic, 9:16 vertical"
-- "Silhouette of a man in a dark suit at a podium, seen from behind, large screen behind him glowing deep blue and white (Palantir colors), packed auditorium visible, dark dramatic lighting, cinematic wide shot, 9:16 vertical"
-- "A green-and-white glowing orb (OpenAI brand colors) cracking and falling in slow motion off a cliff edge into a dark void, dramatic god rays from above, photorealistic, 9:16 vertical"
-- "Two glowing spheres — one green (OpenAI) and one red/blue/yellow/green (Google) — facing each other across a dark chess board, neon lighting, cinematic shallow depth of field, 9:16 vertical"
-- "A person's hand holding a phone showing a bright blue glowing interface (Meta brand color), sitting in a modern office, dramatic side lighting, photorealistic close-up, 9:16 vertical"
+Examples of GOOD prompts (notice: specific settings, camera specs, lighting recipes):
+- "Glass-walled startup office overlooking rain-streaked city lights. Close-up shot, 85mm f/1.8, eye level. A hand hovering over a phone screen glowing vivid green (OpenAI brand), finger about to tap a pulsing delete button, shallow depth of field blurring the city behind. Warm Rembrandt lighting from the left, soft green spill from the screen onto the fingers, deep shadows on the desk. Teal-and-orange cinematic grade, tension, corporate thriller mood. Ultra-photorealistic, editorial quality, 8K detail"
+- "Dark industrial amphitheater, dramatic fog and blue volumetric light shafts. Cinematic wide shot, 24mm f/2.8, low angle. Silhouette of a suited figure at a podium seen from behind, massive screen behind glowing deep blue-and-white (Palantir brand colors), packed audience illuminated only by screen glow. Hard directional backlight creating rim highlights on the figure's shoulders. Cold blue-steel palette, power and gravitas, Blade Runner 2049 aesthetic. Ultra-photorealistic, editorial, 8K"
+- "A 3D-rendered green-and-white luminous orb (OpenAI brand) mid-shatter, fragments suspended in slow motion over a dark cliff edge into pure void. Extreme close-up, 100mm macro, shallow DOF. Volumetric god rays piercing through the cracks from above, jade green light bleeding outward. Cinematic dark palette with electric green accents, catastrophic beauty, Christopher Nolan scale. Ultra-photorealistic, 8K detail"
+- "Two massive glowing spheres — vivid green (OpenAI) and a quad-color (red, blue, yellow, green — Google) — face each other across a polished obsidian chess board in a dark cathedral-like space. Medium shot, 50mm f/2.0, eye level. Opposing neon rim lights (green left, multicolor right) with volumetric haze between. Electric tension, competitive drama, teal-and-orange cinematic grade. Ultra-photorealistic, editorial, 8K"
 
 Examples of BAD prompts (auto-reject these):
-- "Sam Altman with brown curly hair and glasses" — AI generators CANNOT render real faces, will look like a random person
-- "The OpenAI logo on a screen" — AI generators CANNOT render accurate logos, will be garbled
-- "A futuristic AI interface with glowing data streams" — GENERIC, could be any story
-- "A person in a suit looking at a screen" — WHO? What company? No identifying context
-- "An abstract neural network with blue nodes" — CLICHÉ, tells no story
+- "Sam Altman with brown curly hair and glasses" — AI generators CANNOT render real faces
+- "The OpenAI logo on a screen" — AI generators CANNOT render accurate logos
+- "A futuristic AI interface with glowing data streams" — GENERIC, no story
+- "A person in a suit looking at a screen" — No identifying context
+- "An abstract neural network with blue nodes" — CLICHÉ
+- "8k, masterpiece, ultra-detailed, best quality" — keyword soup, no real description
 
 CRITICAL REMINDER: The final prompt must contain ZERO readable text. If your story involves a document, resume, paper, or screen — describe the emotional scene around it, not the document itself.
 
@@ -821,7 +838,7 @@ Return ONLY the prompt, no explanation, no preamble, no step labels.`,
 
   const raw = response?.choices?.[0]?.message?.content;
   const text = typeof raw === "string" ? raw.trim() : "";
-  return text || `Dramatic cinematic scene directly depicting: ${headline}, photorealistic, vertical 9:16 frame, no text overlays`;
+  return text || `Dramatic cinematic scene directly depicting: ${headline}, ultra-photorealistic, editorial quality, 85mm f/1.8, warm Rembrandt lighting, teal-and-orange cinematic grade, vertical 4:5 portrait frame, 8K detail, no text overlays`;
 }
 
 /**
@@ -1806,10 +1823,29 @@ async function _runPipelineStages(
       // Get the cover slide's creative brief for template routing
       const coverBriefForAssembly = briefBySlide.get(0);
 
+      // Fetch logos for content slides (not just cover) in parallel
+      const { downloadLogo: dlLogo } = await import("./assetLibrary");
+      const contentSlideLogos = new Map<number, Array<Buffer | null>>();
+      const contentLogoFetches = slidesForAssembly
+        .filter(s => s.slideIndex !== 0)
+        .map(async (s) => {
+          const brief = briefBySlide.get(s.slideIndex);
+          const logoKeys = brief?.logoKeys ?? [];
+          if (logoKeys.length > 0) {
+            const buffers = await Promise.all(
+              logoKeys.slice(0, 2).map(key => dlLogo(key).catch(() => null))
+            );
+            contentSlideLogos.set(s.slideIndex, buffers);
+            console.log(`[ContentPipeline] Content slide ${s.slideIndex}: fetched ${buffers.filter(Boolean).length}/${logoKeys.length} logos`);
+          }
+        });
+      await Promise.all(contentLogoFetches);
+
       const assembled = await assembleAllSlides(
         slidesForAssembly.map((s) => {
           const isCover = s.slideIndex === 0;
-          const assets = isCover ? coverAssets.get(0) : undefined;
+          const coverSlideAssets = isCover ? coverAssets.get(0) : undefined;
+          const contentLogos = !isCover ? contentSlideLogos.get(s.slideIndex) : undefined;
           return {
             runId,
             slideIndex: s.slideIndex,
@@ -1823,10 +1859,10 @@ async function _runPipelineStages(
             isCover,
             // ── Cover template fields ──
             coverTemplate: isCover ? coverBriefForAssembly?.coverTemplate : undefined,
-            personBuffer: assets?.personBuffer ?? undefined,
-            additionalPersonBuffers: assets?.additionalPersonBuffers ?? [],
-            logoBuffers: assets?.logoBuffers ?? [],
-            screenshotBuffer: assets?.screenshotBuffer ?? undefined,
+            personBuffer: coverSlideAssets?.personBuffer ?? undefined,
+            additionalPersonBuffers: coverSlideAssets?.additionalPersonBuffers ?? [],
+            logoBuffers: coverSlideAssets?.logoBuffers ?? contentLogos ?? [],
+            screenshotBuffer: coverSlideAssets?.screenshotBuffer ?? undefined,
           };
         })
       );
