@@ -348,21 +348,23 @@ DO NOT SELECT these recently published topics or anything closely similar:\n${re
 CANDIDATES:
 ${candidates.map((t, i) => `${i + 1}. "${t.title}" (source: ${t.source})`).join("\n")}
 
-Return a JSON array of exactly 4 objects with this structure:
-{
-  "title": "original title from the list",
-  "summary": "1-sentence plain English explanation of why this matters",
-  "source": "reddit|news",
-  "url": "original url",
-  "scores": {
-    "shareability": 8,
-    "saveWorthiness": 7,
-    "debatePotential": 9,
-    "informationGap": 6,
-    "personalImpact": 8,
-    "total": 104
+Return a JSON object with a "topics" key containing an array of exactly 4 objects:
+{"topics": [
+  {
+    "title": "original title from the list",
+    "summary": "1-sentence plain English explanation of why this matters",
+    "source": "reddit or news",
+    "url": "original url",
+    "scores": {
+      "shareability": 8,
+      "saveWorthiness": 7,
+      "debatePotential": 9,
+      "informationGap": 6,
+      "personalImpact": 8,
+      "total": 104
+    }
   }
-}
+]}
 
 NOTE: "total" = (shareability × 5) + (saveWorthiness × 3.5) + (debatePotential × 2.5) + (informationGap × 2) + (personalImpact × 1)`;
 
@@ -380,7 +382,31 @@ NOTE: "total" = (shareability × 5) + (saveWorthiness × 3.5) + (debatePotential
     if (!content) throw new Error("No response from LLM");
 
     const parsed = JSON.parse(content);
-    return (parsed.topics ?? []).slice(0, 4) as ScoredTopic[];
+
+    // Resilient extraction: the model might wrap the array under any key
+    // ("topics", "results", "scored_topics", etc.) — find the first array value
+    let scoredArray: any[] = [];
+    if (Array.isArray(parsed)) {
+      scoredArray = parsed;
+    } else if (parsed.topics && Array.isArray(parsed.topics)) {
+      scoredArray = parsed.topics;
+    } else {
+      // Search all top-level keys for an array
+      for (const key of Object.keys(parsed)) {
+        if (Array.isArray(parsed[key]) && parsed[key].length > 0) {
+          scoredArray = parsed[key];
+          break;
+        }
+      }
+    }
+
+    if (scoredArray.length === 0) {
+      console.warn("[ContentPipeline] Scoring: LLM returned no topics array, keys:", Object.keys(parsed));
+      throw new Error("No topics array found in LLM scoring response");
+    }
+
+    console.log(`[ContentPipeline] Scoring: LLM returned ${scoredArray.length} scored topics`);
+    return scoredArray.slice(0, 4) as ScoredTopic[];
   } catch (err) {
     console.error("[ContentPipeline] Scoring failed:", err);
     // Fallback: return first 5 as-is with default scores
