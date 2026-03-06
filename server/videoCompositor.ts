@@ -44,6 +44,24 @@ const ANTON_FONT_PATH = path.join(FONTS_DIR, "Anton-Regular.ttf");
 
 const CYAN = "#00E5FF";
 
+// ─── Font Embedding (base64) ──────────────────────────────────────────────────
+let _videoAntonB64: string | null = null;
+function getVideoFontFaceCSS(): string {
+  if (_videoAntonB64 === null) {
+    try {
+      if (fs.existsSync(ANTON_FONT_PATH)) {
+        _videoAntonB64 = fs.readFileSync(ANTON_FONT_PATH).toString("base64");
+      } else {
+        _videoAntonB64 = "";
+      }
+    } catch {
+      _videoAntonB64 = "";
+    }
+  }
+  if (!_videoAntonB64) return "";
+  return `<style>@font-face { font-family: 'Anton'; src: url('data:font/truetype;base64,${_videoAntonB64}') format('truetype'); }</style>`;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Download a URL to a temp file (with redirect limit + timeout to prevent hangs). Handles local /uploads/ paths. */
@@ -208,9 +226,8 @@ function buildVideoOverlaySvg(
     ? `'Anton', Impact, 'Arial Black', sans-serif`
     : `Impact, 'Arial Black', sans-serif`;
 
-  const fontFace = fs.existsSync(ANTON_FONT_PATH)
-    ? `<style>@font-face { font-family: 'Anton'; src: url('${ANTON_FONT_PATH}'); }</style>`
-    : "";
+  // Embed Anton as base64 — file path @font-face doesn't work with librsvg
+  const fontFace = getVideoFontFaceCSS();
 
   // Build headline lines
   const shadowLines = lines.map((line, i) => {

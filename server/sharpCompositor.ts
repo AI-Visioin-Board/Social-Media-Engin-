@@ -40,13 +40,42 @@ const FONTS_DIR = path.join(__dirname, "fonts");
 const ANTON_FONT = path.join(FONTS_DIR, "Anton-Regular.ttf");
 const OSWALD_FONT = path.join(FONTS_DIR, "Oswald-Bold.ttf");
 
-// Pick the best available font
-// NOTE: Sharp uses librsvg for SVG rendering. librsvg resolves fonts via fontconfig (system fonts),
-// NOT via @font-face with local file paths. The fonts must be installed system-wide.
-// Anton and Oswald are installed at /usr/share/fonts/truetype/custom/ by the server startup routine.
-function getBestFont(): { path: string; name: string } {
-  // Always prefer Anton (installed system-wide via fontconfig)
-  return { path: "", name: "Anton" };
+// ─── Font Embedding ────────────────────────────────────────────────────────
+// librsvg does NOT reliably find fonts via fontconfig on containerized deployments (Railway, Docker).
+// The bulletproof fix: embed the font as a base64 data URI in every SVG's <style> block.
+// This makes the SVG self-contained — no external font resolution needed.
+let _antonBase64Cache: string | null = null;
+
+function getAntonFontBase64(): string {
+  if (_antonBase64Cache) return _antonBase64Cache;
+  try {
+    const fontPath = path.join(FONTS_DIR, "Anton-Regular.ttf");
+    if (fs.existsSync(fontPath)) {
+      _antonBase64Cache = fs.readFileSync(fontPath).toString("base64");
+      console.log(`[SharpCompositor] Anton font loaded as base64 (${Math.round(_antonBase64Cache.length / 1024)}KB)`);
+    } else {
+      console.warn(`[SharpCompositor] Anton font not found at ${fontPath} — text will use fallback`);
+      _antonBase64Cache = "";
+    }
+  } catch (e: any) {
+    console.warn(`[SharpCompositor] Failed to load Anton font:`, e?.message);
+    _antonBase64Cache = "";
+  }
+  return _antonBase64Cache;
+}
+
+function buildFontFaceCSS(): string {
+  const b64 = getAntonFontBase64();
+  if (!b64) return "";
+  return `
+    <style>
+      @font-face {
+        font-family: 'Anton';
+        src: url('data:font/truetype;base64,${b64}') format('truetype');
+        font-weight: normal;
+        font-style: normal;
+      }
+    </style>`;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -318,8 +347,8 @@ function buildOverlaySvg(
   // Swipe hint — moved up for Instagram crop safety (bottom ~60px can get cut)
   const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 62}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
 
-  // No @font-face needed — librsvg resolves fonts via fontconfig (system-wide install)
-  const fontFace = "";
+  // Embed Anton font as base64 @font-face — fontconfig is unreliable in containers
+  const fontFace = buildFontFaceCSS();
 
   // Chat bubble insight line (shown below summary if present, or below headline if no summary)
   // Skip if it would overflow into watermark area (SLIDE_H - 100)
@@ -505,7 +534,7 @@ export async function assembleSlideWithSharp(
   }
 
   try {
-    const font = getBestFont();
+    const font = { path: "", name: "Anton" };
     const overlaySvg = buildOverlaySvg(headline, isCover, font, slide.insightLine, slide.summary);
 
     let pipeline: sharp.Sharp;

@@ -20,12 +20,39 @@
  */
 
 import sharp from "sharp";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import type { CoverTemplate } from "./creativeDirector";
+
+// ESM-compatible __dirname
+const __filename_ct = fileURLToPath(import.meta.url);
+const __dirname_ct = path.dirname(__filename_ct);
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
 const W = 1080;
 const H = 1350;
+
+// ─── Font Embedding (base64) ──────────────────────────────────────────────────
+// Same approach as sharpCompositor: embed Anton as base64 data URI
+let _antonB64: string | null = null;
+function getCoverFontFaceCSS(): string {
+  if (_antonB64 === null) {
+    try {
+      const fontPath = path.join(__dirname_ct, "fonts", "Anton-Regular.ttf");
+      if (fs.existsSync(fontPath)) {
+        _antonB64 = fs.readFileSync(fontPath).toString("base64");
+      } else {
+        _antonB64 = "";
+      }
+    } catch {
+      _antonB64 = "";
+    }
+  }
+  if (!_antonB64) return "";
+  return `<style>@font-face { font-family: 'Anton'; src: url('data:font/truetype;base64,${_antonB64}') format('truetype'); }</style>`;
+}
 
 /** y-coordinate where the text zone begins */
 const TEXT_ZONE_TOP = 850;
@@ -142,6 +169,7 @@ function buildTextZoneSvg(
 
   return `
   <defs>
+    ${getCoverFontFaceCSS()}
     <linearGradient id="textFade_${textZoneTop}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="black" stop-opacity="0"/>
       <stop offset="40%" stop-color="black" stop-opacity="0.85"/>
