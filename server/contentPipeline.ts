@@ -181,11 +181,11 @@ async function runSingleGPT4oSearch(query: string, openAiKey: string): Promise<R
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: ENV.openaiModel,
         tools: [{ type: "web_search_preview" }],
         input: query,
       }),
-      signal: AbortSignal.timeout(90_000), // 90s timeout for GPT-4o discovery search (web search can be slow)
+      signal: AbortSignal.timeout(90_000), // 90s timeout for discovery search (web search can be slow)
     });
     if (!response.ok) return [];
     const data = await response.json() as any;
@@ -623,7 +623,7 @@ async function researchWithGPT4oWebSearch(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: ENV.openaiModel,
       tools: [{ type: "web_search_preview" }],
       input: `Today is ${todayStr}. Research this AI news topic using web search.
 

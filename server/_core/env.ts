@@ -11,7 +11,7 @@ export const ENV = {
 
   // OpenAI (LLM + Image Gen)
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
-  openaiModel: process.env.OPENAI_MODEL ?? "gpt-4o",
+  openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.4",
 
   // Storage
   uploadsDir: process.env.UPLOADS_DIR ?? "./public/uploads",
