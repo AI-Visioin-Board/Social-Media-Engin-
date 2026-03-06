@@ -205,7 +205,7 @@ async function startServer() {
   }
 
   server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+    console.log(`[Startup] Server running on http://localhost:${port}/ — build ${new Date().toISOString()}`);
   });
 }
 
