@@ -36,11 +36,18 @@ const H = 1350;
 
 // ─── Font Embedding (base64) ──────────────────────────────────────────────────
 // Same approach as sharpCompositor: embed Anton as base64 data URI
+// In dev, fonts are at __dirname/fonts. In prod build (dist/), fonts are one level up at ../fonts.
+const COVER_FONTS_DIR = [
+  path.join(__dirname_ct, "fonts"),
+  path.join(__dirname_ct, "..", "fonts"),
+  path.join(__dirname_ct, "..", "server", "fonts"),
+].find(d => fs.existsSync(d)) || path.join(__dirname_ct, "fonts");
+
 let _antonB64: string | null = null;
 function getCoverFontFaceCSS(): string {
   if (_antonB64 === null) {
     try {
-      const fontPath = path.join(__dirname_ct, "fonts", "Anton-Regular.ttf");
+      const fontPath = path.join(COVER_FONTS_DIR, "Anton-Regular.ttf");
       if (fs.existsSync(fontPath)) {
         _antonB64 = fs.readFileSync(fontPath).toString("base64");
       } else {

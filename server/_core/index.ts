@@ -44,7 +44,13 @@ async function installFonts() {
     const { promisify } = await import("util");
     const execFileAsync = promisify(execFile);
     const __dir = dirname(fileURLToPath(import.meta.url));
-    const fontsDir = join(__dir, "../fonts");
+    // Robust font directory resolution — works in dev (server/_core → ../fonts)
+    // and in prod build (dist/_core → ../../fonts or ../fonts)
+    const fontsDir = [
+      join(__dir, "../fonts"),
+      join(__dir, "../../fonts"),
+      join(__dir, "../server/fonts"),
+    ].find(d => existsSync(d)) || join(__dir, "../fonts");
     const homeDir = process.env.HOME || "/app";
 
     // ── Step 1: Copy fonts to user-space font directory (no sudo needed) ──

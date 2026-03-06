@@ -39,7 +39,12 @@ const SLIDE_H = 1350;
 // Top 70% = 945px for video zone, bottom 30% = 405px for text zone
 const VIDEO_ZONE_H = Math.round(SLIDE_H * 0.70); // 945
 
-const FONTS_DIR = path.join(__dirname, "fonts");
+// In dev, fonts are at __dirname/fonts. In prod build (dist/), fonts are one level up at ../fonts.
+const FONTS_DIR = [
+  path.join(__dirname, "fonts"),
+  path.join(__dirname, "..", "fonts"),
+  path.join(__dirname, "..", "server", "fonts"),
+].find(d => fs.existsSync(d)) || path.join(__dirname, "fonts");
 const ANTON_FONT_PATH = path.join(FONTS_DIR, "Anton-Regular.ttf");
 
 const CYAN = "#00E5FF";

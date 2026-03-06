@@ -36,7 +36,12 @@ const SLIDE_H = 1350; // 4:5 Instagram portrait ratio
 const CYAN = "#00E5FF";
 
 // Font paths — bundled in server/fonts/
-const FONTS_DIR = path.join(__dirname, "fonts");
+// In dev, fonts are at __dirname/fonts. In prod build (dist/), fonts are one level up at ../fonts.
+const FONTS_DIR = [
+  path.join(__dirname, "fonts"),
+  path.join(__dirname, "..", "fonts"),
+  path.join(__dirname, "..", "server", "fonts"),
+].find(d => fs.existsSync(d)) || path.join(__dirname, "fonts");
 const ANTON_FONT = path.join(FONTS_DIR, "Anton-Regular.ttf");
 const OSWALD_FONT = path.join(FONTS_DIR, "Oswald-Bold.ttf");
 
