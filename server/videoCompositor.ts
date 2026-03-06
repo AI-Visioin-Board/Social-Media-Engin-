@@ -22,7 +22,7 @@ import os from "os";
 import https from "https";
 import http from "http";
 import sharp from "sharp";
-import { storagePut } from "./storage";
+import { storagePut, resolveLocalPath, isLocalUrl } from "./storage";
 import { fileURLToPath } from "url";
 
 const execFileAsync = promisify(execFile);
@@ -46,8 +46,17 @@ const CYAN = "#00E5FF";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Download a URL to a temp file (with redirect limit + timeout to prevent hangs) */
+/** Download a URL to a temp file (with redirect limit + timeout to prevent hangs). Handles local /uploads/ paths. */
 async function downloadToTemp(url: string, ext: string): Promise<string> {
+  // Handle local storage paths — just copy the file instead of HTTP request
+  if (isLocalUrl(url)) {
+    const localPath = resolveLocalPath(url);
+    if (!localPath) throw new Error(`Local file not found: ${url}`);
+    const tmpPath = path.join(os.tmpdir(), `sbgpt-vid-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+    fs.copyFileSync(localPath, tmpPath);
+    return tmpPath;
+  }
+
   const tmpPath = path.join(os.tmpdir(), `sbgpt-vid-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
   const DOWNLOAD_TIMEOUT_MS = 60_000; // 60s — videos can be large
   return new Promise((resolve, reject) => {

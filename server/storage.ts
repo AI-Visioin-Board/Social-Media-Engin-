@@ -15,6 +15,30 @@ const getUploadsDir = () => {
 
 const normalizeKey = (relKey: string) => relKey.replace(/^\/+/, "");
 
+/**
+ * Resolve a storage URL to an absolute local file path.
+ * Use this when you need to read a stored file directly from disk
+ * instead of making an HTTP request to a relative /uploads/... URL.
+ */
+export function resolveLocalPath(urlOrKey: string): string | null {
+  // Handle relative /uploads/... URLs
+  if (urlOrKey.startsWith("/uploads/")) {
+    const key = urlOrKey.replace(/^\/uploads\//, "");
+    const filePath = path.join(getUploadsDir(), key);
+    return fs.existsSync(filePath) ? filePath : null;
+  }
+  // Handle bare keys
+  const filePath = path.join(getUploadsDir(), normalizeKey(urlOrKey));
+  return fs.existsSync(filePath) ? filePath : null;
+}
+
+/**
+ * Check if a URL is a local storage path (not an external HTTP URL)
+ */
+export function isLocalUrl(url: string): boolean {
+  return url.startsWith("/uploads/") || (!url.startsWith("http://") && !url.startsWith("https://"));
+}
+
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,

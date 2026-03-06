@@ -322,5 +322,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     );
   }
 
-  return (await response.json()) as InvokeResult;
+  // Body-reading timeout — response.json() can hang if the stream stalls
+  const bodyTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("LLM response body read timed out after 120s")), 120_000)
+  );
+  return (await Promise.race([response.json(), bodyTimeout])) as InvokeResult;
 }

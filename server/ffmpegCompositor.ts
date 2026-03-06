@@ -27,7 +27,7 @@ import * as path from "path";
 import * as os from "os";
 import https from "https";
 import http from "http";
-import { storagePut } from "./storage";
+import { storagePut, resolveLocalPath, isLocalUrl } from "./storage";
 
 const execAsync = promisify(exec);
 
@@ -44,8 +44,17 @@ const BRAND_NAME = "SuggestedByGPT";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Download a URL to a temp file, return the local path */
+/** Download a URL to a temp file, return the local path. Handles local /uploads/ paths. */
 async function downloadToTemp(url: string, ext: string): Promise<string> {
+  // Handle local storage paths — just copy the file instead of HTTP request
+  if (isLocalUrl(url)) {
+    const localPath = resolveLocalPath(url);
+    if (!localPath) throw new Error(`Local file not found: ${url}`);
+    const tmpFile = path.join(os.tmpdir(), `sbgpt-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+    fs.copyFileSync(localPath, tmpFile);
+    return tmpFile;
+  }
+
   const tmpFile = path.join(
     os.tmpdir(),
     `sbgpt-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`

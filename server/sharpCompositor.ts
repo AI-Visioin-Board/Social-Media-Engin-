@@ -21,7 +21,7 @@ import { fileURLToPath } from "url";
 import https from "https";
 import http from "http";
 import os from "os";
-import { storagePut } from "./storage";
+import { storagePut, resolveLocalPath, isLocalUrl } from "./storage";
 
 // ESM-compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -64,8 +64,17 @@ export interface SharpSlideInput {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Download a URL to a temp file and return the local path (with timeout + redirect limit). */
+/** Download a URL to a temp file and return the local path (with timeout + redirect limit). Handles local /uploads/ paths. */
 async function downloadToTemp(url: string, ext: string): Promise<string> {
+  // Handle local storage paths — just copy the file instead of HTTP request
+  if (isLocalUrl(url)) {
+    const localPath = resolveLocalPath(url);
+    if (!localPath) throw new Error(`Local file not found: ${url}`);
+    const tmpPath = path.join(os.tmpdir(), `sbgpt-sharp-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+    fs.copyFileSync(localPath, tmpPath);
+    return tmpPath;
+  }
+
   const tmpPath = path.join(os.tmpdir(), `sbgpt-sharp-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
   const DOWNLOAD_TIMEOUT_MS = 30_000; // 30s — images are typically small
   return new Promise((resolve, reject) => {

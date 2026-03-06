@@ -3,12 +3,12 @@
  * Automated twice-weekly AI news carousel generation
  *
  * Stages:
- * 1. Topic Discovery  — scrape YouTube, TikTok, Reddit for trending AI topics
+ * 1. Topic Discovery  — NewsAPI + Reddit JSON API + GPT-4o web search
  * 2. No-Repeat Filter — exclude topics published in last 14 days
- * 3. GPT Scoring      — score top 12 on 5 criteria, pick best 5
+ * 3. GPT Scoring      — score candidates on 5 virality criteria, pick best 4
  * 4. Deep Research    — GPT-4o web search (OpenAI Responses API) per topic
- * 5. Video Generation — Seedance 2.0 API per topic (stub until key provided)
- * 6. Slide Assembly   — FFmpeg compositor (separate module)
+ * 5. Media Generation — Kling 2.5 Turbo video / DALL-E 3 image per topic
+ * 6. Slide Assembly   — Sharp/FFmpeg compositor (separate modules)
  * 7. Instagram Post   — Make.com webhook trigger
  */
 
@@ -31,7 +31,7 @@ import { SignJWT } from "jose";
 
 export interface RawTopic {
   title: string;
-  source: "youtube" | "tiktok" | "reddit" | "news";
+  source: "reddit" | "news";
   url: string;
   engagementScore?: number; // views/likes/upvotes normalised 0-100
   publishedAt?: string;
@@ -72,8 +72,8 @@ export interface ResearchedTopic {
 // ─── Stage 1: Topic Discovery ─────────────────────────────────────────────────
 
 /**
- * Fetch trending AI topics from YouTube, TikTok, Reddit simultaneously
- * Uses Manus built-in Data APIs (no extra cost)
+ * Fetch trending AI topics from NewsAPI, Reddit, and GPT-4o web search simultaneously.
+ * All sources run in parallel for speed.
  */
 export async function discoverTopics(runType: "monday" | "friday" = "monday"): Promise<RawTopic[]> {
   console.log(`[ContentPipeline] Starting multi-source topic discovery for ${runType} run...`);
@@ -255,105 +255,9 @@ function getStaticFallbackTopics(): RawTopic[] {
   ];
 }
 
-async function discoverFromYouTube(): Promise<RawTopic[]> {
-  try {
-    const { ApiClient } = await import("/opt/.manus/.sandbox-runtime/data_api.js" as any);
-    const client = new ApiClient();
-
-    const queries = ["AI news this week", "artificial intelligence update 2025", "ChatGPT OpenAI news"];
-    const results: RawTopic[] = [];
-
-    for (const q of queries) {
-      try {
-        const res = await client.call_api("Youtube/search", {
-          query: { q, hl: "en", gl: "US" },
-        });
-        const contents = res?.contents ?? [];
-        for (const item of contents.slice(0, 5)) {
-          if (item.type === "video" && item.video) {
-            results.push({
-              title: item.video.title ?? "",
-              source: "youtube",
-              url: `https://youtube.com/watch?v=${item.video.videoId}`,
-              publishedAt: item.video.publishedTimeText,
-            });
-          }
-        }
-      } catch (_) { /* skip failed query */ }
-    }
-    return results;
-  } catch {
-    console.warn("[ContentPipeline] YouTube API unavailable, using fallback");
-    return [];
-  }
-}
-
-async function discoverFromTikTok(): Promise<RawTopic[]> {
-  try {
-    const { ApiClient } = await import("/opt/.manus/.sandbox-runtime/data_api.js" as any);
-    const client = new ApiClient();
-
-    const keywords = ["AI news", "artificial intelligence 2025", "ChatGPT update"];
-    const results: RawTopic[] = [];
-
-    for (const kw of keywords) {
-      try {
-        const res = await client.call_api("Tiktok/search_tiktok_video_general", {
-          query: { keyword: kw },
-        });
-        const videos = res?.data ?? [];
-        for (const v of videos.slice(0, 5)) {
-          if (v.desc) {
-            results.push({
-              title: v.desc,
-              source: "tiktok",
-              url: `https://tiktok.com/@${v.author?.unique_id}/video/${v.aweme_id}`,
-              engagementScore: Math.min(100, Math.floor((v.statistics?.play_count ?? 0) / 10000)),
-            });
-          }
-        }
-      } catch (_) { /* skip */ }
-    }
-    return results;
-  } catch {
-    console.warn("[ContentPipeline] TikTok API unavailable, using fallback");
-    return [];
-  }
-}
-
-async function discoverFromReddit(): Promise<RawTopic[]> {
-  try {
-    const { ApiClient } = await import("/opt/.manus/.sandbox-runtime/data_api.js" as any);
-    const client = new ApiClient();
-
-    const subreddits = ["artificial", "MachineLearning", "ChatGPT", "singularity"];
-    const results: RawTopic[] = [];
-
-    for (const sub of subreddits) {
-      try {
-        const res = await client.call_api("Reddit/AccessAPI", {
-          query: { subreddit: sub, limit: "10" },
-        });
-        const posts = res?.posts ?? [];
-        for (const wrapper of posts.slice(0, 5)) {
-          const post = wrapper?.data ?? wrapper;
-          if (post.title) {
-            results.push({
-              title: post.title,
-              source: "reddit",
-              url: `https://reddit.com${post.permalink ?? ""}`,
-              engagementScore: Math.min(100, Math.floor((post.score ?? 0) / 100)),
-            });
-          }
-        }
-      } catch (_) { /* skip */ }
-    }
-    return results;
-  } catch {
-    console.warn("[ContentPipeline] Reddit API unavailable, using fallback");
-    return [];
-  }
-}
+// Dead Manus functions removed (discoverFromYouTube, discoverFromTikTok, discoverFromReddit).
+// These imported from /opt/.manus/.sandbox-runtime/data_api.js which doesn't exist outside Manus.
+// Topic discovery now uses: NewsAPI + Reddit JSON API + GPT-4o web search (see above).
 
 // ─── Stage 2: No-Repeat Filter ────────────────────────────────────────────────
 
@@ -448,7 +352,7 @@ Return a JSON array of exactly 4 objects with this structure:
 {
   "title": "original title from the list",
   "summary": "1-sentence plain English explanation of why this matters",
-  "source": "youtube|tiktok|reddit",
+  "source": "reddit|news",
   "url": "original url",
   "scores": {
     "shareability": 8,
@@ -468,47 +372,7 @@ NOTE: "total" = (shareability × 5) + (saveWorthiness × 3.5) + (debatePotential
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "scored_topics",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              topics: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    title: { type: "string" },
-                    summary: { type: "string" },
-                    source: { type: "string" },
-                    url: { type: "string" },
-                    scores: {
-                      type: "object",
-                      properties: {
-                        shareability: { type: "number" },
-                        saveWorthiness: { type: "number" },
-                        debatePotential: { type: "number" },
-                        informationGap: { type: "number" },
-                        personalImpact: { type: "number" },
-                        total: { type: "number" },
-                      },
-                      required: ["shareability", "saveWorthiness", "debatePotential", "informationGap", "personalImpact", "total"],
-                      additionalProperties: false,
-                    },
-                  },
-                  required: ["title", "summary", "source", "url", "scores"],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ["topics"],
-            additionalProperties: false,
-          },
-        },
-      } as any,
+      response_format: { type: "json_object" },
     });
 
     const rawContent = response?.choices?.[0]?.message?.content;
@@ -767,24 +631,8 @@ Provide:
 Format as JSON: { "headline": "...", "summary": "...", "insightLine": "..." or null, "videoPrompt": "..." }`,
       },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "slide_content",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            headline: { type: "string" },
-            summary: { type: "string" },
-            insightLine: { type: ["string", "null"] },
-            videoPrompt: { type: "string" },
-          },
-          required: ["headline", "summary", "insightLine", "videoPrompt"],
-          additionalProperties: false,
-        },
-      },
-    } as any,
+    // Use json_object instead of strict json_schema — strict mode causes hangs with gpt-4.1
+    response_format: { type: "json_object" },
   });
 
   const rawContent = response?.choices?.[0]?.message?.content;
@@ -863,7 +711,7 @@ async function marketingBrainPrompt({
 }): Promise<string> {
   const mediaType = isVideo
     ? "5-second cinematic video clip (Kling AI text-to-video)"
-    : "single photorealistic still image (Nano Banana / Google Imagen)";
+    : "single photorealistic still image (DALL-E 3 / Google Imagen)";
 
   // Import enhanced specificity rules from virality framework
   let marketingEnhancement = "";
@@ -951,7 +799,7 @@ Return ONLY the prompt, no explanation, no preamble, no step labels.`,
 }
 
 /**
- * Generate a single Nano Banana image prompt that visually synthesizes all 5 topic headlines
+ * Generate a single DALL-E 3 image prompt that visually synthesizes all 5 topic headlines
  * into one cinematic cover scene. Used for the cover slide (index 0).
  */
 async function generateCoverImagePrompt(headlines: string[]): Promise<string> {
@@ -959,7 +807,7 @@ async function generateCoverImagePrompt(headlines: string[]): Promise<string> {
     messages: [
       {
         role: "system",
-        content: "You create stunning, cinematic image prompts for Nano Banana (Google Imagen). Each prompt describes a single photorealistic still image that COMPOSITES MULTIPLE SUBJECTS together in one dramatic scene.",
+        content: "You create stunning, cinematic image prompts for DALL-E 3 (Google Imagen). Each prompt describes a single photorealistic still image that COMPOSITES MULTIPLE SUBJECTS together in one dramatic scene.",
       },
       {
         role: "user",
@@ -1003,7 +851,7 @@ Return ONLY the image prompt, no explanation, no preamble.`,
 
 // ─── Stage 5: Video / Image Generation ──────────────────────────────────────
 // Primary: Kling 2.5 Turbo (text-to-video, ~$0.14/clip)
-// Fallback: Nano Banana / Imagen (free, built-in, still image)
+// Fallback: DALL-E 3 / Imagen (free, built-in, still image)
 
 /** Generate a JWT token for Kling API authentication (ESM-native jose) */
 async function generateKlingJWT(accessKey: string, secretKey: string): Promise<string> {
@@ -1096,20 +944,20 @@ export async function generateKlingVideo(
 }
 
 /**
- * Generate a cinematic still image using Nano Banana (Manus built-in Imagen).
+ * Generate a cinematic still image using DALL-E 3.
  * Used as fallback when Kling is unavailable.
  */
 export async function generateSlideImage(
   prompt: string
 ): Promise<string | null> {
   try {
-    console.log(`[ContentPipeline] Generating Nano Banana image for prompt: "${prompt.slice(0, 80)}..."`);
+    console.log(`[ContentPipeline] Generating DALL-E image for prompt: "${prompt.slice(0, 80)}..."`);
     const { url } = await generateImage({ prompt });
     if (!url) throw new Error("No URL returned from image generation");
-    console.log(`[ContentPipeline] Nano Banana image generated → ${url}`);
+    console.log(`[ContentPipeline] DALL-E image generated → ${url}`);
     return url;
   } catch (err) {
-    console.error("[ContentPipeline] Nano Banana image generation failed:", err);
+    console.error("[ContentPipeline] DALL-E 3 image generation failed:", err);
     return null;
   }
 }
@@ -1153,13 +1001,24 @@ export async function triggerInstagramPost(
    * Our slides are 1080×1920 (9:16). The Make.com scenario must crop/pad
    * video slides to 4:5 before calling the Instagram API.
    */
-  const slidePayload = slides.map((s, i) => ({
-    slide_index: i,
-    media_type: s.isVideo ? "VIDEO" : "IMAGE",
-    image_url: s.assembledUrl,   // always set — Make.com uses this for IMAGE slides
-    video_url: s.assembledUrl,   // always set — Make.com uses this for VIDEO slides
-    headline: s.headline,
-  }));
+  // Convert relative /uploads/ URLs to absolute public URLs for Make.com
+  // Make.com needs to download these files — relative paths won't work
+  const RAILWAY_PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : (process.env.PUBLIC_URL || `http://localhost:${ENV.port}`);
+
+  const slidePayload = slides.map((s, i) => {
+    const absoluteUrl = s.assembledUrl.startsWith("/uploads/")
+      ? `${RAILWAY_PUBLIC_URL}${s.assembledUrl}`
+      : s.assembledUrl;
+    return {
+      slide_index: i,
+      media_type: s.isVideo ? "VIDEO" : "IMAGE",
+      image_url: absoluteUrl,   // always set — Make.com uses this for IMAGE slides
+      video_url: absoluteUrl,   // always set — Make.com uses this for VIDEO slides
+      headline: s.headline,
+    };
+  });
 
   try {
     const response = await fetch(url, {
@@ -1517,7 +1376,7 @@ async function _runPipelineStages(
       });
     }
 
-    // Stage 5: Video / Image Generation (Kling primary, Nano Banana fallback)
+    // Stage 5: Video / Image Generation (Kling primary, DALL-E 3 fallback)
     checkAbort();
     // ═══════════════════════════════════════════════════════════════════════════
     // DECISION LOG: Track every decision per slide for debugging
@@ -1707,7 +1566,7 @@ async function _runPipelineStages(
       if (!mediaUrl && (strategy === "scene_with_badge" || strategy === "cinematic_scene" || strategy === "kling_video" || strategy === "person_composite")) {
         // ── SCENE WITH BADGE or CINEMATIC SCENE (also Kling/person fallback) ──
         // Generate AI background image, optionally add logo badge(s)
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🖼️ Generating AI image (Nano Banana)...`);
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🖼️ Generating AI image (DALL-E 3)...`);
         const aiImageUrl = await generateSlideImage(scenePrompt);
 
         if (aiImageUrl && strategy === "scene_with_badge" && brief?.logoKeys && brief.logoKeys.length > 0) {

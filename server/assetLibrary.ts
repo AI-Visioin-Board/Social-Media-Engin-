@@ -21,7 +21,7 @@ import sharp from "sharp";
 import path from "path";
 import os from "os";
 import fs from "fs";
-import { storagePut, storageGet } from "./storage";
+import { storagePut, storageGet, resolveLocalPath, isLocalUrl } from "./storage";
 
 // ─── Curated Logo Library ─────────────────────────────────────────────────────
 // Maps normalized company names → transparent PNG URLs from stable public sources.
@@ -323,9 +323,24 @@ export async function searchImage(
 
 // ─── Image download + processing ─────────────────────────────────────────────
 
-/** Download an image URL and return a Sharp buffer ready for compositing */
+/** Download an image URL (or read from local storage) and return a Sharp buffer ready for compositing */
 export async function downloadImage(imageUrl: string): Promise<Buffer | null> {
   try {
+    // Handle local storage paths (e.g. /uploads/logos/openai.png)
+    if (isLocalUrl(imageUrl)) {
+      const localPath = resolveLocalPath(imageUrl);
+      if (!localPath) {
+        console.warn(`[AssetLibrary] Local file not found: ${imageUrl}`);
+        return null;
+      }
+      const processed = await sharp(localPath)
+        .resize(800, 800, { fit: "inside", withoutEnlargement: true })
+        .png()
+        .toBuffer();
+      return processed;
+    }
+
+    // Handle remote URLs (https://...)
     const tmpPath = path.join(os.tmpdir(), `sbgpt-asset-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
     const DOWNLOAD_TIMEOUT_MS = 30_000; // 30s hard timeout on image downloads
 
