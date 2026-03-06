@@ -78,12 +78,21 @@ async function startServer() {
   try {
     const postgres = await import("postgres");
     const sql = postgres.default(process.env.DATABASE_URL!);
+    // Mark all in-flight runs as failed
     const result = await sql`
       UPDATE content_runs SET status = 'failed'
-      WHERE status IN ('generating','assembling','researching','scoring','discovering','posting')
+      WHERE status NOT IN ('completed','failed','needs_review','idle')
     `;
-    if (result.count > 0) {
+    if (Number(result.count) > 0) {
       console.log(`[Startup] Auto-failed ${result.count} ghost run(s) left in-flight from previous session`);
+    }
+    // Also reset any stuck slide statuses
+    const slideResult = await sql`
+      UPDATE generated_slides SET status = 'ready'
+      WHERE status IN ('generating_video','assembling')
+    `;
+    if (Number(slideResult.count) > 0) {
+      console.log(`[Startup] Reset ${slideResult.count} stuck slide(s) to 'ready'`);
     }
     await sql.end();
   } catch (e) {
