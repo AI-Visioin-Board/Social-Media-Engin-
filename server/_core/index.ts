@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerStripeWebhook } from "../stripeWebhook";
+import { migrateDatabase } from "../migrate";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -67,6 +68,9 @@ async function installFonts() {
 }
 
 async function startServer() {
+  // ── Create database tables if they don't exist ──
+  await migrateDatabase();
+
   // ── Install fonts for Sharp/librsvg text rendering ──
   await installFonts();
 
