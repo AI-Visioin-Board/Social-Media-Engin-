@@ -79,9 +79,10 @@ async function startServer() {
     const postgres = await import("postgres");
     const sql = postgres.default(process.env.DATABASE_URL!);
     // Mark all in-flight runs as failed
+    // Valid enum: pending, discovering, scoring, researching, generating, assembling, review, pending_post, posting, completed, failed
     const result = await sql`
       UPDATE content_runs SET status = 'failed'
-      WHERE status NOT IN ('completed','failed','needs_review','idle')
+      WHERE status NOT IN ('completed','failed','review','pending')
     `;
     if (Number(result.count) > 0) {
       console.log(`[Startup] Auto-failed ${result.count} ghost run(s) left in-flight from previous session`);
