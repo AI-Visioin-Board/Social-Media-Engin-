@@ -1234,11 +1234,11 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
   if (!db) throw new Error("Database not available");
 
   // Create run record
-  const [runResult] = await db.insert(contentRuns).values({
+  const runResult = await db.insert(contentRuns).values({
     runSlot: options.runSlot,
     status: "discovering",
-  });
-  const runId = (runResult as any).insertId as number;
+  }).returning({ id: contentRuns.id });
+  const runId = runResult[0].id;
 
   console.log(`[ContentPipeline] Started run #${runId} (${options.runSlot})`);
 

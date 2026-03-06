@@ -1,5 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgresDriver from "postgres";
 import {
   InsertUser, users,
   orders, InsertOrder, Order, OrderStatus,
@@ -14,7 +15,8 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const client = postgresDriver(process.env.DATABASE_URL);
+      _db = drizzle(client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -54,7 +56,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
+    } else if (user.email && user.email.toLowerCase() === ENV.adminEmail.toLowerCase()) {
       values.role = 'admin';
       updateSet.role = 'admin';
     }
@@ -64,7 +66,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (Object.keys(updateSet).length === 0) {
       updateSet.lastSignedIn = new Date();
     }
-    await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
+      set: updateSet,
+    });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -83,9 +88,8 @@ export async function getUserByOpenId(openId: string) {
 export async function createOrder(data: InsertOrder) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(orders).values(data);
-  const insertId = result[0].insertId;
-  return getOrderById(insertId);
+  const result = await db.insert(orders).values(data).returning({ id: orders.id });
+  return getOrderById(result[0].id);
 }
 
 export async function getOrderById(id: number) {
@@ -144,10 +148,8 @@ export async function getOrderStats() {
 export async function createMessage(data: InsertMessage) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(messages).values(data);
-  const insertId = result[0].insertId;
-  const rows = await db.select().from(messages).where(eq(messages.id, insertId)).limit(1);
-  return rows[0];
+  const result = await db.insert(messages).values(data).returning();
+  return result[0];
 }
 
 export async function getMessagesByOrderId(orderId: number) {
@@ -256,10 +258,8 @@ export async function upsertPhaseProgress(data: {
 export async function createDeliverable(data: InsertDeliverable) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(deliverables).values(data);
-  const insertId = result[0].insertId;
-  const rows = await db.select().from(deliverables).where(eq(deliverables.id, insertId)).limit(1);
-  return rows[0];
+  const result = await db.insert(deliverables).values(data).returning();
+  return result[0];
 }
 
 export async function getDeliverablesByOrder(orderId: number) {
@@ -285,10 +285,8 @@ export async function createClientAccessToken(data: InsertClientAccessToken) {
   await db.delete(clientAccessTokens).where(
     and(eq(clientAccessTokens.orderId, data.orderId), eq(clientAccessTokens.email, data.email))
   );
-  const result = await db.insert(clientAccessTokens).values(data);
-  const insertId = result[0].insertId;
-  const rows = await db.select().from(clientAccessTokens).where(eq(clientAccessTokens.id, insertId)).limit(1);
-  return rows[0];
+  const result = await db.insert(clientAccessTokens).values(data).returning();
+  return result[0];
 }
 
 export async function getClientAccessToken(token: string) {
@@ -309,10 +307,8 @@ export async function deleteClientAccessToken(id: number) {
 export async function createClientUpload(data: InsertClientUpload) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(clientUploads).values(data);
-  const insertId = result[0].insertId;
-  const rows = await db.select().from(clientUploads).where(eq(clientUploads.id, insertId)).limit(1);
-  return rows[0];
+  const result = await db.insert(clientUploads).values(data).returning();
+  return result[0];
 }
 
 export async function getClientUploadsByOrder(orderId: number) {

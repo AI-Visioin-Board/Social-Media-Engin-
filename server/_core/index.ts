@@ -3,7 +3,8 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
+import { registerAuthRoutes } from "./oauth";
+import path from "path";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -71,15 +72,16 @@ async function startServer() {
 
   // ── Ghost-run recovery: fail any runs left in-flight from a previous server crash ──
   try {
-    const mysql = await import("mysql2/promise");
-    const conn = await mysql.createConnection(process.env.DATABASE_URL!);
-    const [result] = await conn.execute(
-      `UPDATE content_runs SET status = 'failed' WHERE status IN ('generating','assembling','researching','scoring','discovering','posting')`
-    ) as any;
-    if (result?.affectedRows > 0) {
-      console.log(`[Startup] Auto-failed ${result.affectedRows} ghost run(s) left in-flight from previous session`);
+    const postgres = await import("postgres");
+    const sql = postgres.default(process.env.DATABASE_URL!);
+    const result = await sql`
+      UPDATE content_runs SET status = 'failed'
+      WHERE status IN ('generating','assembling','researching','scoring','discovering','posting')
+    `;
+    if (result.count > 0) {
+      console.log(`[Startup] Auto-failed ${result.count} ghost run(s) left in-flight from previous session`);
     }
-    await conn.end();
+    await sql.end();
   } catch (e) {
     console.warn("[Startup] Ghost-run recovery skipped:", e);
   }
@@ -91,8 +93,10 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  // OAuth callback under /api/oauth/callback
-  registerOAuthRoutes(app);
+  // Auth routes (login endpoint)
+  registerAuthRoutes(app);
+  // Serve uploaded files (local filesystem storage)
+  app.use("/uploads", express.static(path.resolve(process.env.UPLOADS_DIR || "./public/uploads")));
   // tRPC API
   app.use(
     "/api/trpc",

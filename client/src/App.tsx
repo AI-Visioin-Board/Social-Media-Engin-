@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
+import LoginPage from "@/pages/LoginPage";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import DashboardLayout from "./components/DashboardLayout";
@@ -10,14 +11,22 @@ import ContentStudio from "./pages/ContentStudio";
 // Content Studio is the main interface — all routes lead here
 function Router() {
   return (
-    <DashboardLayout>
-      <Switch>
-        <Route path="/" component={ContentStudio} />
-        <Route path="/content-studio" component={ContentStudio} />
-        <Route path="/404" component={NotFound} />
-        <Route component={NotFound} />
-      </Switch>
-    </DashboardLayout>
+    <Switch>
+      {/* Login page lives outside the DashboardLayout */}
+      <Route path="/login" component={LoginPage} />
+
+      {/* All other routes go through the authenticated dashboard */}
+      <Route>
+        <DashboardLayout>
+          <Switch>
+            <Route path="/" component={ContentStudio} />
+            <Route path="/content-studio" component={ContentStudio} />
+            <Route path="/404" component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </DashboardLayout>
+      </Route>
+    </Switch>
   );
 }
 

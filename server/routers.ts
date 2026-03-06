@@ -725,10 +725,10 @@ export const appRouter = router({
         // Upsert both keys
         await db.insert(appSettings)
           .values({ key: "kling_access_key", value: input.accessKey.trim() })
-          .onDuplicateKeyUpdate({ set: { value: input.accessKey.trim() } });
+          .onConflictDoUpdate({ target: appSettings.key, set: { value: input.accessKey.trim() } });
         await db.insert(appSettings)
           .values({ key: "kling_secret_key", value: input.secretKey.trim() })
-          .onDuplicateKeyUpdate({ set: { value: input.secretKey.trim() } });
+          .onConflictDoUpdate({ target: appSettings.key, set: { value: input.secretKey.trim() } });
         console.log("[Kling] Credentials saved to DB successfully");
         return { success: true, message: "Kling credentials saved. Video generation is now active." };
       }),
@@ -773,10 +773,10 @@ export const appRouter = router({
         if (!db) throw new Error("DB not available");
         await db.insert(appSettings)
           .values({ key: "google_cse_api_key", value: input.apiKey.trim() })
-          .onDuplicateKeyUpdate({ set: { value: input.apiKey.trim() } });
+          .onConflictDoUpdate({ target: appSettings.key, set: { value: input.apiKey.trim() } });
         await db.insert(appSettings)
           .values({ key: "google_cse_id", value: input.cseId.trim() })
-          .onDuplicateKeyUpdate({ set: { value: input.cseId.trim() } });
+          .onConflictDoUpdate({ target: appSettings.key, set: { value: input.cseId.trim() } });
         console.log("[Google CSE] Credentials saved to DB successfully");
         return { success: true, message: "Google CSE credentials saved. Image search is now active." };
       }),
@@ -970,7 +970,7 @@ export const appRouter = router({
         if (!db) throw new Error("DB not available");
         await db.insert(appSettings)
           .values({ key: "make_webhook_url", value: input.webhookUrl.trim() })
-          .onDuplicateKeyUpdate({ set: { value: input.webhookUrl.trim() } });
+          .onConflictDoUpdate({ target: appSettings.key, set: { value: input.webhookUrl.trim() } });
         console.log("[Make.com] Webhook URL saved to DB");
         return { success: true, message: "Webhook URL saved. Auto-posting is now active." };
       }),
