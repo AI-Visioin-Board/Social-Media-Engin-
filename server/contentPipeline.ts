@@ -27,6 +27,19 @@ import { generateImage } from "./_core/imageGeneration";
 import { ENV } from "./_core/env";
 import { SignJWT } from "jose";
 
+// ─── Progress Helper ─────────────────────────────────────────────────────────
+// Updates the statusDetail column so the UI shows granular progress within each stage.
+// Non-blocking — fires and forgets to avoid slowing down the pipeline.
+
+async function updateProgress(runId: number, detail: string): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.update(contentRuns).set({ statusDetail: detail }).where(eq(contentRuns.id, runId));
+    console.log(`[Progress] Run #${runId}: ${detail}`);
+  } catch { /* never block pipeline on progress updates */ }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface RawTopic {
@@ -446,7 +459,8 @@ function deduplicateTopics(topics: RawTopic[]): RawTopic[] {
  */
 export async function researchTopics(
   topics: ScoredTopic[],
-  _perplexityApiKey?: string // kept for API compatibility, no longer used
+  _perplexityApiKey?: string, // kept for API compatibility, no longer used
+  runId?: number, // for progress tracking
 ): Promise<ResearchedTopic[]> {
   const openAiKey = process.env.OPENAI_API_KEY;
 
@@ -456,16 +470,28 @@ export async function researchTopics(
   console.log(`[ContentPipeline] Researching ${topics.length} topics in PARALLEL...`);
   const startMs = Date.now();
 
+  // Track per-topic completion for progress updates
+  let completedCount = 0;
+  const total = topics.length;
+  if (runId) await updateProgress(runId, `Researching 0/${total} topics...`);
+
   const settled = await Promise.allSettled(
-    topics.map(async (topic) => {
+    topics.map(async (topic, idx) => {
       try {
-        return openAiKey
+        const result = openAiKey
           ? await researchWithGPT4oWebSearch(topic, openAiKey)
           : await researchWithGPT(topic);
+        completedCount++;
+        if (runId) await updateProgress(runId, `Researched ${completedCount}/${total}: ${topic.title.slice(0, 50)}...`);
+        return result;
       } catch (err) {
         console.error(`[ContentPipeline] Research failed for "${topic.title}":`, err);
+        if (runId) await updateProgress(runId, `Research failed for "${topic.title.slice(0, 40)}" — retrying with fallback...`);
         // Fallback to Gemini (no web search)
-        return await researchWithGPT(topic);
+        const fallback = await researchWithGPT(topic);
+        completedCount++;
+        if (runId) await updateProgress(runId, `Researched ${completedCount}/${total} (fallback): ${topic.title.slice(0, 50)}...`);
+        return fallback;
       }
     })
   );
@@ -478,6 +504,7 @@ export async function researchTopics(
     } else {
       // Both GPT-4o and Gemini failed — use minimal fallback
       console.error(`[ContentPipeline] All research methods failed for "${topics[i].title}": ${result.reason}`);
+      if (runId) await updateProgress(runId, `⚠️ All research failed for "${topics[i].title.slice(0, 40)}" — using minimal fallback`);
       results.push({
         title: topics[i].title,
         headline: topics[i].title.slice(0, 80),
@@ -490,6 +517,7 @@ export async function researchTopics(
   }
 
   const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+  if (runId) await updateProgress(runId, `Research complete: ${results.length} topics in ${elapsed}s`);
   console.log(`[ContentPipeline] Research complete: ${results.length} topics in ${elapsed}s (parallel)`);
   return results;
 }
@@ -1146,7 +1174,7 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
 
   try {
     // Stage 1: Discover topics
-    await db.update(contentRuns).set({ status: "discovering" }).where(eq(contentRuns.id, runId));
+    await db.update(contentRuns).set({ status: "discovering", statusDetail: "Scanning NewsAPI + Reddit for AI topics..." }).where(eq(contentRuns.id, runId));
     const rawTopics = await discoverTopics(options.runSlot);
 
     await db.update(contentRuns).set({
@@ -1165,7 +1193,7 @@ export async function runContentPipeline(options: PipelineOptions): Promise<numb
     const exclusionList = recentPublished.map((t) => t.title);
 
     // Stage 3: GPT Scoring
-    await db.update(contentRuns).set({ status: "scoring" }).where(eq(contentRuns.id, runId));
+    await db.update(contentRuns).set({ status: "scoring", statusDetail: "GPT scoring topics on virality criteria..." }).where(eq(contentRuns.id, runId));
     const scored = await scoreAndSelectTopics(filtered, exclusionList);
 
     await db.update(contentRuns).set({
@@ -1316,9 +1344,9 @@ async function _runPipelineStages(
 
     // Stage 4: Deep Research
     checkAbort();
-    await db.update(contentRuns).set({ status: "researching" }).where(eq(contentRuns.id, runId));
+    await db.update(contentRuns).set({ status: "researching", statusDetail: "Starting deep research..." }).where(eq(contentRuns.id, runId));
 
-    const researched = await researchTopics(resolvedTopics, options.perplexityApiKey);
+    const researched = await researchTopics(resolvedTopics, options.perplexityApiKey, runId);
 
     // Ensure we have at least 3 topics after verification
     if (researched.length < 3) {
@@ -1327,6 +1355,7 @@ async function _runPipelineStages(
 
     // ── Stage 4.5: Creative Director — decides visual strategy per slide ──
     checkAbort();
+    await updateProgress(runId, "Creative Director analyzing visual strategies...");
     // The Creative Director analyzes each story and decides the best visual approach:
     // cinematic_scene, scene_with_badge, person_composite, or kling_video.
     // This replaces the old hardcoded videoSlideIndices = new Set([1, 3]).
@@ -1424,7 +1453,7 @@ async function _runPipelineStages(
     // ═══════════════════════════════════════════════════════════════════════════
     // DECISION LOG: Track every decision per slide for debugging
     // ═══════════════════════════════════════════════════════════════════════════
-    await db.update(contentRuns).set({ status: "generating" }).where(eq(contentRuns.id, runId));
+    await db.update(contentRuns).set({ status: "generating", statusDetail: "Starting media generation..." }).where(eq(contentRuns.id, runId));
     const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
     const stageStart = Date.now();
     const decisionLog: Array<{
@@ -1483,12 +1512,16 @@ async function _runPipelineStages(
     } = await import("./assetLibrary");
 
     // ── Strategy-based media generation (driven by Creative Director brief) ──
+    let mediaGenCompleted = 0;
+    const mediaGenTotal = slides.length;
+
     const generateSlideMedia = async (slide: typeof slides[0]): Promise<void> => {
       const slideStart = Date.now();
       if (!slide.videoPrompt) return;
 
       const brief = briefBySlide.get(slide.slideIndex);
       const strategy = brief?.strategy ?? (slide.isVideoSlide === 1 ? "kling_video" : "cinematic_scene");
+      await updateProgress(runId, `Generating slide ${slide.slideIndex + 1}/${mediaGenTotal}: ${strategy} — "${(slide.headline ?? "").slice(0, 40)}..."`);
 
       const log: typeof decisionLog[0] = {
         slideIndex: slide.slideIndex,
@@ -1731,6 +1764,8 @@ async function _runPipelineStages(
         })
         .where(eq(generatedSlides.id, slide.id));
 
+      mediaGenCompleted++;
+      await updateProgress(runId, `Media generated ${mediaGenCompleted}/${mediaGenTotal}: slide ${slide.slideIndex + 1} (${log.strategy}) in ${(log.timeMs / 1000).toFixed(1)}s`);
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Done in ${(log.timeMs / 1000).toFixed(1)}s — strategy: ${log.strategy}`);
     };
 
@@ -1752,7 +1787,10 @@ async function _runPipelineStages(
           }),
         ]);
       } catch (err: any) {
-        console.error(`[ContentPipeline] ⏱️ ${slideLabel}: ${err?.message ?? "timeout"} — marking as failed`);
+        const errMsg = err?.message ?? "timeout";
+        console.error(`[ContentPipeline] ⏱️ ${slideLabel}: ${errMsg} — marking as failed`);
+        mediaGenCompleted++;
+        await updateProgress(runId, `⚠️ ${slideLabel} failed: ${errMsg.slice(0, 60)} — continuing with remaining slides`);
         await db.update(generatedSlides)
           .set({ status: "ready", videoUrl: null })
           .where(eq(generatedSlides.id, slide.id));
@@ -1813,7 +1851,7 @@ async function _runPipelineStages(
 
     // Stage 6: Assembly — Sharp compositor (@evolving.ai style, fast, no external API)
     checkAbort();
-    await db.update(contentRuns).set({ status: "assembling" }).where(eq(contentRuns.id, runId));
+    await db.update(contentRuns).set({ status: "assembling", statusDetail: "Starting slide assembly..." }).where(eq(contentRuns.id, runId));
     const slidesForAssembly = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
 
     console.log(`[ContentPipeline] Stage 6: Sharp assembly for run #${runId} (${slidesForAssembly.length} slides)...`);
@@ -1881,6 +1919,7 @@ async function _runPipelineStages(
             .where(eq(generatedSlides.id, matchingSlide.id));
         }
       }
+      await updateProgress(runId, `Assembly complete: ${successCount}/${slidesForAssembly.length} slides composed`);
       console.log(`[ContentPipeline] Sharp assembly: ${successCount}/${slidesForAssembly.length} slides assembled`);
     } catch (sharpErr: any) {
       console.warn(`[ContentPipeline] Sharp assembly failed: ${sharpErr?.message}`);

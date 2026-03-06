@@ -45,6 +45,7 @@ interface ContentRun {
   id: number;
   runSlot: "monday" | "friday";
   status: RunStatus;
+  statusDetail: string | null;
   topicsRaw: string | null;
   topicsShortlisted: string | null;
   topicsSelected: string | null;
@@ -472,6 +473,20 @@ function RunDetailDialog({
                 );
               })}
             </div>
+
+            {/* Live status detail — shows what the pipeline is doing right now */}
+            {run.statusDetail && !["completed", "failed"].includes(run.status) && (
+              <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-md">
+                <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin flex-shrink-0" />
+                <span className="text-xs text-indigo-700 font-medium truncate">{run.statusDetail}</span>
+              </div>
+            )}
+            {run.statusDetail && run.status === "failed" && (
+              <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-red-50 border border-red-100 rounded-md">
+                <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                <span className="text-xs text-red-700 font-medium truncate">{run.statusDetail}</span>
+              </div>
+            )}
           </div>
 
           <Separator />
@@ -1543,6 +1558,11 @@ export default function ContentStudio() {
                         </span>
                       )}
                     </p>
+                    {run.statusDetail && !["completed", "failed"].includes(run.status) && (
+                      <p className="text-xs text-indigo-500 mt-0.5 truncate max-w-xs animate-pulse">
+                        {run.statusDetail}
+                      </p>
+                    )}
                   </div>
                   {!["completed", "failed"].includes(run.status) && (
                     <Progress value={STATUS_CONFIG[run.status as RunStatus]?.progress ?? 0} className="w-24 h-1.5" />

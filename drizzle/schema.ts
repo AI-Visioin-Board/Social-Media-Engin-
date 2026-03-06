@@ -231,6 +231,8 @@ export const contentRuns = pgTable("content_runs", {
   topicsShortlisted: text("topicsShortlisted"),
   /** Final 5 selected topics with scores (JSON) */
   topicsSelected: text("topicsSelected"),
+  /** Human-readable progress detail (e.g. "Researching topic 2/4: OpenAI GPT-5...") */
+  statusDetail: text("statusDetail"),
   /** Error message if status = failed */
   errorMessage: text("errorMessage"),
   /** Whether admin has approved the topic selection */

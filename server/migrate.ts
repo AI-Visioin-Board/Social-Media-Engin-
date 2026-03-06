@@ -217,6 +217,14 @@ export async function migrateDatabase(): Promise<void> {
       );
     `);
 
+    // ── Schema evolution (safe additions) ──────
+    // ADD COLUMN IF NOT EXISTS requires a DO block in Postgres
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE content_runs ADD COLUMN "statusDetail" TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);
