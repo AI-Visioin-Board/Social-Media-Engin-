@@ -255,153 +255,176 @@ function buildHighlightedLine(
   return `<tspan x="${xCenter}" y="${yPos}" xml:space="preserve">${parts.join("")}</tspan>`;
 }
 
-/** Build the full SVG overlay: gradient + headline (with cyan highlights) + optional summary + optional insight bubble + watermark + swipe hint */
-function buildOverlaySvg(
+/** Build the full SVG overlay for content slides: split-zone layout matching @airesearches style.
+ *  Top 60% = image zone (gradient transition into solid dark)
+ *  Thin divider line + "SuggestedByGPT" brand mark
+ *  Bottom 40% = dark headline zone with ALL-CAPS cyan-highlighted text
+ *  "SWIPE FOR MORE" at the very bottom
+ */
+function buildContentOverlaySvg(
   headline: string,
-  isCover: boolean,
   font: { path: string; name: string },
   insightLine?: string,
   summary?: string
 ): string {
-  // Guard: empty headline = invisible slide — use fallback
-  const safeHeadline = (headline && headline.trim().length > 0)
-    ? headline
-    : "BREAKING AI NEWS";
-  if (headline !== safeHeadline) {
-    console.warn(`[SharpCompositor] buildOverlaySvg received empty headline — using fallback`);
-  }
+  const safeHeadline = (headline && headline.trim().length > 0) ? headline : "BREAKING AI NEWS";
   const upper = safeHeadline.toUpperCase();
-  // Content slides (non-cover): wrap at 28 chars — wider paragraph-style layout, not narrow columns
-  // Cover slides: keep 16 chars for the larger, more dramatic look
-  const wrapWidth = isCover ? 16 : 28;
-  const lines = wrapText(upper, wrapWidth);
 
-  // Determine if we have summary text to show (content slides only, not cover)
-  const hasSummary = !isCover && summary && summary.trim().length > 10;
+  // ── Split-zone constants ──
+  const IMAGE_ZONE_H = 810;  // 60% of 1350 — dramatic hero image fills this
+  const TEXT_ZONE_TOP = IMAGE_ZONE_H; // y=810 — where dark zone begins
+  const DIVIDER_Y = TEXT_ZONE_TOP + 20;
+  const BRAND_Y = DIVIDER_Y + 28;
+  const HEADLINE_START_Y = BRAND_Y + 40;
 
-  // When summary is present, shrink headline slightly to make room
+  // Headline text sizing
+  const lines = wrapText(upper, 20); // tighter wrap for dramatic @airesearches style
+  const hasSummary = summary && summary.trim().length > 10;
   let fontSize: number;
   if (hasSummary) {
-    fontSize = lines.length <= 2 ? 90 : lines.length <= 3 ? 76 : 64;
+    fontSize = lines.length <= 2 ? 82 : lines.length <= 3 ? 70 : 60;
   } else {
-    fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
+    fontSize = lines.length <= 2 ? 90 : lines.length <= 3 ? 76 : 66;
   }
-  const lineHeight = fontSize * 1.15;
-  const totalTextHeight = lines.length * lineHeight;
+  const lineHeight = fontSize * 1.12;
 
-  // --- Summary text layout ---
-  const summaryFontSize = 30;
-  const summaryLineH = summaryFontSize + 10;
-  const summaryPadTop = 20; // gap between headline and summary
-  let summaryWrapped: string[] = [];
-  let summaryBlockHeight = 0;
-  if (hasSummary) {
-    summaryWrapped = wrapText(summary!.trim(), 46); // ~46 chars per line at 30px in Arial
-    // Cap at 4 lines to avoid overflow
-    if (summaryWrapped.length > 4) summaryWrapped = summaryWrapped.slice(0, 4);
-    summaryBlockHeight = summaryPadTop + summaryWrapped.length * summaryLineH;
-  }
-
-  // Text block sits 180px from bottom (above watermark + swipe hint, with Instagram crop safety margin)
-  const textBlockBottom = SLIDE_H - 180;
-  const textStartY = textBlockBottom - totalTextHeight - summaryBlockHeight;
-
-  // Highlighted words
   const highlightedWords = getHighlightedWords(upper);
-
-  // Font family CSS string
-  // Use Anton directly (installed via fontconfig). Fallback chain for safety.
   const fontFamily = `Anton, Impact, 'Arial Black', sans-serif`;
 
-  // Build tspan lines with highlighting
+  // Build headline tspans
   const textLines = lines.map((line, i) => {
-    const y = textStartY + i * lineHeight + fontSize;
+    const y = HEADLINE_START_Y + i * lineHeight + fontSize;
     return buildHighlightedLine(line, highlightedWords, fontSize, fontFamily, y, SLIDE_W / 2);
   }).join("\n    ");
 
-  // Shadow text (offset by 3px, black semi-transparent)
   const shadowLines = lines.map((line, i) => {
-    const y = textStartY + i * lineHeight + fontSize;
+    const y = HEADLINE_START_Y + i * lineHeight + fontSize;
     return `<tspan x="${SLIDE_W / 2}" y="${y}">${escapeXml(line)}</tspan>`;
   }).join("\n    ");
 
-  // Summary text SVG (rendered below headline in lighter weight)
+  // ── Summary text (below headline) ──
   let summarySvg = "";
-  if (hasSummary && summaryWrapped.length > 0) {
-    const lastHeadlineY = textStartY + (lines.length - 1) * lineHeight + fontSize;
-    const summaryStartY = lastHeadlineY + summaryPadTop;
+  let summaryBlockHeight = 0;
+  if (hasSummary) {
+    const summaryFontSize = 28;
+    const summaryLineH = summaryFontSize + 8;
+    let summaryWrapped = wrapText(summary!.trim(), 44);
+    if (summaryWrapped.length > 3) summaryWrapped = summaryWrapped.slice(0, 3);
+    summaryBlockHeight = 16 + summaryWrapped.length * summaryLineH;
+
+    const lastHeadlineY = HEADLINE_START_Y + (lines.length - 1) * lineHeight + fontSize;
+    const summaryStartY = lastHeadlineY + 16;
     const summaryTextLines = summaryWrapped.map((line, i) =>
       `<tspan x="${SLIDE_W / 2}" y="${summaryStartY + (i + 1) * summaryLineH}">${escapeXml(line)}</tspan>`
     ).join("\n    ");
 
     summarySvg = `
-  <!-- Summary / context text below headline -->
-  <text
-    font-family="'Arial', 'Helvetica', sans-serif"
-    font-size="${summaryFontSize}"
-    fill="white"
-    fill-opacity="0.85"
-    text-anchor="middle"
-    font-weight="400"
-  >
+  <text font-family="'Arial', 'Helvetica', sans-serif" font-size="${summaryFontSize}"
+    fill="white" fill-opacity="0.80" text-anchor="middle" font-weight="400">
     ${summaryTextLines}
   </text>`;
   }
 
-  // Swipe hint
-  // Swipe hint — moved up for Instagram crop safety (bottom ~60px can get cut)
-  const swipeHint = `<text x="${SLIDE_W / 2}" y="${SLIDE_H - 62}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE →</text>`;
-
-  // Embed Anton font as base64 @font-face — fontconfig is unreliable in containers
-  const fontFace = buildFontFaceCSS();
-
-  // Chat bubble insight line (shown below summary if present, or below headline if no summary)
-  // Skip if it would overflow into watermark area (SLIDE_H - 100)
+  // ── Insight bubble (below summary or headline) ──
   let insightBubbleSvg = "";
-  if (insightLine && insightLine.trim().length > 3 && !isCover) {
-    // Wrap insight text at ~42 chars per line
-    const insightWords = insightLine.trim().split(" ");
-    const insightLines: string[] = [];
-    let cur = "";
-    for (const w of insightWords) {
-      if ((cur + " " + w).trim().length <= 42) {
-        cur = (cur + " " + w).trim();
-      } else {
-        if (cur) insightLines.push(cur);
-        cur = w;
-      }
-    }
-    if (cur) insightLines.push(cur);
-
-    const iFontSize = 28;
+  if (insightLine && insightLine.trim().length > 3) {
+    const insightWrapped = wrapText(insightLine.trim(), 42);
+    const iFontSize = 26;
     const iLineH = iFontSize + 8;
-    const iPad = 18;
-    const iBubbleW = Math.min(SLIDE_W - 80, 700);
-    const iBubbleH = insightLines.length * iLineH + iPad * 2;
+    const iPad = 14;
+    const iBubbleW = Math.min(SLIDE_W - 80, 680);
+    const iBubbleH = insightWrapped.length * iLineH + iPad * 2;
     const iBubbleX = (SLIDE_W - iBubbleW) / 2;
-    // Position bubble BELOW the last content block (summary if present, otherwise headline)
-    const lastHeadlineY = textStartY + (lines.length - 1) * lineHeight + fontSize;
-    const anchorY = hasSummary
-      ? lastHeadlineY + summaryPadTop + summaryWrapped.length * summaryLineH
-      : lastHeadlineY;
-    const iBubbleY = anchorY + 24; // 24px gap below the anchor
-    const iTailSize = 12;
 
-    const iTextLines = insightLines.map((line, i) =>
-      `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 6}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
+    const lastContentY = HEADLINE_START_Y + (lines.length - 1) * lineHeight + fontSize + summaryBlockHeight;
+    const iBubbleY = lastContentY + 20;
+    const iTailSize = 10;
+
+    const iTextLines = insightWrapped.map((line, i) =>
+      `<text x="${SLIDE_W / 2}" y="${iBubbleY + iPad + (i + 1) * iLineH - 4}" font-family="'Arial', sans-serif" font-size="${iFontSize}" fill="#0a0a0a" text-anchor="middle" font-weight="600">${escapeXml(line)}</text>`
     ).join("\n    ");
 
-    // Only render if it fits above the watermark area (SLIDE_H - 100)
-    if (iBubbleY + iBubbleH < SLIDE_H - 100) {
+    if (iBubbleY + iBubbleH < SLIDE_H - 80) {
       insightBubbleSvg = `
-  <!-- Insight chat bubble -->
-  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY} ${SLIDE_W / 2 + iTailSize},${iBubbleY} ${SLIDE_W / 2},${iBubbleY - iTailSize * 1.5}" fill="white" fill-opacity="0.92"/>
-  <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="14" ry="14" fill="white" fill-opacity="0.92"/>
+  <polygon points="${SLIDE_W / 2 - iTailSize},${iBubbleY} ${SLIDE_W / 2 + iTailSize},${iBubbleY} ${SLIDE_W / 2},${iBubbleY - iTailSize * 1.5}" fill="white" fill-opacity="0.90"/>
+  <rect x="${iBubbleX}" y="${iBubbleY}" width="${iBubbleW}" height="${iBubbleH}" rx="12" ry="12" fill="white" fill-opacity="0.90"/>
   ${iTextLines}`;
     }
   }
 
-  // Gradient: heavier bottom gradient for strong text contrast — @evolving.ai / @airesearches style
+  const fontFace = buildFontFaceCSS();
+
+  // Build the SVG with split-zone layout
+  return `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    ${fontFace}
+    <linearGradient id="splitFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="black" stop-opacity="0"/>
+      <stop offset="50%" stop-color="black" stop-opacity="0.70"/>
+      <stop offset="100%" stop-color="black" stop-opacity="1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Gradient transition from image zone into dark zone (starts at 55%, fully opaque by 60%) -->
+  <rect x="0" y="${IMAGE_ZONE_H - 180}" width="${SLIDE_W}" height="180" fill="url(#splitFade)"/>
+  <!-- Solid dark zone: bottom 40% -->
+  <rect x="0" y="${TEXT_ZONE_TOP}" width="${SLIDE_W}" height="${SLIDE_H - TEXT_ZONE_TOP}" fill="black"/>
+
+  <!-- Thin divider line — @airesearches signature element -->
+  <line x1="60" y1="${DIVIDER_Y}" x2="${SLIDE_W - 60}" y2="${DIVIDER_Y}" stroke="white" stroke-opacity="0.25" stroke-width="1"/>
+
+  <!-- Brand mark centered below divider -->
+  <text x="${SLIDE_W / 2}" y="${BRAND_Y}" font-family="Arial, sans-serif" font-size="20" fill="white" fill-opacity="0.50" text-anchor="middle" letter-spacing="3" font-weight="bold">SUGGESTEDBYGPT</text>
+
+  <!-- Drop shadow for headline -->
+  <text font-family="${fontFamily}" font-size="${fontSize}" font-weight="bold"
+    fill="black" fill-opacity="0.5" text-anchor="middle" letter-spacing="1" transform="translate(3,3)">
+    ${shadowLines}
+  </text>
+
+  <!-- Headline with cyan highlights -->
+  <text font-family="${fontFamily}" font-size="${fontSize}" font-weight="bold"
+    text-anchor="middle" letter-spacing="1">
+    ${textLines}
+  </text>
+
+  ${summarySvg}
+  ${insightBubbleSvg}
+
+  <!-- Swipe hint — safely within Instagram's visible crop area -->
+  <text x="${SLIDE_W / 2}" y="${SLIDE_H - 55}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.70" text-anchor="middle" letter-spacing="4" font-weight="bold">SWIPE FOR MORE ›</text>
+</svg>`;
+}
+
+/** Build the full SVG overlay for cover slides: simple gradient + large headline (legacy fallback when no cover template is set) */
+function buildCoverOverlaySvg(
+  headline: string,
+  font: { path: string; name: string },
+): string {
+  const safeHeadline = (headline && headline.trim().length > 0) ? headline : "BREAKING AI NEWS";
+  const upper = safeHeadline.toUpperCase();
+  const lines = wrapText(upper, 16);
+  const fontSize = lines.length <= 2 ? 108 : lines.length <= 3 ? 90 : 76;
+  const lineHeight = fontSize * 1.15;
+  const totalTextHeight = lines.length * lineHeight;
+  const textBlockBottom = SLIDE_H - 180;
+  const textStartY = textBlockBottom - totalTextHeight;
+
+  const highlightedWords = getHighlightedWords(upper);
+  const fontFamily = `Anton, Impact, 'Arial Black', sans-serif`;
+
+  const textLines = lines.map((line, i) => {
+    const y = textStartY + i * lineHeight + fontSize;
+    return buildHighlightedLine(line, highlightedWords, fontSize, fontFamily, y, SLIDE_W / 2);
+  }).join("\n    ");
+
+  const shadowLines = lines.map((line, i) => {
+    const y = textStartY + i * lineHeight + fontSize;
+    return `<tspan x="${SLIDE_W / 2}" y="${y}">${escapeXml(line)}</tspan>`;
+  }).join("\n    ");
+
+  const fontFace = buildFontFaceCSS();
+
   return `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     ${fontFace}
@@ -414,43 +437,17 @@ function buildOverlaySvg(
       <stop offset="100%" stop-color="black" stop-opacity="0.98"/>
     </linearGradient>
   </defs>
-
-  <!-- Heavy dark gradient covering bottom 75% — ensures headline text is always readable -->
   <rect x="0" y="${SLIDE_H * 0.25}" width="${SLIDE_W}" height="${SLIDE_H * 0.75}" fill="url(#grad)"/>
-
-  <!-- Drop shadow for headline -->
-  <text
-    font-family="${fontFamily}"
-    font-size="${fontSize}"
-    font-weight="bold"
-    fill="black"
-    fill-opacity="0.5"
-    text-anchor="middle"
-    letter-spacing="1"
-    transform="translate(4,4)"
-  >
+  <text font-family="${fontFamily}" font-size="${fontSize}" font-weight="bold"
+    fill="black" fill-opacity="0.5" text-anchor="middle" letter-spacing="1" transform="translate(4,4)">
     ${shadowLines}
   </text>
-
-  <!-- Headline with cyan highlights -->
-  <text
-    font-family="${fontFamily}"
-    font-size="${fontSize}"
-    font-weight="bold"
-    text-anchor="middle"
-    letter-spacing="1"
-  >
+  <text font-family="${fontFamily}" font-size="${fontSize}" font-weight="bold"
+    text-anchor="middle" letter-spacing="1">
     ${textLines}
   </text>
-
-  ${summarySvg}
-
-  ${insightBubbleSvg}
-
-  <!-- SuggestedByGPT watermark — positioned safely within Instagram's visible crop area -->
   <text x="52" y="${SLIDE_H - 88}" font-family="'Arial', sans-serif" font-size="26" fill="white" fill-opacity="0.6" font-weight="bold" letter-spacing="1">SuggestedByGPT</text>
-
-  ${swipeHint}
+  <text x="${SLIDE_W / 2}" y="${SLIDE_H - 62}" font-family="'Arial', sans-serif" font-size="30" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="5">SWIPE FOR MORE ›</text>
 </svg>`;
 }
 
@@ -540,7 +537,9 @@ export async function assembleSlideWithSharp(
 
   try {
     const font = { path: "", name: "Anton" };
-    const overlaySvg = buildOverlaySvg(headline, isCover, font, slide.insightLine, slide.summary);
+    const overlaySvg = isCover
+      ? buildCoverOverlaySvg(headline, font)
+      : buildContentOverlaySvg(headline, font, slide.insightLine, slide.summary);
 
     let pipeline: sharp.Sharp;
 
@@ -564,30 +563,39 @@ export async function assembleSlideWithSharp(
     }
 
     // ── Content slide logo compositing (non-cover slides) ────────────────
-    // Places 1-2 small circular logo badges in the top-right corner
+    // Organic logo scatter in the image zone (top 60%) — @airesearches style
+    // Logos are placed at varied positions with slight size variation for a natural look
     const logoComposites: sharp.OverlayOptions[] = [];
     if (!isCover && slide.logoBuffers && slide.logoBuffers.length > 0) {
       const validLogos = slide.logoBuffers.filter((b): b is Buffer => b !== null);
-      for (let i = 0; i < Math.min(validLogos.length, 2); i++) {
+      const IMAGE_ZONE_H = 810; // top 60% — logos must stay within this zone
+      // Predefined organic scatter positions (varied, non-symmetric, professional)
+      // Each position is designed to avoid the center where the hero image subject is
+      const scatterPositions = [
+        { left: SLIDE_W - 110, top: 40, size: 100 },    // top-right — primary position
+        { left: 30, top: 60, size: 90 },                 // top-left
+        { left: SLIDE_W - 100, top: 280, size: 85 },     // mid-right
+        { left: 40, top: 340, size: 80 },                 // mid-left
+      ];
+      for (let i = 0; i < Math.min(validLogos.length, 3); i++) {
         try {
-          const BADGE_SIZE = 80;
-          const LOGO_PAD = 12;
-          // Resize logo to fit inside badge circle
+          const pos = scatterPositions[i];
+          const BADGE_SIZE = pos.size;
+          const innerSize = Math.round(BADGE_SIZE * 0.65);
           const resizedLogo = await sharp(validLogos[i])
-            .resize(BADGE_SIZE - LOGO_PAD * 2, BADGE_SIZE - LOGO_PAD * 2, { fit: "inside" })
+            .resize(innerSize, innerSize, { fit: "inside" })
             .png()
             .toBuffer();
           const logoMeta = await sharp(resizedLogo).metadata();
-          const lW = logoMeta.width ?? (BADGE_SIZE - LOGO_PAD * 2);
-          const lH = logoMeta.height ?? (BADGE_SIZE - LOGO_PAD * 2);
+          const lW = logoMeta.width ?? innerSize;
+          const lH = logoMeta.height ?? innerSize;
 
-          // Create circular badge with dark background
+          // Dark circular badge with subtle white border
           const badgeSvg = `<svg width="${BADGE_SIZE}" height="${BADGE_SIZE}" xmlns="http://www.w3.org/2000/svg">
             <circle cx="${BADGE_SIZE / 2}" cy="${BADGE_SIZE / 2}" r="${BADGE_SIZE / 2 - 2}"
-              fill="rgba(0,0,0,0.65)" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+              fill="rgba(10,10,30,0.75)" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
           </svg>`;
           const badgeBg = await sharp(Buffer.from(badgeSvg)).png().toBuffer();
-          // Composite logo centered on badge
           const badge = await sharp(badgeBg)
             .composite([{
               input: resizedLogo,
@@ -599,10 +607,10 @@ export async function assembleSlideWithSharp(
 
           logoComposites.push({
             input: badge,
-            left: SLIDE_W - BADGE_SIZE - 24,
-            top: 28 + i * (BADGE_SIZE + 12),
+            left: pos.left,
+            top: pos.top,
           });
-          console.log(`[SharpCompositor] Logo badge ${i + 1} composited on content slide ${slideIndex}`);
+          console.log(`[SharpCompositor] Logo badge ${i + 1} scattered on content slide ${slideIndex} at (${pos.left}, ${pos.top})`);
         } catch (logoErr: any) {
           console.warn(`[SharpCompositor] Logo badge compositing failed: ${logoErr?.message}`);
         }

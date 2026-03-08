@@ -61,8 +61,8 @@ function getCoverFontFaceCSS(): string {
   return `<style>@font-face { font-family: 'Anton'; src: url('data:font/truetype;base64,${_antonB64}') format('truetype'); }</style>`;
 }
 
-/** y-coordinate where the text zone begins */
-const TEXT_ZONE_TOP = 850;
+/** y-coordinate where the text zone begins (60% of 1350 = 810px — consistent @airesearches split) */
+const TEXT_ZONE_TOP = 810;
 
 /** Cyan accent color for headline highlights */
 const CYAN = "#00E5FF";
@@ -186,7 +186,7 @@ function buildTextZoneSvg(
   <rect x="0" y="${textZoneTop - 120}" width="${W}" height="150" fill="url(#textFade_${textZoneTop})"/>
   <rect x="0" y="${textZoneTop + 30}" width="${W}" height="${H - textZoneTop - 30}" fill="black"/>
   ${dividerSvg}
-  <text x="${W / 2}" y="${brandY}" font-family="Arial, sans-serif" font-size="22" fill="white" fill-opacity="0.55" text-anchor="middle" letter-spacing="2" font-weight="bold">SuggestedByGPT</text>
+  <text x="${W / 2}" y="${brandY}" font-family="Arial, sans-serif" font-size="20" fill="white" fill-opacity="0.50" text-anchor="middle" letter-spacing="3" font-weight="bold">SUGGESTEDBYGPT</text>
   ${headlineLines}
   <text x="${W / 2}" y="${swipeY}" font-family="Arial, sans-serif" font-size="26" fill="white" fill-opacity="0.75" text-anchor="middle" letter-spacing="2" font-weight="bold">SWIPE FOR MORE ›</text>
   `;
