@@ -21,7 +21,12 @@ import sharp from "sharp";
 import path from "path";
 import os from "os";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { storagePut, storageGet, resolveLocalPath, isLocalUrl } from "./storage";
+
+// ESM-compatible __dirname (Node.js ESM doesn't provide __dirname natively)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ─── Curated Logo Library ─────────────────────────────────────────────────────
 // Maps normalized company names → transparent PNG URLs from stable public sources.
@@ -634,12 +639,20 @@ export async function compositePersonOnBackground(
     personFinal = personResized;
   } else {
     // Try AI background removal first (produces clean cutout)
+    // Timeout: 45s max — first run may download ONNX model (~300MB)
     let bgRemoved = false;
     try {
+      const BG_REMOVAL_TIMEOUT_MS = 45_000;
       const { removeBackground } = await import("@imgly/background-removal-node");
-      console.log(`[AssetLibrary] 🔄 Running AI background removal on person photo...`);
+      console.log(`[AssetLibrary] 🔄 Running AI background removal on person photo (${BG_REMOVAL_TIMEOUT_MS / 1000}s timeout)...`);
       const blob = new Blob([personResized as unknown as ArrayBuffer], { type: "image/png" });
-      const resultBlob = await removeBackground(blob, { model: "medium" });
+      const bgRemovalPromise = removeBackground(blob, { model: "medium" });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const t = setTimeout(() => reject(new Error("Background removal timed out")), BG_REMOVAL_TIMEOUT_MS);
+        // Allow process to exit even if timer is pending
+        if (t && typeof t === "object" && "unref" in t) (t as NodeJS.Timeout).unref();
+      });
+      const resultBlob = await Promise.race([bgRemovalPromise, timeoutPromise]);
       const arrayBuf = await resultBlob.arrayBuffer();
       const removedBuf = Buffer.from(arrayBuf);
       // Verify it actually has alpha now

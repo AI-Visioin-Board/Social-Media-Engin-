@@ -808,7 +808,7 @@ MANDATORY PROMPT STRUCTURE — follow this exact formula for every prompt:
 
 Technical requirements:
 - Ultra-photorealistic, editorial, high-fashion magazine quality
-- Vertical 4:5 portrait frame (1024×1792) — compose for Instagram portrait
+- Vertical 9:16 portrait frame (1024×1792, cropped to 4:5 for Instagram) — place ALL important subjects in the CENTER 60% of the frame so nothing is lost when top/bottom are cropped
 - ABSOLUTELY NO TEXT in the image — no letters, no words, no numbers, no readable characters of any kind. Any text must be completely blurred, out-of-focus, or abstracted into illegible marks.
 - NEVER describe a scene that shows a document, resume, paper, or screen with readable text content — show the EMOTION or CONSEQUENCE instead
 - Use specific lens/aperture directives (85mm f/1.8 for portraits, 35mm f/2.8 for environments, 24mm for epic wide shots)
@@ -866,7 +866,7 @@ Return ONLY the prompt, no explanation, no preamble, no step labels.`,
 
   const raw = response?.choices?.[0]?.message?.content;
   const text = typeof raw === "string" ? raw.trim() : "";
-  return text || `Dramatic cinematic scene directly depicting: ${headline}, ultra-photorealistic, editorial quality, 85mm f/1.8, warm Rembrandt lighting, teal-and-orange cinematic grade, vertical 4:5 portrait frame, 8K detail, no text overlays`;
+  return text || `Dramatic cinematic scene directly depicting: ${headline}, ultra-photorealistic, editorial quality, 85mm f/1.8, warm Rembrandt lighting, teal-and-orange cinematic grade, vertical 9:16 portrait frame with subjects centered in middle 60 percent, 8K detail, no text overlays`;
 }
 
 /**
