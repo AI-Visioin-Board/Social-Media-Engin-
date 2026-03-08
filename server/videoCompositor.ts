@@ -213,7 +213,16 @@ function buildVideoOverlaySvg(
   let summaryBlockH = 0;
   if (hasSummary) {
     summaryWrapped = wrapText(summary!.trim(), 44);
-    if (summaryWrapped.length > 3) summaryWrapped = summaryWrapped.slice(0, 3);
+    // Allow up to 4 lines if needed to finish a sentence; otherwise cap at 3.
+    if (summaryWrapped.length > 4) {
+      summaryWrapped = summaryWrapped.slice(0, 4);
+      const last = summaryWrapped[3];
+      if (!/[.!?]$/.test(last.trim())) summaryWrapped[3] = last.trimEnd().replace(/,?\s*\S*$/, "...");
+    }
+    const lastLine = summaryWrapped[summaryWrapped.length - 1];
+    if (summaryWrapped.length >= 3 && lastLine && !/[.!?]$/.test(lastLine.trim())) {
+      summaryWrapped[summaryWrapped.length - 1] = lastLine.trimEnd().replace(/,?\s*\S*$/, "...");
+    }
     summaryBlockH = summaryPadTop + summaryWrapped.length * summaryLineH;
   }
 

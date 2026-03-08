@@ -516,7 +516,9 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) return null;
         const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
-        const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, input.runId));
+        const slides = await db.select().from(generatedSlides)
+          .where(eq(generatedSlides.runId, input.runId))
+          .orderBy(generatedSlides.slideIndex as any);
         return run ? { ...run, slides } : null;
       }),
 
@@ -1042,7 +1044,9 @@ export const appRouter = router({
       const { assembleAllSlides } = await import("./sharpCompositor");
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, input.runId));
+      const slides = await db.select().from(generatedSlides)
+        .where(eq(generatedSlides.runId, input.runId))
+        .orderBy(generatedSlides.slideIndex as any);
       if (slides.length === 0) throw new Error("No slides found for run");
       const assembled = await assembleAllSlides(
         slides.map((s: typeof slides[0]) => ({

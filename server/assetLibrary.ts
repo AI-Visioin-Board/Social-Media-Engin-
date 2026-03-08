@@ -633,9 +633,47 @@ export async function compositePersonOnBackground(
   // Check if the person image has alpha channel (is already transparent)
   const hasAlpha = personMeta.channels === 4;
 
-  let personFinal: Buffer = personResized;
+  // Detect fake transparency: some Google Image results for "transparent PNG"
+  // have a gray/white checkerboard pattern baked into the pixels (it's NOT real
+  // alpha — it's a flattened image pretending to be transparent).
+  // Detection: sample corner pixels — if they alternate between #C0C0C0 and #FFFFFF
+  // (or similar gray/white pattern), it's a fake checkerboard.
+  let hasFakeCheckerboard = false;
   if (hasAlpha) {
-    // Already transparent — use as-is
+    try {
+      const { data, info } = await sharp(personResized)
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const channels = info.channels;
+      // Sample top-left 8×8 block — check for gray/white alternating pattern
+      let grayCount = 0, whiteCount = 0, transparentCount = 0;
+      const sampleSize = Math.min(8, info.width, info.height);
+      for (let y = 0; y < sampleSize; y++) {
+        for (let x = 0; x < sampleSize; x++) {
+          const idx = (y * info.width + x) * channels;
+          const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+          const a = channels === 4 ? data[idx + 3] : 255;
+          if (a < 10) { transparentCount++; continue; }
+          // Checkerboard colors: ~#C0C0C0 (192,192,192) and ~#FFFFFF (255,255,255)
+          if (r > 180 && g > 180 && b > 180 && Math.abs(r - g) < 10 && Math.abs(g - b) < 10) {
+            if (r > 240) whiteCount++;
+            else grayCount++;
+          }
+        }
+      }
+      const totalSampled = sampleSize * sampleSize;
+      // If corners are mostly gray+white alternating (and NOT actually transparent), it's fake
+      if (transparentCount < totalSampled * 0.1 && grayCount > 3 && whiteCount > 3 &&
+          (grayCount + whiteCount) > totalSampled * 0.6) {
+        hasFakeCheckerboard = true;
+        console.warn(`[AssetLibrary] ⚠️ Detected fake checkerboard transparency (gray=${grayCount}, white=${whiteCount}) — will run bg removal`);
+      }
+    } catch { /* sampling failed — proceed normally */ }
+  }
+
+  let personFinal: Buffer = personResized;
+  if (hasAlpha && !hasFakeCheckerboard) {
+    // Genuinely transparent — use as-is
     personFinal = personResized;
   } else {
     // Try AI background removal first (produces clean cutout)

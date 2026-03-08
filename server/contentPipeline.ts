@@ -1542,7 +1542,15 @@ async function _runPipelineStages(
         .where(eq(generatedSlides.id, slide.id));
 
       let mediaUrl: string | null = null;
-      const scenePrompt = brief?.scenePrompt || slide.videoPrompt;
+      let scenePrompt = brief?.scenePrompt || slide.videoPrompt;
+
+      // SAFETY NET: For person_composite, the AI background must contain NO people.
+      // The real person photo is composited on top — a generated person in the bg
+      // causes ugly double-person artifacts (floating heads, ghost shoulders).
+      if (strategy === "person_composite" && !/no people|no human|no person|no figures/i.test(scenePrompt)) {
+        scenePrompt = scenePrompt.replace(/\.?\s*$/, ". Absolutely no people, no human figures, no faces, no silhouettes — environment only.");
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🛡️ Appended 'no people' safeguard to scene prompt`);
+      }
 
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Strategy: ${strategy} | "${(slide.headline ?? "").slice(0, 50)}..."`);
 
@@ -1852,7 +1860,9 @@ async function _runPipelineStages(
     // Stage 6: Assembly — Sharp compositor (@evolving.ai style, fast, no external API)
     checkAbort();
     await db.update(contentRuns).set({ status: "assembling", statusDetail: "Starting slide assembly..." }).where(eq(contentRuns.id, runId));
-    const slidesForAssembly = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+    const slidesForAssembly = await db.select().from(generatedSlides)
+      .where(eq(generatedSlides.runId, runId))
+      .orderBy(generatedSlides.slideIndex as any);
 
     console.log(`[ContentPipeline] Stage 6: Sharp assembly for run #${runId} (${slidesForAssembly.length} slides)...`);
     try {
@@ -1930,7 +1940,9 @@ async function _runPipelineStages(
     // Stage 7: Generate caption and wait for admin approval before posting
     checkAbort();
     console.log(`[ContentPipeline] Stage 7: Generating Instagram caption for run #${runId}`);
-    const finalSlides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+    const finalSlides = await db.select().from(generatedSlides)
+      .where(eq(generatedSlides.runId, runId))
+      .orderBy(generatedSlides.slideIndex as any);
     const caption = await generateCaption(researched);
 
     // Save caption and set status to pending_post — admin must approve before posting

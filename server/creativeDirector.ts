@@ -393,6 +393,7 @@ Carousel facts:
    ENGAGEMENT: Very high P(share) — people share content about people they recognize. High P(dwell) — faces draw eyes.
    EXAMPLE: "Sam Altman announces GPT-5" → cutout of Sam Altman on a dramatic tech background.
    CONSTRAINT: ONLY use for these verified public figures: ${Object.entries(KNOWN_FIGURES).map(([n, t]) => `${n} (${t})`).join(", ")}
+   CRITICAL — SCENE PROMPT FOR person_composite: The scenePrompt MUST generate an EMPTY ENVIRONMENT with ABSOLUTELY NO PEOPLE, NO HUMAN FIGURES, NO SILHOUETTES, NO FACES. The real person photo will be composited on top — if the AI background also contains a person, you get a double-person artifact. Write the scene as a dramatic LOCATION/ENVIRONMENT ONLY (e.g., "a vast server room corridor bathed in cyan light, rows of blinking server racks stretching to infinity, volumetric fog, no people").
 
 4. "kling_video" — 5-second cinematic video clip via Kling 2.5 Turbo AI. Video prompts MUST include camera movement (slow push-in, orbit, dolly zoom, parallax) and dynamic action.
    WHEN: The story has dramatic visual potential — action, confrontation, transformation, or spectacle.

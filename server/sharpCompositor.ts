@@ -309,7 +309,20 @@ function buildContentOverlaySvg(
     const summaryFontSize = 28;
     const summaryLineH = summaryFontSize + 8;
     let summaryWrapped = wrapText(summary!.trim(), 44);
-    if (summaryWrapped.length > 3) summaryWrapped = summaryWrapped.slice(0, 3);
+    // Allow up to 4 lines if needed to finish a sentence; otherwise cap at 3.
+    // If even 4 lines can't finish, truncate the last visible line with "..."
+    if (summaryWrapped.length > 4) {
+      summaryWrapped = summaryWrapped.slice(0, 4);
+      const last = summaryWrapped[3];
+      if (!/[.!?]$/.test(last.trim())) summaryWrapped[3] = last.trimEnd().replace(/,?\s*\S*$/, "...");
+    } else if (summaryWrapped.length > 3) {
+      // Exactly 4 lines — allow it so the sentence can finish
+    }
+    // If 3 or fewer lines and the last one is mid-sentence, append "..."
+    const lastLine = summaryWrapped[summaryWrapped.length - 1];
+    if (summaryWrapped.length >= 3 && lastLine && !/[.!?]$/.test(lastLine.trim())) {
+      summaryWrapped[summaryWrapped.length - 1] = lastLine.trimEnd().replace(/,?\s*\S*$/, "...");
+    }
     summaryBlockHeight = 16 + summaryWrapped.length * summaryLineH;
 
     const lastHeadlineY = HEADLINE_START_Y + (lines.length - 1) * lineHeight + fontSize;
@@ -571,11 +584,15 @@ export async function assembleSlideWithSharp(
       const IMAGE_ZONE_H = 810; // top 60% — logos must stay within this zone
       // Predefined organic scatter positions (varied, non-symmetric, professional)
       // Each position is designed to avoid the center where the hero image subject is
+      // Logos composite ON TOP of the gradient overlay, so they stay crisp
+      // even when placed in the gradient zone. Spread them across the full
+      // image zone for a natural sticker-like look.  Keep clear of the
+      // headline text zone (starts at y≈810).
       const scatterPositions = [
-        { left: SLIDE_W - 110, top: 40, size: 100 },    // top-right — primary position
+        { left: SLIDE_W - 110, top: 40, size: 100 },    // top-right
         { left: 30, top: 60, size: 90 },                 // top-left
-        { left: SLIDE_W - 100, top: 280, size: 85 },     // mid-right
-        { left: 40, top: 340, size: 80 },                 // mid-left
+        { left: SLIDE_W - 100, top: 320, size: 85 },    // mid-right
+        { left: 40, top: 380, size: 80 },                // mid-left
       ];
       for (let i = 0; i < Math.min(validLogos.length, 3); i++) {
         try {
@@ -628,10 +645,13 @@ export async function assembleSlideWithSharp(
         .toBuffer();
     } catch { /* color grading failed — use raw buffer */ }
 
+    // Composite order matters: gradient overlay FIRST, then logos ON TOP.
+    // This lets logos sit anywhere on the slide (even in the gradient zone)
+    // without getting swallowed by the dark fade.
     const composited = await sharp(gradedBuffer)
       .composite([
-        ...logoComposites,
         { input: Buffer.from(overlaySvg), top: 0, left: 0 },
+        ...logoComposites,
       ])
       .png({ quality: 92, compressionLevel: 5 })
       .toBuffer();
