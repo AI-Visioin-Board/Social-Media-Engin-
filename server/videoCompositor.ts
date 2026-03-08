@@ -211,25 +211,28 @@ function buildVideoOverlaySvg(
   const summaryPadTop = 16;
   let summaryWrapped: string[] = [];
   let summaryBlockH = 0;
+  // Text zone: VIDEO_ZONE_H to SLIDE_H - 180 (matches sharpCompositor's safety margin)
+  const textZoneTop = VIDEO_ZONE_H + 20;
+  const textZoneBottom = SLIDE_H - 180;
+
   if (hasSummary) {
     summaryWrapped = wrapText(summary!.trim(), 44);
-    // Allow up to 4 lines if needed to finish a sentence; otherwise cap at 3.
-    if (summaryWrapped.length > 4) {
-      summaryWrapped = summaryWrapped.slice(0, 4);
-      const last = summaryWrapped[3];
-      if (!/[.!?]$/.test(last.trim())) summaryWrapped[3] = last.trimEnd().replace(/,?\s*\S*$/, "...");
+    // ── Bounds check: summary must fit in the text zone ──
+    // Compute available space after headline
+    const headlineH = totalTextH;
+    const availableForSummary = (textZoneBottom - textZoneTop) - headlineH - summaryPadTop;
+    const maxSummaryLines = Math.max(1, Math.floor(availableForSummary / summaryLineH));
+    const lineLimit = Math.min(summaryWrapped.length, maxSummaryLines, 4);
+    if (summaryWrapped.length > lineLimit) {
+      summaryWrapped = summaryWrapped.slice(0, lineLimit);
     }
+    // Clean ending: append "..." if truncated mid-sentence
     const lastLine = summaryWrapped[summaryWrapped.length - 1];
-    if (summaryWrapped.length >= 3 && lastLine && !/[.!?]$/.test(lastLine.trim())) {
+    if (lastLine && !/[.!?]$/.test(lastLine.trim())) {
       summaryWrapped[summaryWrapped.length - 1] = lastLine.trimEnd().replace(/,?\s*\S*$/, "...");
     }
     summaryBlockH = summaryPadTop + summaryWrapped.length * summaryLineH;
   }
-
-  // Text zone: VIDEO_ZONE_H to SLIDE_H - 180 (matches sharpCompositor's safety margin)
-  // Was 120px — caused text to fall off the bottom on slides with long headlines.
-  const textZoneTop = VIDEO_ZONE_H + 20;
-  const textZoneBottom = SLIDE_H - 180;
   const textZoneH = textZoneBottom - textZoneTop;
   const totalContentH = totalTextH + summaryBlockH;
   const textBlockTop = textZoneTop + Math.max(0, (textZoneH - totalContentH) / 2);

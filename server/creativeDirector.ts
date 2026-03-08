@@ -44,13 +44,13 @@ import { findAllLogosForText, LOGO_LIBRARY } from "./assetLibrary";
  *                      The scene is the hero; logos provide company context.
  *                      Best for: company-specific news where the scene IS the story.
  *
- * "person_composite" — Google Image Search for a real person photo (transparent/cutout)
- *                      composited onto an AI-generated background.
+ * "person_composite" — AI-generated photorealistic scene with a named public figure
+ *                      rendered naturally IN the environment via GPT Image 1 (gpt-image-1).
  *                      Best for: CEO announcements, founder drama, executive moves.
- *                      ONLY for well-known public figures with many available photos.
+ *                      ONLY for well-known public figures.
  *
  * "kling_video"      — 5-second cinematic video clip via Kling 2.5 Turbo.
- *                      Most engaging format. 1-2 per carousel max (cost + time).
+ *                      Most engaging format. 2 per carousel (cost + time).
  *                      Best for: the most dramatic/action-oriented story.
  */
 export type VisualStrategy =
@@ -388,17 +388,23 @@ Carousel facts:
    ENGAGEMENT: Moderate P(share). Good brand recognition. Can use dual badges for competition stories.
    EXAMPLE: "OpenAI releases new reasoning model" → dramatic AI scene in green tones + OpenAI badge.
 
-3. "person_composite" — Google Image Search for a REAL PHOTO of a public figure, composited onto a dramatic AI-generated background. The person becomes the visual anchor.
+3. "person_composite" — AI-generated photorealistic scene featuring a named public figure, rendered naturally IN the environment using GPT Image 1. The person's expression, pose, and body language match the story's emotional context.
    WHEN: Stories dominated by a specific well-known person (CEO, founder, executive). ONLY use for people on the known figures list. This is the HIGHEST IMPACT strategy for personality-driven stories.
    ENGAGEMENT: Very high P(share) — people share content about people they recognize. High P(dwell) — faces draw eyes.
-   EXAMPLE: "Sam Altman announces GPT-5" → cutout of Sam Altman on a dramatic tech background.
+   EXAMPLE: "Sam Altman announces GPT-5" → Sam Altman standing confidently at a podium in a futuristic conference hall, dramatic lighting, looking determined.
    CONSTRAINT: ONLY use for these verified public figures: ${Object.entries(KNOWN_FIGURES).map(([n, t]) => `${n} (${t})`).join(", ")}
-   CRITICAL — SCENE PROMPT FOR person_composite: The scenePrompt MUST generate an EMPTY ENVIRONMENT with ABSOLUTELY NO PEOPLE, NO HUMAN FIGURES, NO SILHOUETTES, NO FACES. The real person photo will be composited on top — if the AI background also contains a person, you get a double-person artifact. Write the scene as a dramatic LOCATION/ENVIRONMENT ONLY (e.g., "a vast server room corridor bathed in cyan light, rows of blinking server racks stretching to infinity, volumetric fog, no people").
+   CRITICAL — SCENE PROMPT FOR person_composite: The scenePrompt must describe the person WITHIN the scene — they are generated as part of the image, not composited separately. Include ALL of these in the prompt:
+   • PERSON: Full name, title/role, and brief physical description cues (e.g., "Tim Cook, CEO of Apple, wearing his signature dark polo")
+   • EXPRESSION/POSE: Match the story's emotional context (concerned/furrowed brow for bad news, triumphant/arms raised for victories, thoughtful/chin resting on hand for strategic moves, defiant/crossed arms for conflicts)
+   • INTEGRATION: The person must be physically IN the environment (standing at a podium, sitting in a boardroom, walking through a corridor) — NOT floating or isolated
+   • SCENE: Dramatic cinematic environment that reinforces the story mood
+   • CAMERA: Cinematic framing (e.g., "medium shot, 85mm lens, shallow depth of field")
+   EXAMPLE PROMPT: "Tim Cook, CEO of Apple, standing in a vast glass-walled boardroom overlooking Silicon Valley at twilight, looking deeply concerned with furrowed brow and crossed arms, wearing a dark navy polo, dramatic side lighting casting long shadows, teal-and-orange color grade, cinematic 85mm lens, medium shot, photorealistic"
 
 4. "kling_video" — 5-second cinematic video clip via Kling 2.5 Turbo AI. Video prompts MUST include camera movement (slow push-in, orbit, dolly zoom, parallax) and dynamic action.
    WHEN: The story has dramatic visual potential — action, confrontation, transformation, or spectacle.
    ENGAGEMENT: Highest P(dwell). Very high P(share) for dramatic clips. Instagram mixed-media carousels outperform.
-   LIMIT: Assign to exactly 1-2 slides per carousel (expensive, slow, rate-limited).
+   LIMIT: Assign to exactly 2 slides per carousel (expensive, slow, rate-limited).
 
 ═══ PART B: COVER SLIDE TEMPLATES (index 0 only) ═══
 
@@ -469,7 +475,7 @@ STRATEGY PRIORITY — person_composite FIRST:
 VARIETY IS MANDATORY:
 - You MUST use at least 2 DIFFERENT strategies across the 5 slides.
 - NEVER use the same strategy on every slide. That's boring repetition.
-- Best mix: 2-3 person_composite + 1-2 scene_with_badge + 0-1 cinematic_scene + 1 kling_video.
+- Best mix: 1-2 person_composite + 1-2 scene_with_badge + 0-1 cinematic_scene + 2 kling_video.
 
 COVER SLIDE (index 0) = 80% OF THE POST:
 - The cover must be the single most scroll-stopping image in the carousel.
@@ -479,8 +485,8 @@ COVER SLIDE (index 0) = 80% OF THE POST:
 - CRITICAL: Do NOT use person-based templates (council_of_players, person_floating_orbs, duo_reaction) just because a person's company is mentioned in a different slide. The cover story itself must feature that person.
 
 VIDEO STRATEGY:
-- Assign kling_video to exactly 1-2 slides (indices 1-4, NOT the cover unless it's spectacular).
-- Choose stories with the MOST DYNAMIC visual potential for video.
+- Assign kling_video to exactly 2 slides (indices 1-4, NOT the cover).
+- Choose the 2 stories with the MOST DYNAMIC visual potential for video.
 - Video prompts MUST describe: camera movement type, action/motion, lighting changes, 5-second arc.
 
 SCENE PROMPT QUALITY (PROMPTHIS Framework):
@@ -854,19 +860,20 @@ Return ONLY the JSON object. No explanation, no preamble.`;
       }
     }
 
-    // ── Ensure video count: exactly 1-2 video slides ──
+    // ── Ensure video count: exactly 2 video slides (minimum) ──
     const videoSlides = sanitizedSlides.filter(s => s.strategy === "kling_video");
-    if (videoSlides.length === 0) {
-      // Force the content slide with highest engagement score to be video
-      const contentSlides = sanitizedSlides
-        .filter(s => s.slideIndex > 0)
+    if (videoSlides.length < 2) {
+      // Force top engagement content slides to be video until we have 2
+      const nonVideoContent = sanitizedSlides
+        .filter(s => s.slideIndex > 0 && s.strategy !== "kling_video")
         .sort((a, b) => (b.engagementScore ?? 5) - (a.engagementScore ?? 5));
-      if (contentSlides.length > 0) {
-        const best = contentSlides[0];
-        console.log(`[CreativeDirector] No video slides — upgrading slide ${best.slideIndex} to kling_video`);
-        best.strategy = "kling_video";
-        best.logoKeys = undefined;
-        best.personSearchQuery = undefined;
+      const needed = 2 - videoSlides.length;
+      for (let i = 0; i < Math.min(needed, nonVideoContent.length); i++) {
+        const slide = nonVideoContent[i];
+        console.log(`[CreativeDirector] Upgrading slide ${slide.slideIndex} to kling_video (enforcing min 2 videos)`);
+        slide.strategy = "kling_video";
+        slide.logoKeys = undefined;
+        slide.personSearchQuery = undefined;
       }
     } else if (videoSlides.length > 2) {
       // Downgrade excess video slides
@@ -963,14 +970,14 @@ function generateFallbackBrief(
   });
 
   // Content slides (1-4): alternate strategies for variety
-  // Slides 1 and 3 lean toward video, slides 2 and 4 lean toward images
+  // Slides 1 and 3 are video candidates (to ensure 2 video slots)
   for (let i = 0; i < researched.length; i++) {
     const ta = topicAnalysis[i];
     const slideIndex = i + 1;
     const isVideoCandidate = slideIndex === 1 || slideIndex === 3;
 
     let strategy: VisualStrategy;
-    if (isVideoCandidate && i === 0) {
+    if (isVideoCandidate) {
       strategy = "kling_video";
     } else if (ta.detectedPeople.length > 0 && coverStrategy !== "person_composite") {
       strategy = "person_composite";
@@ -994,11 +1001,18 @@ function generateFallbackBrief(
     });
   }
 
-  // Ensure at least 1 video slide
-  if (!slides.some(s => s.strategy === "kling_video") && slides.length > 1) {
-    slides[1].strategy = "kling_video";
-    slides[1].logoKeys = undefined;
-    slides[1].personSearchQuery = undefined;
+  // Ensure at least 2 video slides
+  const fbVideoCount = slides.filter(s => s.strategy === "kling_video").length;
+  if (fbVideoCount < 2 && slides.length > 2) {
+    const nonVideo = slides
+      .filter(s => s.slideIndex > 0 && s.strategy !== "kling_video")
+      .sort((a, b) => (b.engagementScore ?? 5) - (a.engagementScore ?? 5));
+    const needed = 2 - fbVideoCount;
+    for (let i = 0; i < Math.min(needed, nonVideo.length); i++) {
+      nonVideo[i].strategy = "kling_video";
+      nonVideo[i].logoKeys = undefined;
+      nonVideo[i].personSearchQuery = undefined;
+    }
   }
 
   return {

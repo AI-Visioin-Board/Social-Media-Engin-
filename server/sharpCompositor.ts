@@ -309,24 +309,25 @@ function buildContentOverlaySvg(
     const summaryFontSize = 28;
     const summaryLineH = summaryFontSize + 8;
     let summaryWrapped = wrapText(summary!.trim(), 44);
-    // Allow up to 4 lines if needed to finish a sentence; otherwise cap at 3.
-    // If even 4 lines can't finish, truncate the last visible line with "..."
-    if (summaryWrapped.length > 4) {
-      summaryWrapped = summaryWrapped.slice(0, 4);
-      const last = summaryWrapped[3];
-      if (!/[.!?]$/.test(last.trim())) summaryWrapped[3] = last.trimEnd().replace(/,?\s*\S*$/, "...");
-    } else if (summaryWrapped.length > 3) {
-      // Exactly 4 lines — allow it so the sentence can finish
+
+    // ── Bounds check: summary must NOT overflow into SWIPE FOR MORE ──
+    // SWIPE sits at y = SLIDE_H - 55 = 1295. Keep a safe margin above it.
+    const lastHeadlineY = HEADLINE_START_Y + (lines.length - 1) * lineHeight + fontSize;
+    const summaryStartY = lastHeadlineY + 16;
+    const swipeSafeY = SLIDE_H - 80; // must not place text below this
+    const maxSummaryLines = Math.max(1, Math.floor((swipeSafeY - summaryStartY) / summaryLineH));
+
+    // Cap lines to what physically fits, up to 4 max
+    const lineLimit = Math.min(summaryWrapped.length, maxSummaryLines, 4);
+    if (summaryWrapped.length > lineLimit) {
+      summaryWrapped = summaryWrapped.slice(0, lineLimit);
     }
-    // If 3 or fewer lines and the last one is mid-sentence, append "..."
+    // Clean ending: append "..." if truncated mid-sentence
     const lastLine = summaryWrapped[summaryWrapped.length - 1];
-    if (summaryWrapped.length >= 3 && lastLine && !/[.!?]$/.test(lastLine.trim())) {
+    if (lastLine && !/[.!?]$/.test(lastLine.trim())) {
       summaryWrapped[summaryWrapped.length - 1] = lastLine.trimEnd().replace(/,?\s*\S*$/, "...");
     }
     summaryBlockHeight = 16 + summaryWrapped.length * summaryLineH;
-
-    const lastHeadlineY = HEADLINE_START_Y + (lines.length - 1) * lineHeight + fontSize;
-    const summaryStartY = lastHeadlineY + 16;
     const summaryTextLines = summaryWrapped.map((line, i) =>
       `<tspan x="${SLIDE_W / 2}" y="${summaryStartY + (i + 1) * summaryLineH}">${escapeXml(line)}</tspan>`
     ).join("\n    ");
@@ -585,14 +586,14 @@ export async function assembleSlideWithSharp(
       // Predefined organic scatter positions (varied, non-symmetric, professional)
       // Each position is designed to avoid the center where the hero image subject is
       // Logos composite ON TOP of the gradient overlay, so they stay crisp
-      // even when placed in the gradient zone. Spread them across the full
-      // image zone for a natural sticker-like look.  Keep clear of the
-      // headline text zone (starts at y≈810).
+      // even in the gradient zone. Spread across the image zone (above the
+      // text at y≈810) for a natural sticker-like look — not bunched at
+      // the top, but never in the lower text area.
       const scatterPositions = [
         { left: SLIDE_W - 110, top: 40, size: 100 },    // top-right
         { left: 30, top: 60, size: 90 },                 // top-left
-        { left: SLIDE_W - 100, top: 320, size: 85 },    // mid-right
-        { left: 40, top: 380, size: 80 },                // mid-left
+        { left: SLIDE_W - 100, top: 360, size: 85 },    // mid-right (still above text zone)
+        { left: 40, top: 420, size: 80 },                // mid-left (still above text zone)
       ];
       for (let i = 0; i < Math.min(validLogos.length, 3); i++) {
         try {

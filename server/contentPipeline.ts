@@ -23,7 +23,7 @@ import {
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
-import { generateImage } from "./_core/imageGeneration";
+import { generateImage, generateImageWithPeople } from "./_core/imageGeneration";
 import { ENV } from "./_core/env";
 import { SignJWT } from "jose";
 
@@ -1498,7 +1498,7 @@ async function _runPipelineStages(
     // ── CREDIT SAFEGUARD: Cap Kling attempts per run ──
     // Each Kling video costs credits and takes ~3 min. Cap at 3 attempts max per run
     // to prevent runaway costs if retries/fallbacks loop unexpectedly.
-    const MAX_KLING_ATTEMPTS = 3;
+    const MAX_KLING_ATTEMPTS = 4;
     let klingAttemptsUsed = 0;
     console.log(`[ContentPipeline] ═══ Stage 5: Media Generation ═══`);
     console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials — all video slides will be still images)"}`);
@@ -1544,13 +1544,10 @@ async function _runPipelineStages(
       let mediaUrl: string | null = null;
       let scenePrompt = brief?.scenePrompt || slide.videoPrompt;
 
-      // SAFETY NET: For person_composite, the AI background must contain NO people.
-      // The real person photo is composited on top — a generated person in the bg
-      // causes ugly double-person artifacts (floating heads, ghost shoulders).
-      if (strategy === "person_composite" && !/no people|no human|no person|no figures/i.test(scenePrompt)) {
-        scenePrompt = scenePrompt.replace(/\.?\s*$/, ". Absolutely no people, no human figures, no faces, no silhouettes — environment only.");
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🛡️ Appended 'no people' safeguard to scene prompt`);
-      }
+      // NOTE: For person_composite, we now use GPT Image 1 (gpt-image-1) which generates
+      // the person naturally IN the scene. The Creative Director prompt includes the person's
+      // name, expression, and how they integrate into the environment. No more "no people" —
+      // the whole point is to generate the person as part of the image.
 
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Strategy: ${strategy} | "${(slide.headline ?? "").slice(0, 50)}..."`);
 
@@ -1604,73 +1601,47 @@ async function _runPipelineStages(
       }
 
       if (!mediaUrl && strategy === "person_composite") {
-        // ── PERSON COMPOSITE: Real person photo on AI background ──
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite — searching for person photo...`);
-        let personFailed = false;
+        // ── PERSON COMPOSITE: AI-generated scene with person naturally integrated ──
+        // Uses GPT Image 1 (gpt-image-1) which can generate named public figures
+        // with contextually appropriate expressions, poses, and scene integration.
+        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite — generating person IN scene via GPT Image 1...`);
 
         try {
-          // Step 1: Generate AI background
-          const aiBgUrl = await generateSlideImage(scenePrompt);
-          const aiBgBuffer = aiBgUrl ? await downloadImage(aiBgUrl) : null;
+          // The scenePrompt from Creative Director now includes the person description,
+          // emotional context, and scene — all rendered together in one generation.
+          const personSceneResult = await generateImageWithPeople({ prompt: scenePrompt });
 
-          if (aiBgBuffer && brief?.personSearchQuery) {
-            // Step 2: Search Google CSE for person photo
-            const personResult = await searchImage(brief.personSearchQuery, { portrait: true });
-            if (personResult) {
-              log.searchBgFound = true;
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔍 Person photo found → ${personResult.title}`);
-              const personBuffer = await downloadImage(personResult.url);
+          if (personSceneResult.url) {
+            mediaUrl = personSceneResult.url;
+            log.strategy = "person_composite";
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ GPT Image 1 person scene generated`);
+
+            // ── Cover template: download person image for Stage 6 compositor ──
+            if (slide.slideIndex === 0 && brief?.coverTemplate) {
+              console.log(`[ContentPipeline] Cover slide: collecting assets for template "${brief.coverTemplate}"...`);
+              const personBuffer = await downloadImage(personSceneResult.url);
+
+              // Fetch logo buffers for cover template
+              const logoBuffers: Array<Buffer | null> = [];
+              const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
+              if (allLogoKeys.length > 0) {
+                const logoResults = await Promise.all(
+                  allLogoKeys.map(key => downloadLogo(key).catch(() => null))
+                );
+                logoBuffers.push(...logoResults);
+                console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
+              }
 
               if (personBuffer) {
-                // Step 3: Composite person onto AI background
-                const composed = await compositePersonOnBackground(
-                  personBuffer,
-                  aiBgBuffer,
-                  brief.personPlacement ?? "center",
-                );
-                mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
-                log.strategy = "person_composite";
-                console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Person composited onto AI background`);
-
-                // ── Cover template: save person buffer for Stage 6 compositor ──
-                if (slide.slideIndex === 0 && brief?.coverTemplate) {
-                  console.log(`[ContentPipeline] Cover slide: collecting assets for template "${brief.coverTemplate}"...`);
-
-                  // Fetch logo buffers for cover template
-                  const logoBuffers: Array<Buffer | null> = [];
-                  const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
-                  if (allLogoKeys.length > 0) {
-                    const logoResults = await Promise.all(
-                      allLogoKeys.map(key => downloadLogo(key).catch(() => null))
-                    );
-                    logoBuffers.push(...logoResults);
-                    console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
-                  }
-
-                  coverAssets.set(0, { personBuffer, additionalPersonBuffers: [], logoBuffers });
-                  console.log(`[ContentPipeline] Cover assets saved for template "${brief.coverTemplate}"`);
-                }
-              } else {
-                console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Person photo download failed`);
-                personFailed = true;
+                coverAssets.set(0, { personBuffer, additionalPersonBuffers: [], logoBuffers });
+                console.log(`[ContentPipeline] Cover assets saved for template "${brief.coverTemplate}"`);
               }
-            } else {
-              console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ No person photo found via Google CSE`);
-              personFailed = true;
             }
-
-            // Fallback: use raw AI image if person compositing failed
-            if (personFailed && aiBgUrl) {
-              mediaUrl = aiBgUrl;
-              log.strategy = "cinematic_scene_person_fallback";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ↩️ Falling back to AI image (person not found)`);
-            }
-          } else if (aiBgUrl) {
-            mediaUrl = aiBgUrl;
-            log.strategy = "cinematic_scene_no_bg";
+          } else {
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 returned no URL — falling back to DALL-E scene`);
           }
         } catch (err: any) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Person composite failed: ${err?.message}`);
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 person scene failed: ${err?.message} — falling back to DALL-E scene`);
           // Fall through to cinematic_scene below
         }
       }
