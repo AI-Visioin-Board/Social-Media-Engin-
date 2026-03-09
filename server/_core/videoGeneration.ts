@@ -24,6 +24,8 @@ export type GenerateVideoOptions = {
   duration?: 5 | 10;
   /** Aspect ratio string. Default: "9:16" (vertical/portrait) */
   aspectRatio?: string;
+  /** Starting image URL for image-to-video mode (adds motion to a still frame) */
+  imageUrl?: string;
 };
 
 /** Replicate prediction status */
@@ -60,7 +62,7 @@ const NETWORK_TIMEOUT_MS = 30_000;
 export async function generateVideoWithSeedance(
   options: GenerateVideoOptions
 ): Promise<string | null> {
-  const { prompt, duration = 5, aspectRatio = "9:16" } = options;
+  const { prompt, duration = 5, aspectRatio = "9:16", imageUrl } = options;
 
   // --- Guard: no token means graceful fallback -------------------------
   if (!ENV.replicateApiToken) {
@@ -70,12 +72,13 @@ export async function generateVideoWithSeedance(
     return null;
   }
 
+  const mode = imageUrl ? "image-to-video" : "text-to-video";
   console.log(
-    `[VideoGen] Creating Seedance prediction (duration=${duration}s, aspect=${aspectRatio}): "${prompt.slice(0, 100)}${prompt.length > 100 ? "..." : ""}"`
+    `[VideoGen] Creating Seedance prediction (${mode}, duration=${duration}s, aspect=${aspectRatio}): "${prompt.slice(0, 100)}${prompt.length > 100 ? "..." : ""}"`
   );
 
   // --- 1. Create prediction -------------------------------------------
-  const prediction = await createPrediction(prompt, duration, aspectRatio);
+  const prediction = await createPrediction(prompt, duration, aspectRatio, imageUrl);
   console.log(`[VideoGen] Prediction created: ${prediction.id}`);
 
   // --- 2. Poll until terminal state -----------------------------------
@@ -102,8 +105,20 @@ export async function generateVideoWithSeedance(
 async function createPrediction(
   prompt: string,
   duration: 5 | 10,
-  aspectRatio: string
+  aspectRatio: string,
+  imageUrl?: string,
 ): Promise<ReplicatePrediction> {
+  // Build input — add image for image-to-video mode
+  const input: Record<string, unknown> = {
+    prompt,
+    duration,
+    aspect_ratio: aspectRatio,
+  };
+  if (imageUrl) {
+    input.image = imageUrl; // Seedance image-to-video: adds motion to a starting frame
+    console.log(`[VideoGen] Image-to-video mode: starting frame from ${imageUrl.slice(0, 80)}...`);
+  }
+
   const response = await fetch(`${REPLICATE_API_BASE}/predictions`, {
     method: "POST",
     headers: {
@@ -112,11 +127,7 @@ async function createPrediction(
     },
     body: JSON.stringify({
       model: SEEDANCE_MODEL,
-      input: {
-        prompt,
-        duration,
-        aspect_ratio: aspectRatio,
-      },
+      input,
     }),
     signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
   });

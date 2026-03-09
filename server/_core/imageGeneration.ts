@@ -1,13 +1,19 @@
 /**
- * Image generation using OpenAI models
+ * Image generation — multi-model pipeline
  *
- * - generateImage()           → DALL-E 3 for scenes/environments (no real people)
- * - generateImageWithPeople() → GPT Image 1 for photorealistic images of named public figures
+ * - generateImage()              → DALL-E 3 for scenes/environments (ZERO people)
+ * - generateImageWithPeople()    → GPT Image 1 fallback (kept for backward compat)
+ * - generateImageWithNanoBanana() → Nano Banana (Gemini) for named public figures ★ PRIMARY
+ *
+ * ★ KEY RULE: Named public figures MUST use Nano Banana (Gemini).
+ *   GPT Image 1 REFUSES to generate recognizable people.
+ *   DALL-E 3 produces bad faces. Neither works for our use case.
+ *   Nano Banana is the ONLY model that reliably generates named people (confirmed by Maximus).
  *
  * Example usage:
- *   const { url } = await generateImage({ prompt: "A serene landscape with mountains" });
- *   const { url } = await generateImageWithPeople({
- *     prompt: "Tim Cook standing in a boardroom, looking concerned",
+ *   const { url } = await generateImage({ prompt: "A futuristic city at sunset" });
+ *   const { url } = await generateImageWithNanoBanana({
+ *     prompt: "Elon Musk and Tim Cook boxing in a ring, dramatic sports lighting",
  *   });
  */
 import { storagePut } from "../storage";
@@ -79,9 +85,111 @@ export async function generateImage(
 }
 
 /**
+ * Generate a photorealistic image of named public figures using Nano Banana (Gemini).
+ *
+ * ★ This is the PRIMARY model for generating recognizable people.
+ * Uses Gemini 3 Pro Image Preview (Nano Banana Pro) — confirmed by Maximus to
+ * reliably render named public figures like Elon Musk, Tim Cook, Sam Altman, etc.
+ *
+ * Falls back to GPT Image 1 if GEMINI_API_KEY is not set.
+ *
+ * Model priority: gemini-3-pro-image-preview (Nano Banana Pro, highest quality)
+ * Fallback model: gemini-3.1-flash-image-preview (Nano Banana 2, faster)
+ */
+export async function generateImageWithNanoBanana(
+  options: GenerateImageOptions
+): Promise<GenerateImageResponse> {
+  if (!ENV.geminiApiKey) {
+    console.warn("[ImageGen] GEMINI_API_KEY not set — falling back to GPT Image 1");
+    return generateImageWithPeople(options);
+  }
+
+  // Try Nano Banana Pro first, then Nano Banana 2 (faster) as fallback
+  const models = [
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+  ];
+
+  for (const model of models) {
+    try {
+      console.log(`[ImageGen] Generating Nano Banana (${model}): "${options.prompt.slice(0, 100)}..."`);
+
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${ENV.geminiApiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{ text: options.prompt }],
+          }],
+          generationConfig: {
+            responseModalities: ["TEXT", "IMAGE"],
+          },
+        }),
+        signal: AbortSignal.timeout(90_000),
+      });
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        console.warn(`[ImageGen] Nano Banana ${model} failed (${response.status}): ${detail.slice(0, 200)}`);
+        continue; // Try next model
+      }
+
+      const result = (await response.json()) as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{
+              text?: string;
+              inlineData?: { mimeType: string; data: string };
+            }>;
+          };
+        }>;
+      };
+
+      // Extract image from response parts
+      const parts = result.candidates?.[0]?.content?.parts ?? [];
+      const imagePart = parts.find(p => p.inlineData?.data);
+
+      if (!imagePart?.inlineData) {
+        console.warn(`[ImageGen] Nano Banana ${model} returned no image data — trying next model`);
+        continue;
+      }
+
+      const buffer = Buffer.from(imagePart.inlineData.data, "base64");
+      if (buffer.length === 0) {
+        console.warn(`[ImageGen] Nano Banana ${model} returned empty image — trying next model`);
+        continue;
+      }
+
+      // Determine file extension from mime type
+      const mime = imagePart.inlineData.mimeType ?? "image/png";
+      const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
+
+      const { url } = await storagePut(
+        `generated/${Date.now()}-nanobana.${ext}`,
+        buffer,
+        mime
+      );
+
+      console.log(`[ImageGen] Nano Banana (${model}) saved: ${url} (${(buffer.length / 1024).toFixed(0)} KB)`);
+      return { url };
+    } catch (err: any) {
+      console.warn(`[ImageGen] Nano Banana ${model} error: ${err?.message} — trying next model`);
+      continue;
+    }
+  }
+
+  // All Gemini models failed — fall back to GPT Image 1
+  console.warn(`[ImageGen] All Nano Banana models failed — falling back to GPT Image 1`);
+  return generateImageWithPeople(options);
+}
+
+/**
  * Generate a photorealistic image using GPT Image 1 (gpt-image-1).
- * Can render named public figures with contextual expressions/poses.
- * Best for: person_composite strategy — the person is generated IN the scene naturally.
+ * ⚠️ DEPRECATED for named people — GPT Image 1 refuses to generate recognizable public figures.
+ * Kept as fallback when GEMINI_API_KEY is not configured.
+ * Use generateImageWithNanoBanana() instead for named people.
  *
  * Uses 1024×1536 (portrait, close to Instagram 4:5) at high quality.
  */

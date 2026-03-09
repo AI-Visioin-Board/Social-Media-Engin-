@@ -45,7 +45,7 @@ import { findAllLogosForText, LOGO_LIBRARY } from "./assetLibrary";
  *                      Best for: company-specific news where the scene IS the story.
  *
  * "person_composite" — AI-generated photorealistic scene with a named public figure
- *                      rendered naturally IN the environment via GPT Image 1 (gpt-image-1).
+ *                      rendered naturally IN the environment via Nano Banana (Gemini).
  *                      Best for: CEO announcements, founder drama, executive moves.
  *                      ONLY for well-known public figures.
  *
@@ -149,14 +149,14 @@ export interface SlideCreativeBrief {
   coverComposition?: {
     /** Background scene prompt — generated SEPARATELY via DALL-E 3, must contain NO PEOPLE */
     backgroundPrompt: string;
-    /** People to composite into the scene (each generated individually via GPT Image 1) */
+    /** People to composite into the scene (each generated individually via Nano Banana (Gemini)) */
     subjects: Array<{
       name: string;               // "Sam Altman"
       role: string;               // "CEO of OpenAI"
       expression: string;         // "intense, determined gaze"
       placement: "center" | "left" | "right" | "background-left" | "background-right";
       scale: "dominant" | "supporting" | "background";
-      /** Full GPT Image 1 prompt for this person — must be cinematic, editorial quality */
+      /** Full Nano Banana (Gemini) prompt for this person — must be cinematic, editorial quality */
       promptFragment: string;
     }>;
     /** Per-logo placement and sizing instructions */
@@ -165,7 +165,7 @@ export interface SlideCreativeBrief {
       size: "small" | "medium" | "large";  // 80px / 140px / 200px
       placement: string;                    // "top-right", "bottom-center", "above-text-left", etc.
     }>;
-    /** single_shot = 1-2 people in one GPT Image 1 call (more cohesive). multi_layer = generate each person separately and composite (for 3+ people). */
+    /** single_shot = 1-2 people in one Nano Banana (Gemini) call (more cohesive). multi_layer = generate each person separately and composite (for 3+ people). */
     compositionMode: "single_shot" | "multi_layer";
     /** Text description of the overall composition for logging/debugging */
     compositionDescription: string;
@@ -442,7 +442,7 @@ Carousel facts:
    ENGAGEMENT: Moderate P(share). Good brand recognition. Can use dual badges for competition stories.
    EXAMPLE: "OpenAI releases new reasoning model" → dramatic AI scene in green tones + OpenAI badge.
 
-3. "person_composite" — AI-generated photorealistic scene featuring a named public figure, rendered naturally IN the environment using GPT Image 1. The person IS the image — they should fill 60-80% of the frame. Their expression, pose, and body language match the story's emotional context.
+3. "person_composite" — AI-generated photorealistic scene featuring a named public figure, rendered naturally IN the environment using Nano Banana (Gemini). The person IS the image — they should fill 60-80% of the frame. Their expression, pose, and body language match the story's emotional context.
    WHEN: Stories dominated by a specific well-known person (CEO, founder, executive). ONLY use for people on the known figures list. This is the HIGHEST IMPACT strategy for personality-driven stories.
    ENGAGEMENT: Very high P(share) — people share content about people they recognize. High P(dwell) — faces draw eyes.
    CONSTRAINT: ONLY use for these verified public figures: ${Object.entries(KNOWN_FIGURES).map(([n, t]) => `${n} (${t})`).join(", ")}
@@ -497,7 +497,7 @@ APPROACH 1: "freeform_composition" (PREFERRED for multi-person or complex covers
   Use when you want to compose multiple people, specific logo arrangements, or complex layered scenes.
   Set coverTemplate to "freeform_composition" and fill the coverComposition field:
   - backgroundPrompt: Dramatic environment with NO PEOPLE (generated separately via DALL-E 3)
-  - subjects[]: Array of people, each with name, expression, placement, scale, and a GPT Image 1 prompt
+  - subjects[]: Array of people, each with name, expression, placement, scale, and a Nano Banana (Gemini) prompt
   - logoTreatment[]: Array of logos with size (small/medium/large) and placement
   - compositionMode: "single_shot" (1-2 people, one image) or "multi_layer" (3+ people, composite)
   - compositionDescription: Text description of the overall vision
@@ -726,7 +726,7 @@ Remember:
 - Use at least 2 different strategies across all 5 slides
 - Assign kling_video to exactly 2 content slides (NOT the cover)
 - person_composite ONLY for verified public figures listed in the system prompt
-- DALL-E 3 is ONLY for cinematic_scene (environments/metaphors with ZERO people). ANY slide with a person MUST use person_composite → GPT Image 1.
+- DALL-E 3 is ONLY for cinematic_scene (environments/metaphors with ZERO people). ANY slide with a person MUST use person_composite → Nano Banana (Gemini).
 - Every scenePrompt must follow PROMPTHIS structure (Setting → Camera → Subject → Lighting → Mood)
 - Scene prompts must contain ZERO text — no letters, words, numbers, or readable characters
 - For freeform_composition covers: fill the coverComposition field with backgroundPrompt, subjects, logoTreatment, compositionMode

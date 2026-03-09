@@ -20,6 +20,9 @@ export const ENV = {
   klingAccessKey: process.env.KLING_ACCESS_KEY ?? "",
   klingSecretKey: process.env.KLING_SECRET_KEY ?? "",
 
+  // Google Gemini (Nano Banana image generation — can render named public figures)
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+
   // Google CSE (person image search)
   googleCseApiKey: process.env.GOOGLE_CSE_API_KEY ?? "",
   googleCseId: process.env.GOOGLE_CSE_ID ?? "",

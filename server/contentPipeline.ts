@@ -23,7 +23,7 @@ import {
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
-import { generateImage, generateImageWithPeople } from "./_core/imageGeneration";
+import { generateImage, generateImageWithPeople, generateImageWithNanoBanana } from "./_core/imageGeneration";
 import { generateVideoWithSeedance } from "./_core/videoGeneration";
 import { ENV } from "./_core/env";
 import { SignJWT } from "jose";
@@ -1016,6 +1016,82 @@ export async function generateKlingVideo(
 }
 
 /**
+ * Generate a 5-second video from a starting image using Kling 2.5 Turbo (image-to-video).
+ * The image provides the first frame; Kling adds cinematic motion.
+ * Returns the video URL on success, null on failure.
+ */
+export async function generateKlingImageToVideo(
+  prompt: string,
+  imageUrl: string,
+  accessKey: string,
+  secretKey: string
+): Promise<string | null> {
+  try {
+    const token = await generateKlingJWT(accessKey, secretKey);
+    const baseUrl = "https://api-singapore.klingai.com";
+
+    const submitRes = await fetch(`${baseUrl}/v1/videos/image2video`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model_name: "kling-v2-5-turbo",
+        prompt,
+        negative_prompt: "text, watermark, blurry, low quality, distorted",
+        image: imageUrl,
+        cfg_scale: 0.5,
+        mode: "pro",
+        duration: "5",
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!submitRes.ok) {
+      const err = await submitRes.text();
+      throw new Error(`Kling img2vid submit error ${submitRes.status}: ${err}`);
+    }
+
+    const submitData = await submitRes.json() as any;
+    if (submitData.code !== 0) throw new Error(`Kling img2vid error: ${submitData.message}`);
+    const taskId = submitData.data?.task_id;
+    if (!taskId) throw new Error("No task_id returned from Kling img2vid");
+
+    console.log(`[ContentPipeline] Kling img2vid task submitted: ${taskId}`);
+
+    // Poll for completion (max 4 minutes, every 8 seconds)
+    const maxAttempts = 30;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 8000));
+      const pollToken = await generateKlingJWT(accessKey, secretKey);
+      const pollRes = await fetch(`${baseUrl}/v1/videos/image2video/${taskId}`, {
+        headers: { "Authorization": `Bearer ${pollToken}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!pollRes.ok) continue;
+      const pollData = await pollRes.json() as any;
+      const status = pollData.data?.task_status;
+      if (status === "succeed") {
+        const videoUrl = pollData.data?.task_result?.videos?.[0]?.url;
+        if (videoUrl) {
+          console.log(`[ContentPipeline] Kling img2vid ready: ${videoUrl}`);
+          return videoUrl;
+        }
+      }
+      if (status === "failed") {
+        throw new Error(`Kling img2vid failed: ${pollData.data?.task_status_msg ?? "unknown"}`);
+      }
+      console.log(`[ContentPipeline] Kling img2vid polling... ${i + 1}/${maxAttempts} (${status})`);
+    }
+    throw new Error("Kling img2vid timed out after 4 minutes");
+  } catch (err) {
+    console.error("[ContentPipeline] Kling image-to-video failed:", err);
+    return null;
+  }
+}
+
+/**
  * Generate a cinematic still image using DALL-E 3.
  * Used as fallback when Kling is unavailable.
  */
@@ -1551,10 +1627,9 @@ async function _runPipelineStages(
       let mediaUrl: string | null = null;
       let scenePrompt = brief?.scenePrompt || slide.videoPrompt;
 
-      // NOTE: For person_composite, we now use GPT Image 1 (gpt-image-1) which generates
-      // the person naturally IN the scene. The Creative Director prompt includes the person's
-      // name, expression, and how they integrate into the environment. No more "no people" —
-      // the whole point is to generate the person as part of the image.
+      // NOTE: For person_composite, we now use Nano Banana (Gemini) which generates
+      // named public figures reliably. GPT Image 1 refuses to render real people.
+      // For video slides, the new workflow is: Nano Banana still → image-to-video (Kling/Seedance).
 
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Strategy: ${strategy} | "${(slide.headline ?? "").slice(0, 50)}..."`);
 
@@ -1585,51 +1660,94 @@ async function _runPipelineStages(
           console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Using Creative Director's video prompt`);
         }
 
-        // ── Try Seedance first (if REPLICATE_API_TOKEN is set) ──
+        // ── Step 1: If scene involves people, generate Nano Banana still first ──
+        // Then use image-to-video to add motion (Kling/Seedance img2vid).
+        // If no people, use text-to-video directly.
+        const involvesPeople = brief?.personSearchQuery
+          || /person|people|ceo|founder|figure|leader|executive/i.test(videoSpecificPrompt);
+        let startingImageUrl: string | null = null;
+
+        if (involvesPeople) {
+          try {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Video involves people — generating Nano Banana still first...`);
+            const stillResult = await generateImageWithNanoBanana({ prompt: scenePrompt });
+            if (stillResult.url) {
+              startingImageUrl = stillResult.url;
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Nano Banana still for video generated`);
+            }
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Nano Banana still failed: ${err?.message} — trying text-to-video`);
+          }
+        }
+
+        // ── Step 2: Try Seedance (primary) — supports both text2vid and img2vid ──
         if (hasSeedance && !mediaUrl) {
           try {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Seedance 1 Lite video...`);
+            const mode = startingImageUrl ? "img2vid" : "text2vid";
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Seedance (${mode})...`);
             const seedanceUrl = await generateVideoWithSeedance({
               prompt: videoSpecificPrompt,
               duration: 5,
               aspectRatio: "9:16",
+              imageUrl: startingImageUrl ?? undefined,
             });
             if (seedanceUrl) {
               mediaUrl = seedanceUrl;
-              log.strategy = "seedance_video";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Seedance video generated`);
+              log.strategy = startingImageUrl ? "seedance_img2vid" : "seedance_video";
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Seedance video generated (${mode})`);
             } else {
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance returned null — trying Kling fallback`);
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance returned null — trying Kling`);
             }
           } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance failed: ${err?.message} — trying Kling fallback`);
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance failed: ${err?.message} — trying Kling`);
           }
         }
 
-        // ── Try Kling as fallback ──
+        // ── Step 3: Try Kling as fallback — img2vid if we have a still, text2vid otherwise ──
         if (!mediaUrl && hasKling && klingAttemptsUsed < MAX_KLING_ATTEMPTS) {
           klingAttemptsUsed++;
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Kling 2.5 Turbo (attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS})...`);
           log.klingAttempted = true;
-          mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
-          log.klingSucceeded = !!mediaUrl;
-          if (mediaUrl) {
-            log.strategy = "kling_video";
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling video generated`);
-          } else {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to cinematic_scene`);
+
+          if (startingImageUrl) {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling img2vid (attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS})...`);
+            mediaUrl = await generateKlingImageToVideo(videoSpecificPrompt, startingImageUrl, klingAK, klingSK);
+            if (mediaUrl) {
+              log.strategy = "kling_img2vid";
+              log.klingSucceeded = true;
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling img2vid generated`);
+            }
           }
+
+          if (!mediaUrl) {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling text2vid (attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS})...`);
+            mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
+            log.klingSucceeded = !!mediaUrl;
+            if (mediaUrl) {
+              log.strategy = "kling_video";
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling text2vid generated`);
+            } else {
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to still`);
+            }
+          }
+        }
+
+        // ── Step 4: If all video gen failed but we have a Nano Banana still, use that ──
+        if (!mediaUrl && startingImageUrl) {
+          mediaUrl = startingImageUrl;
+          log.strategy = "nano_banana_still_fallback";
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 📸 Using Nano Banana still as fallback (no video providers succeeded)`);
         }
 
         if (!mediaUrl && hasKling && klingAttemptsUsed >= MAX_KLING_ATTEMPTS) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_ATTEMPTS}) — falling back to still image`);
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_ATTEMPTS})`);
         }
       }
 
       if (!mediaUrl && strategy === "person_composite") {
-        // ── PERSON COMPOSITE: AI-generated scene with person naturally integrated ──
-        // Uses GPT Image 1 (gpt-image-1) which can generate named public figures
-        // with contextually appropriate expressions, poses, and scene integration.
+        // ── PERSON COMPOSITE: AI-generated scene with named public figures ──
+        // ★ Uses Nano Banana (Gemini) — the ONLY model that reliably generates
+        //   recognizable public figures. GPT Image 1 refuses to do so.
+        //   Falls back to GPT Image 1 if GEMINI_API_KEY not set.
 
         const isFreeformCover = slide.slideIndex === 0
           && brief?.coverTemplate === "freeform_composition"
@@ -1641,14 +1759,14 @@ async function _runPipelineStages(
         if (isMultiLayer && brief?.coverComposition) {
           // ── MULTI-LAYER FREEFORM COVER: generate background + each person separately ──
           const composition = brief.coverComposition;
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Multi-layer freeform cover — ${composition.subjects.length} subjects`);
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Multi-layer freeform cover — ${composition.subjects.length} subjects (Nano Banana)`);
 
           try {
-            // Generate background (DALL-E 3, no people) + all persons (GPT Image 1) in PARALLEL
+            // Generate background (DALL-E 3, no people) + all persons (Nano Banana) in PARALLEL
             const [bgResult, ...personResults] = await Promise.all([
               generateImage({ prompt: composition.backgroundPrompt }),
               ...composition.subjects.map(s =>
-                generateImageWithPeople({ prompt: s.promptFragment ?? scenePrompt })
+                generateImageWithNanoBanana({ prompt: s.promptFragment ?? scenePrompt })
               ),
             ]);
             console.log(`[ContentPipeline] Cover: background + ${personResults.length} person scene(s) generated in parallel`);
@@ -1717,15 +1835,15 @@ async function _runPipelineStages(
         }
 
         if (!mediaUrl) {
-          // ── SINGLE-SHOT: Generate person IN scene via one GPT Image 1 call ──
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite (single-shot) via GPT Image 1...`);
+          // ── SINGLE-SHOT: Generate person IN scene via Nano Banana (Gemini) ──
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite (single-shot) via Nano Banana...`);
           try {
-            const personSceneResult = await generateImageWithPeople({ prompt: scenePrompt });
+            const personSceneResult = await generateImageWithNanoBanana({ prompt: scenePrompt });
 
             if (personSceneResult.url) {
               mediaUrl = personSceneResult.url;
-              log.strategy = "person_composite";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ GPT Image 1 person scene generated`);
+              log.strategy = "person_composite_nano_banana";
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Nano Banana person scene generated`);
 
               // ── Cover: collect assets for Stage 6 ──
               if (slide.slideIndex === 0 && brief?.coverTemplate) {
