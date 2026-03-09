@@ -573,6 +573,14 @@ Every scenePrompt must follow this structure for maximum AI image quality:
 4. LIGHTING: Specific light sources + quality ("dramatic side-lit by a single cyan neon strip, deep shadows on the right")
 5. MOOD: Color palette + emotional tone ("cold blue-green palette, tension, corporate thriller feel")
 
+🚫 BANNED SCENES — NEVER use these overused visuals:
+- Server rooms, data centers, server racks (WE HAVE USED THESE 6 TIMES IN A ROW)
+- Generic glowing circuits or motherboards
+- Abstract floating data/code streams
+- Faceless silhouettes in front of screens
+- Plain office/boardroom interiors
+Instead use: outdoor cityscapes, rooftops at night, stages/arenas, desert landscapes, underwater labs, space stations, neon-lit streets, mountain peaks, glass skyscrapers from dramatic angles, or any SPECIFIC setting that connects to the actual news story
+
 ${MARKETING_BRAIN_ENHANCEMENT}
 
 ═══ AVAILABLE LOGOS ═══
@@ -1060,7 +1068,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
     brief = generateFallbackBrief(researched, topicAnalysis, runId);
   }
 
-  // ── Log the brief ──
+  // ── Log the brief (summary + full JSON for diagnosis) ──
   const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
   console.log(`\n[CreativeDirector] ═══ Creative Brief (${elapsed}s) ═══`);
   console.log(`[CreativeDirector] Global: ${brief.globalStyleNotes}`);
@@ -1069,7 +1077,12 @@ Return ONLY the JSON object. No explanation, no preamble.`;
     const logoTag = s.logoKeys ? ` [logos: ${[...s.logoKeys, ...(s.additionalLogoKeys ?? [])].join("+")}]` : "";
     const personTag = s.personSearchQuery ? ` [person: ${s.personSearchQuery.slice(0, 40)}...]` : "";
     console.log(`[CreativeDirector]   Slide ${s.slideIndex}: ${s.strategy}${templateTag}${logoTag}${personTag} | engagement: ${s.engagementScore ?? "?"}/10 | ${s.reasoning.slice(0, 80)}`);
+    console.log(`[CreativeDirector]   Slide ${s.slideIndex} scenePrompt: ${s.scenePrompt?.slice(0, 200)}`);
+    if (s.videoNarrative) console.log(`[CreativeDirector]   Slide ${s.slideIndex} videoNarrative: ${s.videoNarrative.fullPrompt?.slice(0, 200)}`);
+    console.log(`[CreativeDirector]   Slide ${s.slideIndex} logoStyle: ${s.logoStyle ?? "default"} | logoSize: ${s.logoSize ?? "default"}`);
   }
+  // Full JSON dump for deep diagnosis (check Railway logs)
+  console.log(`[CreativeDirector] FULL_BRIEF_JSON: ${JSON.stringify(brief)}`);
   console.log(`[CreativeDirector] ═══════════════════════════════════════\n`);
 
   return brief;

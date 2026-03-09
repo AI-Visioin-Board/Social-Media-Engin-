@@ -268,9 +268,9 @@ function buildHighlightedLine(
 }
 
 /** Build the full SVG overlay for content slides: split-zone layout matching @airesearches style.
- *  Top 60% = image zone (gradient transition into solid dark)
+ *  Top 50% = image zone (gradient transition into solid dark)
  *  Thin divider line + "SuggestedByGPT" brand mark
- *  Bottom 40% = dark headline zone with ALL-CAPS cyan-highlighted text
+ *  Bottom 50% = dark headline zone with ALL-CAPS cyan-highlighted text
  *  "SWIPE FOR MORE" at the very bottom
  */
 function buildContentOverlaySvg(
@@ -282,12 +282,12 @@ function buildContentOverlaySvg(
   const safeHeadline = (headline && headline.trim().length > 0) ? headline : "BREAKING AI NEWS";
   const upper = safeHeadline.toUpperCase();
 
-  // ── Split-zone constants ──
-  const IMAGE_ZONE_H = 810;  // 60% of 1350 — dramatic hero image fills this
-  const TEXT_ZONE_TOP = IMAGE_ZONE_H; // y=810 — where dark zone begins
-  const DIVIDER_Y = TEXT_ZONE_TOP + 20;
-  const BRAND_Y = DIVIDER_Y + 28;
-  const HEADLINE_START_Y = BRAND_Y + 40;
+  // ── Split-zone constants (50/50 split) ──
+  const IMAGE_ZONE_H = 675;  // 50% of 1350 — hero image fills this
+  const TEXT_ZONE_TOP = IMAGE_ZONE_H; // y=675 — where dark zone begins
+  const DIVIDER_Y = TEXT_ZONE_TOP + 15;
+  const BRAND_Y = DIVIDER_Y + 24;
+  const HEADLINE_START_Y = BRAND_Y + 32;
 
   // Headline text sizing
   const lines = wrapText(upper, 20); // tighter wrap for dramatic @airesearches style
@@ -320,25 +320,38 @@ function buildContentOverlaySvg(
   if (hasSummary) {
     const summaryFontSize = 28;
     const summaryLineH = summaryFontSize + 8;
-    let summaryWrapped = wrapText(summary!.trim(), 44);
 
     // ── Bounds check: summary must NOT overflow into SWIPE FOR MORE ──
-    // SWIPE sits at y = SLIDE_H - 55 = 1295. Keep a safe margin above it.
     const lastHeadlineY = HEADLINE_START_Y + (lines.length - 1) * lineHeight + fontSize;
     const summaryStartY = lastHeadlineY + 16;
     const swipeSafeY = SLIDE_H - 80; // must not place text below this
     const maxSummaryLines = Math.max(1, Math.floor((swipeSafeY - summaryStartY) / summaryLineH));
+    const lineLimit = Math.min(maxSummaryLines, 6);
 
-    // Cap lines to what physically fits, up to 4 max
-    const lineLimit = Math.min(summaryWrapped.length, maxSummaryLines, 4);
-    if (summaryWrapped.length > lineLimit) {
-      summaryWrapped = summaryWrapped.slice(0, lineLimit);
+    // ── Complete sentence logic: NEVER cut mid-sentence ──
+    // Split summary into sentences, accumulate until we'd exceed the line limit.
+    const fullText = summary!.trim();
+    const sentences = fullText.match(/[^.!?]*[.!?]+/g) || [fullText];
+    let fittingText = "";
+    for (const sentence of sentences) {
+      const candidate = (fittingText + sentence).trim();
+      const candidateWrapped = wrapText(candidate, 44);
+      if (candidateWrapped.length <= lineLimit) {
+        fittingText = candidate;
+      } else {
+        break;
+      }
     }
-    // Clean ending: append "..." if truncated mid-sentence
-    const lastLine = summaryWrapped[summaryWrapped.length - 1];
-    if (lastLine && !/[.!?]$/.test(lastLine.trim())) {
-      summaryWrapped[summaryWrapped.length - 1] = lastLine.trimEnd().replace(/,?\s*\S*$/, "...");
+    // If even one sentence didn't fit, use the first sentence anyway
+    if (!fittingText.trim()) {
+      fittingText = sentences[0] || fullText;
     }
+    // Ensure it ends with punctuation (complete sentence)
+    fittingText = fittingText.trim();
+    if (!/[.!?]$/.test(fittingText)) {
+      fittingText += ".";
+    }
+    let summaryWrapped = wrapText(fittingText, 44);
     summaryBlockHeight = 16 + summaryWrapped.length * summaryLineH;
     const summaryTextLines = summaryWrapped.map((line, i) =>
       `<tspan x="${SLIDE_W / 2}" y="${summaryStartY + (i + 1) * summaryLineH}">${escapeXml(line)}</tspan>`
@@ -391,9 +404,9 @@ function buildContentOverlaySvg(
     </linearGradient>
   </defs>
 
-  <!-- Gradient transition from image zone into dark zone (starts at 55%, fully opaque by 60%) -->
-  <rect x="0" y="${IMAGE_ZONE_H - 180}" width="${SLIDE_W}" height="180" fill="url(#splitFade)"/>
-  <!-- Solid dark zone: bottom 40% -->
+  <!-- Gradient transition from image zone into dark zone -->
+  <rect x="0" y="${IMAGE_ZONE_H - 160}" width="${SLIDE_W}" height="160" fill="url(#splitFade)"/>
+  <!-- Solid dark zone: bottom 50% -->
   <rect x="0" y="${TEXT_ZONE_TOP}" width="${SLIDE_W}" height="${SLIDE_H - TEXT_ZONE_TOP}" fill="black"/>
 
   <!-- Thin divider line — @airesearches signature element -->
@@ -599,12 +612,12 @@ export async function assembleSlideWithSharp(
     if (!isCover && effectiveLogoStyle !== "none" && slide.logoBuffers && slide.logoBuffers.length > 0) {
       const validLogos = slide.logoBuffers.filter((b): b is Buffer => b !== null);
 
-      // Dynamic placement zones — 10 positions for flexibility
+      // Dynamic placement zones — logos placed in the image zone, safely ABOVE the gradient
+      // Gradient starts at y=515 (IMAGE_ZONE_H - 160), so all logos stay above that
       const LOGO_ZONES = [
         { left: SLIDE_W - 160, top: 30, label: "top-right" },
-        { left: 20, top: 40, label: "top-left" },
-        { left: SLIDE_W - 150, top: 340, label: "mid-right" },
-        { left: 25, top: 380, label: "mid-left" },
+        { left: 20, top: 30, label: "top-left" },
+        { left: SLIDE_W - 150, top: 200, label: "mid-right" },
       ];
 
       const logoSizeDefault = effectiveLogoStyle === "full_color" ? 140 : 100;

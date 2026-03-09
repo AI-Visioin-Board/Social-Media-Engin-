@@ -61,8 +61,8 @@ function getCoverFontFaceCSS(): string {
   return `<style>@font-face { font-family: 'Anton'; src: url('data:font/truetype;base64,${_antonB64}') format('truetype'); }</style>`;
 }
 
-/** y-coordinate where the text zone begins (60% of 1350 = 810px — consistent @airesearches split) */
-const TEXT_ZONE_TOP = 810;
+/** y-coordinate where the text zone begins (50% of 1350 = 675px — 50/50 split) */
+const TEXT_ZONE_TOP = 675;
 
 /** Cyan accent color for headline highlights */
 const CYAN = "#00E5FF";
