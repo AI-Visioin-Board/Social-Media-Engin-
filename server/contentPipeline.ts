@@ -24,7 +24,7 @@ import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
 import { generateImage, generateImageWithPeople, generateImageWithNanoBanana } from "./_core/imageGeneration";
-import { generateVideoWithSeedance } from "./_core/videoGeneration";
+
 import { ENV } from "./_core/env";
 import { SignJWT } from "jose";
 
@@ -79,7 +79,7 @@ export interface ResearchedTopic {
   summary: string;        // 2-sentence plain-English explanation
   insightLine?: string;   // optional 1-sentence context shown as chat bubble (null = not needed)
   citations: Array<{ source: string; url: string }>;
-  videoPrompt: string;    // Seedance generation prompt
+  videoPrompt: string;    // Video/image generation prompt
   verified: boolean;      // has 3+ credible sources
 }
 
@@ -1576,15 +1576,13 @@ async function _runPipelineStages(
       }
     }
     const hasKling = !!(klingAK && klingSK);
-    const hasSeedance = !!ENV.replicateApiToken;
     // ── CREDIT SAFEGUARD: Cap Kling attempts per run ──
-    // Each Kling video costs credits and takes ~3 min. Cap at 3 attempts max per run
+    // Each Kling video costs credits and takes ~3 min. Cap at 4 attempts max per run
     // to prevent runaway costs if retries/fallbacks loop unexpectedly.
     const MAX_KLING_ATTEMPTS = 4;
     let klingAttemptsUsed = 0;
     console.log(`[ContentPipeline] ═══ Stage 5: Media Generation ═══`);
-    console.log(`[ContentPipeline] Seedance video: ${hasSeedance ? "✅ ENABLED (primary)" : "❌ DISABLED (no REPLICATE_API_TOKEN)"}`);
-    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (fallback, max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials)"}`);
+    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (primary, max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials)"}`);
     console.log(`[ContentPipeline] Slides to generate: ${slides.length}`);
 
     // Import asset library + compositing functions
@@ -1629,7 +1627,7 @@ async function _runPipelineStages(
 
       // NOTE: For person_composite, we now use Nano Banana (Gemini) which generates
       // named public figures reliably. GPT Image 1 refuses to render real people.
-      // For video slides, the new workflow is: Nano Banana still → image-to-video (Kling/Seedance).
+      // For video slides, the workflow is: Nano Banana still → Kling image-to-video.
 
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Strategy: ${strategy} | "${(slide.headline ?? "").slice(0, 50)}..."`);
 
@@ -1638,7 +1636,7 @@ async function _runPipelineStages(
       // ════════════════════════════════════════════════════════════════════════
 
       if (strategy === "kling_video") {
-        // ── VIDEO GENERATION: Seedance (primary) → Kling (fallback) ──
+        // ── VIDEO GENERATION: Kling (primary) ──
         // Prefer videoNarrative.fullPrompt from Creative Director (story-driven),
         // fall back to scenePrompt, then to marketingBrain re-generation.
         let videoSpecificPrompt = brief?.videoNarrative?.fullPrompt || scenePrompt;
@@ -1661,7 +1659,7 @@ async function _runPipelineStages(
         }
 
         // ── Step 1: If scene involves people, generate Nano Banana still first ──
-        // Then use image-to-video to add motion (Kling/Seedance img2vid).
+        // Then use image-to-video to add motion (Kling img2vid).
         // If no people, use text-to-video directly.
         const involvesPeople = brief?.personSearchQuery
           || /person|people|ceo|founder|figure|leader|executive/i.test(videoSpecificPrompt);
@@ -1680,30 +1678,7 @@ async function _runPipelineStages(
           }
         }
 
-        // ── Step 2: Try Seedance (primary) — supports both text2vid and img2vid ──
-        if (hasSeedance && !mediaUrl) {
-          try {
-            const mode = startingImageUrl ? "img2vid" : "text2vid";
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Seedance (${mode})...`);
-            const seedanceUrl = await generateVideoWithSeedance({
-              prompt: videoSpecificPrompt,
-              duration: 5,
-              aspectRatio: "9:16",
-              imageUrl: startingImageUrl ?? undefined,
-            });
-            if (seedanceUrl) {
-              mediaUrl = seedanceUrl;
-              log.strategy = startingImageUrl ? "seedance_img2vid" : "seedance_video";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Seedance video generated (${mode})`);
-            } else {
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance returned null — trying Kling`);
-            }
-          } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance failed: ${err?.message} — trying Kling`);
-          }
-        }
-
-        // ── Step 3: Try Kling as fallback — img2vid if we have a still, text2vid otherwise ──
+        // ── Step 2: Kling video — img2vid if we have a still, text2vid otherwise ──
         if (!mediaUrl && hasKling && klingAttemptsUsed < MAX_KLING_ATTEMPTS) {
           klingAttemptsUsed++;
           log.klingAttempted = true;
@@ -1731,7 +1706,7 @@ async function _runPipelineStages(
           }
         }
 
-        // ── Step 4: If all video gen failed but we have a Nano Banana still, use that ──
+        // ── Step 3: If Kling failed but we have a Nano Banana still, use that ──
         if (!mediaUrl && startingImageUrl) {
           mediaUrl = startingImageUrl;
           log.strategy = "nano_banana_still_fallback";
@@ -1982,7 +1957,7 @@ async function _runPipelineStages(
     };
 
     // ── Parallel generation: image slides concurrent, video slides sequential (rate limits) ──
-    const hasAnyVideoProvider = hasSeedance || hasKling;
+    const hasAnyVideoProvider = hasKling;
     const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasAnyVideoProvider && s.videoPrompt);
     const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasAnyVideoProvider) && s.videoPrompt);
 
