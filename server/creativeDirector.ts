@@ -71,7 +71,8 @@ export type CoverTemplate =
   | "real_photo_corner_badges"
   | "left_column_logos"
   | "duo_reaction"
-  | "screenshot_overlay";
+  | "screenshot_overlay"
+  | "freeform_composition";
 
 /** Per-slide creative brief — the output of the Creative Director for one slide */
 export interface SlideCreativeBrief {
@@ -138,6 +139,59 @@ export interface SlideCreativeBrief {
    * Higher = more likely to drive DM shares and saves.
    */
   engagementScore?: number;
+
+  // ─── SuggestedByGPT 2.0: Rich composition fields ────────────────────────
+
+  /**
+   * For cover slide (index 0) with freeform_composition template:
+   * Rich multi-element composition manifest describing background, people, and logos separately.
+   */
+  coverComposition?: {
+    /** Background scene prompt — generated SEPARATELY via DALL-E 3, must contain NO PEOPLE */
+    backgroundPrompt: string;
+    /** People to composite into the scene (each generated individually via GPT Image 1) */
+    subjects: Array<{
+      name: string;               // "Sam Altman"
+      role: string;               // "CEO of OpenAI"
+      expression: string;         // "intense, determined gaze"
+      placement: "center" | "left" | "right" | "background-left" | "background-right";
+      scale: "dominant" | "supporting" | "background";
+      /** Full GPT Image 1 prompt for this person — must be cinematic, editorial quality */
+      promptFragment: string;
+    }>;
+    /** Per-logo placement and sizing instructions */
+    logoTreatment: Array<{
+      logoKey: string;
+      size: "small" | "medium" | "large";  // 80px / 140px / 200px
+      placement: string;                    // "top-right", "bottom-center", "above-text-left", etc.
+    }>;
+    /** single_shot = 1-2 people in one GPT Image 1 call (more cohesive). multi_layer = generate each person separately and composite (for 3+ people). */
+    compositionMode: "single_shot" | "multi_layer";
+    /** Text description of the overall composition for logging/debugging */
+    compositionDescription: string;
+  };
+
+  /**
+   * For video slides (kling_video): story-driven narrative with beginning/middle/end.
+   * Connected to the headline's actual story — NOT a generic environment description.
+   */
+  videoNarrative?: {
+    beginning: string;     // "A young professional opens a laptop..."
+    middle: string;        // "Results stream in, eyes widen..."
+    end: string;           // "They lean back with a satisfied smile"
+    /** Complete assembled prompt for the video generation API */
+    fullPrompt: string;
+  };
+
+  /**
+   * Per-slide logo rendering style override.
+   * full_color = large, brand-colored, with drop shadow (company IS the story)
+   * badge = traditional dark circle badge (subtle context)
+   * none = no logos on this slide
+   */
+  logoStyle?: "full_color" | "badge" | "none";
+  /** Logo size in pixels (80-200). Used when logoStyle is full_color or badge. */
+  logoSize?: number;
 }
 
 /** Full creative brief for an entire carousel */
@@ -388,79 +442,101 @@ Carousel facts:
    ENGAGEMENT: Moderate P(share). Good brand recognition. Can use dual badges for competition stories.
    EXAMPLE: "OpenAI releases new reasoning model" → dramatic AI scene in green tones + OpenAI badge.
 
-3. "person_composite" — AI-generated photorealistic scene featuring a named public figure, rendered naturally IN the environment using GPT Image 1. The person's expression, pose, and body language match the story's emotional context.
+3. "person_composite" — AI-generated photorealistic scene featuring a named public figure, rendered naturally IN the environment using GPT Image 1. The person IS the image — they should fill 60-80% of the frame. Their expression, pose, and body language match the story's emotional context.
    WHEN: Stories dominated by a specific well-known person (CEO, founder, executive). ONLY use for people on the known figures list. This is the HIGHEST IMPACT strategy for personality-driven stories.
    ENGAGEMENT: Very high P(share) — people share content about people they recognize. High P(dwell) — faces draw eyes.
-   EXAMPLE: "Sam Altman announces GPT-5" → Sam Altman standing confidently at a podium in a futuristic conference hall, dramatic lighting, looking determined.
    CONSTRAINT: ONLY use for these verified public figures: ${Object.entries(KNOWN_FIGURES).map(([n, t]) => `${n} (${t})`).join(", ")}
-   CRITICAL — SCENE PROMPT FOR person_composite: The scenePrompt must describe the person WITHIN the scene — they are generated as part of the image, not composited separately. Include ALL of these in the prompt:
-   • PERSON: Full name, title/role, and brief physical description cues (e.g., "Tim Cook, CEO of Apple, wearing his signature dark polo")
-   • EXPRESSION/POSE: Match the story's emotional context (concerned/furrowed brow for bad news, triumphant/arms raised for victories, thoughtful/chin resting on hand for strategic moves, defiant/crossed arms for conflicts)
-   • INTEGRATION: The person must be physically IN the environment (standing at a podium, sitting in a boardroom, walking through a corridor) — NOT floating or isolated
-   • SCENE: Dramatic cinematic environment that reinforces the story mood
-   • CAMERA: Cinematic framing (e.g., "medium shot, 85mm lens, shallow depth of field")
-   EXAMPLE PROMPT: "Tim Cook, CEO of Apple, standing in a vast glass-walled boardroom overlooking Silicon Valley at twilight, looking deeply concerned with furrowed brow and crossed arms, wearing a dark navy polo, dramatic side lighting casting long shadows, teal-and-orange color grade, cinematic 85mm lens, medium shot, photorealistic"
+   CRITICAL — THE PERSON IS THE HERO OF THE IMAGE. Not the environment. The person fills the frame.
+   SCENE PROMPT REQUIREMENTS — include ALL of these:
+   • PERSON: Full name + signature appearance detail (e.g., "Sam Altman, CEO of OpenAI, wearing his signature dark grey crewneck" or "Jensen Huang, CEO of NVIDIA, in his trademark black leather jacket")
+   • EXPRESSION/POSE: Match the story's emotional context — concerned/furrowed brow for bad news, triumphant/arms raised for victories, thoughtful/chin resting on hand for strategy, defiant/crossed arms for conflicts, smirking/confident for wins
+   • FRAMING: The person should be chest-up or waist-up, filling most of the frame. NOT full body. NOT tiny in a vast scene.
+   • LIGHTING: ALWAYS specify 2+ light sources with colors. E.g., "dramatic orange-cyan split lighting from opposing neon signs" or "cold blue rim light from behind, warm key light from above-left"
+   • LENS: Always specify a lens. 85mm f/1.4 for intense portraits, 50mm f/2 for medium shots, 35mm f/2.8 for environmental portraits
+   • COLOR GRADE: Always specify. "teal-and-orange", "cold blue steel", "warm golden hour", "high-contrast noir"
+   • ENVIRONMENT: The environment should reinforce the story mood but stay BEHIND the person as atmosphere, NOT compete with them
 
-4. "kling_video" — 5-second cinematic video clip via Kling 2.5 Turbo AI. Video prompts MUST include camera movement (slow push-in, orbit, dolly zoom, parallax) and dynamic action.
+   ❌ BAD PROMPT: "Sam Altman standing in a boardroom overlooking Silicon Valley at twilight, wearing a polo"
+   ✅ GOOD PROMPT: "Sam Altman, CEO of OpenAI, standing at the edge of a rain-slicked rooftop at night, city lights reflecting in puddles around his feet, wearing a dark grey crewneck, arms crossed, expression halfway between a smirk and concern, dramatic orange-cyan split lighting from opposing neon signs below, shallow depth of field 85mm f/1.4, photorealistic editorial portrait, cinematic color grade"
+   ✅ GOOD PROMPT: "Jensen Huang, CEO of NVIDIA, caught mid-gesture on the GTC stage, pointing emphatically at the audience, wearing his signature black leather jacket, massive LED wall behind him displaying swirling neural network visualizations in green and purple, dramatic stage spotlights with deep purple and green spots casting long shadows, wide-angle 24mm lens capturing the scale, photorealistic"
+   ✅ GOOD PROMPT: "Tim Cook, CEO of Apple, sitting alone at the head of an impossibly long dark conference table, fingers steepled, looking directly at camera with quiet intensity, single overhead spotlight creating a pool of warm light in otherwise pitch darkness, reflection in the polished table surface, 85mm f/1.4 shallow depth of field, noir color grade, photorealistic"
+
+4. "kling_video" — 5-second cinematic video clip (Seedance or Kling 2.5 Turbo). Video slides tell a STORY with beginning, middle, and end — NOT just a pretty environment.
    WHEN: The story has dramatic visual potential — action, confrontation, transformation, or spectacle.
    ENGAGEMENT: Highest P(dwell). Very high P(share) for dramatic clips. Instagram mixed-media carousels outperform.
    LIMIT: Assign to exactly 2 slides per carousel (expensive, slow, rate-limited).
+   CRITICAL — STORY-DRIVEN VIDEO NARRATIVES:
+   Every video prompt must describe a CHARACTER doing something with a clear beginning, middle, and end. The video connects to the headline's actual news story.
+   • BEGINNING: Establish the character and setting (1-2 seconds)
+   • MIDDLE: The key action or revelation happens (2-3 seconds)
+   • END: The emotional payoff — a reaction, a consequence, a dramatic moment (1-2 seconds)
+   • CAMERA: Must MOVE — slow push-in, orbit, dolly zoom, pull-back reveal. No static shots.
 
-═══ PART B: COVER SLIDE TEMPLATES (index 0 only) ═══
+   ❌ BAD VIDEO PROMPT: "A glowing server room with blue neon lights and data flowing through cables"
+   ❌ BAD VIDEO PROMPT: "A futuristic AI interface with holographic displays"
+   ✅ GOOD VIDEO PROMPT: "A figure in a hoodie sits at a dual-monitor setup in a dark room, typing rapidly. The screens flash bright green — OpenAI's interface appears with streaming text. The figure leans back slowly, the screens' glow illuminating their amazed expression as a holographic interface begins expanding from the monitors into the room around them. Slow dolly zoom from over-the-shoulder to wide shot. Cyan and green lighting, volumetric haze."
+   ✅ GOOD VIDEO PROMPT: "A CEO in a sharp suit walks down a long glass corridor in a tech headquarters, city skyline visible through the windows. They pause at the end, looking out at the city below. A massive holographic display activates beside them showing stock charts plunging downward. Their reflection in the glass shows concern. Slow tracking shot following from behind, transitioning to profile close-up. Cold blue-steel color grade, dramatic backlighting."
 
-The cover slide (index 0) uses a TEMPLATE SYSTEM — 8 plug-and-play layouts derived from the highest-performing AI news accounts. For the cover, you choose BOTH a strategy AND a coverTemplate. The strategy controls the background generation method; the coverTemplate controls the layout schema for compositing.
+   You MUST fill the videoNarrative field for all kling_video slides:
+   { "beginning": "...", "middle": "...", "end": "...", "fullPrompt": "the complete assembled narrative prompt" }
 
-For the cover slide, set strategy to "cinematic_scene" (or "person_composite" if a person is central) AND set coverTemplate to one of these 8 options:
+═══ PART B: COVER SLIDE (index 0) — MOVIE POSTER COMPOSITION ═══
 
-TEMPLATE 1: "council_of_players"
-  Layout: 1 dominant central figure (full color) + 3-4 supporting figures (desaturated/B&W corners) + 2 circular logo badges centered above text.
-  USE WHEN: Weekly roundups, multi-party stories, industry "who's who" moments.
-  ASSETS NEEDED: personSearchQuery (main figure) + additionalPersonQueries (up to 3 supporting) + logoKeys (2 logos).
+The cover slide is 80% of the post's performance. Think like a MOVIE POSTER DESIGNER, not an AI image prompter.
 
-TEMPLATE 2: "backs_to_the_storm"
-  Layout: 3 logos in a row above text + dramatic cinematic background.
-  USE WHEN: Multiple AI models/companies doing the same thing, shared industry events.
-  ASSETS NEEDED: logoKeys (up to 3 logos). No persons needed.
+Study these real examples of covers that get 5,000-10,000+ likes:
+- @theaifield: Trump with glowing eyes CENTER, Sam Altman LEFT, another figure RIGHT, stormy Pentagon background, small contextual logos at bottom. Multiple people arranged dramatically like an ensemble movie poster.
+- @evolving.ai: Two chrome robots standing in a desert with a nuclear explosion behind them. No people needed — the dramatic scene IS the hook. Small colorful logos in the lower corners.
+- @airesearches: One person (Sam Altman) filling 70% of the frame in a medium shot, big colorful logos floating around him at various sizes.
 
-TEMPLATE 3: "solo_machine"
-  Layout: 1 AI-generated machine/robot, no logos, dark moody bg, cyan accent text. No human presence.
-  USE WHEN: Abstract AI capability stories, no named company is central.
-  ASSETS NEEDED: Just the scenePrompt. No logos, no persons.
+KEY PRINCIPLE: Every cover must feel UNIQUE. Do NOT apply the same formula every time. The composition depends on THIS WEEK'S specific stories.
 
-TEMPLATE 4: "person_floating_orbs"
-  Layout: 1 real person center-lower frame + 4-5 floating logo orbs around head/shoulders.
-  USE WHEN: One person disrupting multiple companies, "X vs everyone" stories.
-  ASSETS NEEDED: personSearchQuery (the central figure) + logoKeys (up to 5 logos).
+You have TWO approaches for covers:
 
-TEMPLATE 5: "real_photo_corner_badges"
-  Layout: Real-world photo fills frame + 2 logo badges stacked top-right corner.
-  USE WHEN: Real events, partnerships, hires, acquisitions.
-  ASSETS NEEDED: logoKeys (2 logos). Background is the photo.
+APPROACH 1: "freeform_composition" (PREFERRED for multi-person or complex covers)
+  Use when you want to compose multiple people, specific logo arrangements, or complex layered scenes.
+  Set coverTemplate to "freeform_composition" and fill the coverComposition field:
+  - backgroundPrompt: Dramatic environment with NO PEOPLE (generated separately via DALL-E 3)
+  - subjects[]: Array of people, each with name, expression, placement, scale, and a GPT Image 1 prompt
+  - logoTreatment[]: Array of logos with size (small/medium/large) and placement
+  - compositionMode: "single_shot" (1-2 people, one image) or "multi_layer" (3+ people, composite)
+  - compositionDescription: Text description of the overall vision
 
-TEMPLATE 6: "left_column_logos"
-  Layout: 3 logos stacked vertically on left edge + dramatic AI background.
-  USE WHEN: Multiple AI models, logos must be prominent, logo-heavy story.
-  ASSETS NEEDED: logoKeys (up to 3 logos).
+  COMPOSITION THINKING:
+  - WHO is in this cover? Which people are the story?
+  - WHERE does each person go? (center = dominant, sides = supporting, corners = background)
+  - HOW BIG is each person? dominant = 70% height, supporting = 40%, background = 30%
+  - WHAT LOGOS are relevant? Are they prominent (large, full-color) or contextual (small, subtle)?
+  - WHAT BACKGROUND reinforces the story mood?
 
-TEMPLATE 7: "duo_reaction"
-  Layout: 2 people side by side + 2 logos stacked top-left corner.
-  USE WHEN: Two companies/people in conflict or rivalry, debate stories.
-  ASSETS NEEDED: personSearchQuery (person 1) + additionalPersonQueries (person 2) + logoKeys (2 logos).
+APPROACH 2: Legacy templates (for simpler covers)
+  The 8 original templates still work as fallbacks:
+  "council_of_players" — 1 main figure + 3-4 supporting + 2 logos (weekly roundups)
+  "backs_to_the_storm" — 3 logos + dramatic bg (multi-company events)
+  "solo_machine" — AI robot/machine, no logos (abstract AI stories)
+  "person_floating_orbs" — 1 person + floating logo orbs (X vs everyone)
+  "real_photo_corner_badges" — photo bg + 2 corner badges (events/partnerships)
+  "left_column_logos" — 3 logos stacked left + AI bg (logo-heavy stories)
+  "duo_reaction" — 2 people side by side + 2 logos (rivalries)
+  "screenshot_overlay" — screenshot + dark vignette + YELLOW headline (product launches)
 
-TEMPLATE 8: "screenshot_overlay"
-  Layout: Screenshot fills upper 55% + dark vignette + 2 logos + YELLOW/GOLD headline.
-  USE WHEN: Product launches, new tool announcements, "here's what it looks like" stories.
-  ASSETS NEEDED: screenshotDescription (what the screenshot shows) + logoKeys (2 logos).
+WHEN TO USE WHICH:
+  - 2+ recognizable people → freeform_composition (multi-layer) — arrange them like a movie poster
+  - 1 person + logos → freeform_composition (single_shot) or person_floating_orbs
+  - No people, dramatic metaphor → solo_machine or cinematic_scene
+  - Product launch with UI → screenshot_overlay
+  - Pure logo story → backs_to_the_storm or left_column_logos
 
-COVER TEMPLATE SELECTION GUIDE:
-  Multi-party/roundup story → council_of_players
-  Multiple AI models same event → backs_to_the_storm or left_column_logos
-  Abstract AI capability, no named company → solo_machine
-  One person vs multiple companies → person_floating_orbs
-  Real event, partnership, hire → real_photo_corner_badges
-  Logo-heavy story → left_column_logos
-  Two people/companies in rivalry → duo_reaction
-  Product launch, new tool → screenshot_overlay
+═══ LOGO STRATEGY ═══
+
+Logos are NOT always dark circle badges. You decide per-slide how logos should appear:
+
+logoStyle options:
+- "full_color" — Large (140-200px), rendered in the brand's actual colors, with subtle drop shadow. Use when the COMPANY is central to the story.
+- "badge" — Traditional small (80-100px) dark circular badge. Use for subtle context when the scene is the hero.
+- "none" — No logos at all. Use when the visual speaks for itself (e.g., recognizable person needs no logo, or dramatic metaphor scene).
+
+Set logoStyle and optionally logoSize (80-200) per slide.
 
 ═══ CRITICAL RULES ═══
 
@@ -510,25 +586,53 @@ Return valid JSON matching this exact schema:
     {
       "slideIndex": 0,
       "strategy": "cinematic_scene" | "person_composite",
-      "coverTemplate": "council_of_players" | "backs_to_the_storm" | "solo_machine" | "person_floating_orbs" | "real_photo_corner_badges" | "left_column_logos" | "duo_reaction" | "screenshot_overlay",
-      "reasoning": "Why this template for this specific cover story (1-2 sentences)",
-      "scenePrompt": "The full PROMPTHIS-structured scene description for AI image generation",
-      "logoKeys": ["openai", "anthropic"] (up to 2 logo keys — see template requirements),
-      "additionalLogoKeys": ["google"] (3rd+ logos for multi-logo templates),
-      "personSearchQuery": "Full Name Title Company photo transparent PNG cutout" (if person-based template),
-      "additionalPersonQueries": ["Person 2 Name Title photo transparent PNG"] (for multi-person templates),
+      "coverTemplate": "freeform_composition" | "council_of_players" | "backs_to_the_storm" | "solo_machine" | "person_floating_orbs" | "real_photo_corner_badges" | "left_column_logos" | "duo_reaction" | "screenshot_overlay",
+      "reasoning": "Why this composition for this specific cover (1-2 sentences)",
+      "scenePrompt": "Fallback scene prompt if coverComposition is not used",
+      "coverComposition": {
+        "backgroundPrompt": "Dramatic environment with NO PEOPLE — used as the background layer",
+        "subjects": [
+          {
+            "name": "Sam Altman",
+            "role": "CEO of OpenAI",
+            "expression": "intense, determined gaze, slight smirk",
+            "placement": "center",
+            "scale": "dominant",
+            "promptFragment": "Sam Altman, CEO of OpenAI, wearing a dark grey crewneck, arms crossed, expression halfway between a smirk and concern, dramatic orange-cyan split lighting, shallow depth of field 85mm f/1.4, photorealistic editorial portrait, dark moody background"
+          }
+        ],
+        "logoTreatment": [
+          { "logoKey": "openai", "size": "medium", "placement": "top-right" }
+        ],
+        "compositionMode": "single_shot" | "multi_layer",
+        "compositionDescription": "Movie-poster style with Altman as dominant center figure..."
+      },
+      "logoKeys": ["openai", "anthropic"],
+      "additionalLogoKeys": ["google"],
+      "logoStyle": "full_color" | "badge" | "none",
+      "logoSize": 140,
+      "personSearchQuery": "Full Name Title Company photo portrait" (if legacy person-based template),
+      "additionalPersonQueries": ["Person 2 Name Title photo portrait"],
       "personPlacement": "center" | "left" | "right",
-      "screenshotDescription": "Description of what the product screenshot should show" (only for screenshot_overlay),
+      "screenshotDescription": "..." (only for screenshot_overlay),
       "engagementScore": 8.5
     },
     {
       "slideIndex": 1,
       "strategy": "cinematic_scene" | "scene_with_badge" | "person_composite" | "kling_video",
-      "reasoning": "Why this strategy for this specific story (1-2 sentences)",
-      "scenePrompt": "The full PROMPTHIS-structured scene description for AI image/video generation",
-      "logoKeys": ["openai"] (only if strategy is scene_with_badge, max 2 keys),
-      "personSearchQuery": "Full Name Title Company photo transparent PNG cutout" (only if person_composite),
-      "personPlacement": "center" | "left" | "right" (only if person_composite),
+      "reasoning": "Why this strategy (1-2 sentences)",
+      "scenePrompt": "PROMPTHIS scene description (person-first for person_composite, environment for cinematic_scene)",
+      "logoKeys": ["openai"],
+      "logoStyle": "full_color" | "badge" | "none",
+      "logoSize": 140,
+      "personSearchQuery": "Full Name Title Company photo portrait" (only if person_composite),
+      "personPlacement": "center" | "left" | "right",
+      "videoNarrative": {
+        "beginning": "A person opens their laptop...",
+        "middle": "Results stream in, eyes widen...",
+        "end": "They lean back with a satisfied smile",
+        "fullPrompt": "Complete assembled video narrative prompt"
+      },
       "engagementScore": 7.5
     }
   ]
@@ -620,12 +724,16 @@ Remember:
 - Slide 0 (cover) carries 80% of the post's weight — maximum visual impact
 - ALWAYS set coverTemplate for slide 0
 - Use at least 2 different strategies across all 5 slides
-- Assign kling_video to exactly 1-2 content slides (NOT the cover unless exceptional)
+- Assign kling_video to exactly 2 content slides (NOT the cover)
 - person_composite ONLY for verified public figures listed in the system prompt
+- DALL-E 3 is ONLY for cinematic_scene (environments/metaphors with ZERO people). ANY slide with a person MUST use person_composite → GPT Image 1.
 - Every scenePrompt must follow PROMPTHIS structure (Setting → Camera → Subject → Lighting → Mood)
 - Scene prompts must contain ZERO text — no letters, words, numbers, or readable characters
-- For cover templates needing 3+ logos, use additionalLogoKeys for the 3rd logo
-- For cover templates needing 2+ people, use additionalPersonQueries for the 2nd and 3rd people
+- For freeform_composition covers: fill the coverComposition field with backgroundPrompt, subjects, logoTreatment, compositionMode
+- For kling_video slides: fill the videoNarrative field with beginning, middle, end, fullPrompt
+- Set logoStyle per slide: "full_color", "badge", or "none"
+- For legacy cover templates needing 3+ logos, use additionalLogoKeys for the 3rd logo
+- For legacy cover templates needing 2+ people, use additionalPersonQueries for the 2nd and 3rd people
 
 Return ONLY the JSON object. No explanation, no preamble.`;
 
@@ -667,6 +775,11 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         personPlacement?: string;
         screenshotDescription?: string;
         engagementScore?: number;
+        // 2.0 fields
+        coverComposition?: any;
+        videoNarrative?: any;
+        logoStyle?: string;
+        logoSize?: number;
       }>;
     };
 
@@ -681,6 +794,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
     const validCoverTemplates = new Set<CoverTemplate>([
       "council_of_players", "backs_to_the_storm", "solo_machine", "person_floating_orbs",
       "real_photo_corner_badges", "left_column_logos", "duo_reaction", "screenshot_overlay",
+      "freeform_composition",
     ]);
 
     const sanitizedSlides: SlideCreativeBrief[] = parsed.slides.map((s) => {
@@ -698,8 +812,8 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         if (s.coverTemplate && validCoverTemplates.has(s.coverTemplate as CoverTemplate)) {
           coverTemplate = s.coverTemplate as CoverTemplate;
         } else {
-          // Default cover template based on strategy
-          coverTemplate = strategy === "person_composite" ? "person_floating_orbs" : "solo_machine";
+          // Default cover template — prefer freeform_composition for richest output
+          coverTemplate = strategy === "person_composite" ? "freeform_composition" : "solo_machine";
           console.warn(`[CreativeDirector] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate}`);
         }
         console.log(`[CreativeDirector] Cover template: ${coverTemplate}`);
@@ -723,7 +837,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
             console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
             strategy = "scene_with_badge";
             // Re-assign cover template if this was a person-based template
-            if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate)) {
+            if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition"].includes(coverTemplate)) {
               coverTemplate = "backs_to_the_storm";
             }
           }
@@ -777,6 +891,50 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         }
       }
 
+      // ── Parse new 2.0 fields ──
+      // coverComposition (only for slide 0 with freeform_composition)
+      let coverComposition: SlideCreativeBrief["coverComposition"];
+      if (s.slideIndex === 0 && coverTemplate === "freeform_composition" && (s as any).coverComposition) {
+        const cc = (s as any).coverComposition;
+        coverComposition = {
+          backgroundPrompt: cc.backgroundPrompt ?? "Dark dramatic cinematic environment, neon lighting, no people, vertical 9:16",
+          subjects: Array.isArray(cc.subjects) ? cc.subjects.map((sub: any) => ({
+            name: sub.name ?? "Unknown",
+            role: sub.role ?? "",
+            expression: sub.expression ?? "neutral",
+            placement: ["center", "left", "right", "background-left", "background-right"].includes(sub.placement) ? sub.placement : "center",
+            scale: ["dominant", "supporting", "background"].includes(sub.scale) ? sub.scale : "supporting",
+            promptFragment: sub.promptFragment ?? `${sub.name ?? "A person"}, photorealistic editorial portrait, dramatic lighting, 85mm f/1.4`,
+          })) : [],
+          logoTreatment: Array.isArray(cc.logoTreatment) ? cc.logoTreatment.filter((lt: any) => lt.logoKey && lt.logoKey in LOGO_LIBRARY).map((lt: any) => ({
+            logoKey: lt.logoKey,
+            size: ["small", "medium", "large"].includes(lt.size) ? lt.size : "medium",
+            placement: lt.placement ?? "top-right",
+          })) : [],
+          compositionMode: cc.compositionMode === "multi_layer" ? "multi_layer" : "single_shot",
+          compositionDescription: cc.compositionDescription ?? "Freeform composition",
+        };
+        console.log(`[CreativeDirector] Cover: freeform_composition with ${coverComposition.subjects.length} subjects, ${coverComposition.logoTreatment.length} logos, mode=${coverComposition.compositionMode}`);
+      }
+
+      // videoNarrative (only for kling_video slides)
+      let videoNarrative: SlideCreativeBrief["videoNarrative"];
+      if (strategy === "kling_video" && (s as any).videoNarrative) {
+        const vn = (s as any).videoNarrative;
+        videoNarrative = {
+          beginning: vn.beginning ?? "",
+          middle: vn.middle ?? "",
+          end: vn.end ?? "",
+          fullPrompt: vn.fullPrompt ?? `${vn.beginning ?? ""} ${vn.middle ?? ""} ${vn.end ?? ""}`.trim(),
+        };
+      }
+
+      // logoStyle and logoSize (per-slide logo control)
+      const validLogoStyles = ["full_color", "badge", "none"] as const;
+      const logoStyle = validLogoStyles.includes((s as any).logoStyle) ? (s as any).logoStyle as "full_color" | "badge" | "none" : undefined;
+      const logoSize = typeof (s as any).logoSize === "number" && (s as any).logoSize >= 80 && (s as any).logoSize <= 200
+        ? (s as any).logoSize as number : undefined;
+
       return {
         slideIndex: s.slideIndex,
         strategy,
@@ -791,6 +949,11 @@ Return ONLY the JSON object. No explanation, no preamble.`;
         personPlacement: strategy === "person_composite" ? personPlacement : undefined,
         screenshotDescription: s.slideIndex === 0 && coverTemplate === "screenshot_overlay" ? s.screenshotDescription : undefined,
         engagementScore: typeof s.engagementScore === "number" ? s.engagementScore : undefined,
+        // 2.0 fields
+        coverComposition,
+        videoNarrative,
+        logoStyle,
+        logoSize,
       };
     });
 
@@ -931,19 +1094,17 @@ function generateFallbackBrief(
 
   const slides: SlideCreativeBrief[] = [];
 
-  // Cover slide (index 0): cinematic_scene or person_composite if a famous person dominates
+  // Cover slide (index 0): prefer freeform_composition for richest covers
   const allPeople = topicAnalysis.flatMap(ta => ta.detectedPeople);
   const allDetectedLogosFB = Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos)));
   const coverStrategy: VisualStrategy = allPeople.length > 0
     ? "person_composite"
     : "cinematic_scene";
 
-  // Choose a sensible fallback cover template
+  // Choose a sensible fallback cover template — prefer freeform for people
   let fallbackCoverTemplate: CoverTemplate;
-  if (coverStrategy === "person_composite" && allDetectedLogosFB.length >= 3) {
-    fallbackCoverTemplate = "person_floating_orbs";
-  } else if (coverStrategy === "person_composite") {
-    fallbackCoverTemplate = "real_photo_corner_badges";
+  if (coverStrategy === "person_composite") {
+    fallbackCoverTemplate = "freeform_composition";
   } else if (allDetectedLogosFB.length >= 3) {
     fallbackCoverTemplate = "left_column_logos";
   } else if (allDetectedLogosFB.length >= 2) {
@@ -952,12 +1113,36 @@ function generateFallbackBrief(
     fallbackCoverTemplate = "solo_machine";
   }
 
+  // Build freeform coverComposition if we have people
+  let coverComposition: SlideCreativeBrief["coverComposition"];
+  if (fallbackCoverTemplate === "freeform_composition" && allPeople.length > 0) {
+    const uniquePeople = allPeople.filter((p, i, arr) => arr.findIndex(x => x.name === p.name) === i).slice(0, 3);
+    coverComposition = {
+      backgroundPrompt: "A vast dark cinematic environment with dramatic volumetric lighting, deep shadows, neon accent lights in cyan and orange, no people present, vertical 9:16, photorealistic",
+      subjects: uniquePeople.map((person, i) => ({
+        name: person.name,
+        role: person.title,
+        expression: "intense, determined",
+        placement: i === 0 ? "center" as const : i === 1 ? "left" as const : "right" as const,
+        scale: i === 0 ? "dominant" as const : "supporting" as const,
+        promptFragment: `${person.name}, ${person.title}, wearing professional attire, dramatic expression matching a high-stakes tech news story, dramatic side lighting with orange and cyan split tones, shallow depth of field 85mm f/1.4, photorealistic editorial portrait, dark moody background`,
+      })),
+      logoTreatment: allDetectedLogosFB.slice(0, 3).map((key, i) => ({
+        logoKey: key,
+        size: "medium" as const,
+        placement: i === 0 ? "top-right" : i === 1 ? "top-left" : "above-text-center",
+      })),
+      compositionMode: uniquePeople.length <= 2 ? "single_shot" as const : "multi_layer" as const,
+      compositionDescription: `Movie-poster cover featuring ${uniquePeople.map(p => p.name).join(", ")} with dramatic lighting`,
+    };
+  }
+
   slides.push({
     slideIndex: 0,
     strategy: coverStrategy,
     coverTemplate: fallbackCoverTemplate,
     reasoning: coverStrategy === "person_composite"
-      ? `Famous person detected: ${allPeople[0].name} — high-impact cover`
+      ? `Famous person detected: ${allPeople[0].name} — high-impact movie-poster cover`
       : "Dramatic cinematic scene for maximum scroll-stop impact",
     scenePrompt: researched[0]?.videoPrompt ?? "Dramatic cinematic AI technology scene, neon lighting, vertical 9:16",
     logoKeys: allDetectedLogosFB.slice(0, 2),
@@ -967,6 +1152,9 @@ function generateFallbackBrief(
       : undefined,
     personPlacement: "center",
     engagementScore: 7,
+    coverComposition,
+    logoStyle: "full_color",
+    logoSize: 140,
   });
 
   // Content slides (1-4): alternate strategies for variety

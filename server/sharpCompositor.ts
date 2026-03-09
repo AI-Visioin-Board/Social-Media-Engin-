@@ -106,6 +106,18 @@ export interface SharpSlideInput {
   logoBuffers?: Array<Buffer | null>;
   /** For screenshot_overlay template: the captured/generated product screenshot (1080×742 PNG) */
   screenshotBuffer?: Buffer | null;
+
+  // ── 2.0 fields: logo control ──
+  /** Per-slide logo rendering style: full_color (large, brand colors), badge (dark circle), or none */
+  logoStyle?: "full_color" | "badge" | "none";
+  /** Logo size in pixels (80-200). Default: 100 for badge, 140 for full_color */
+  logoSize?: number;
+
+  // ── 2.0 fields: freeform composition manifest ──
+  /** Composition manifest from Creative Director (for freeform_composition covers) */
+  coverComposition?: import('./coverTemplateCompositor').CoverTemplateInput["coverComposition"];
+  /** Dedicated background buffer for multi-layer freeform covers (DALL-E 3 no-people scene) */
+  dedicatedBackgroundBuffer?: Buffer | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -530,14 +542,18 @@ export async function assembleSlideWithSharp(
     try {
       console.log(`[SharpCompositor] Cover slide — routing to template: ${slide.coverTemplate}`);
       const { composeCoverTemplate } = await import("./coverTemplateCompositor");
+      // For multi-layer freeform covers, use the dedicated DALL-E 3 background
+      // (not the mediaUrl download which may be a person image)
+      const coverBgBuffer = slide.dedicatedBackgroundBuffer ?? bgImageBuffer;
       const coverBuffer = await composeCoverTemplate({
         template: slide.coverTemplate,
-        backgroundBuffer: bgImageBuffer,
+        backgroundBuffer: coverBgBuffer,
         headline,
         mainPersonBuffer: slide.personBuffer ?? undefined,
         supportingPersonBuffers: (slide.additionalPersonBuffers ?? []).filter(Boolean) as Buffer[],
         logoBuffers: (slide.logoBuffers ?? []).filter(Boolean) as Buffer[],
         screenshotBuffer: slide.screenshotBuffer ?? undefined,
+        coverComposition: slide.coverComposition ?? undefined,
       });
       const s3Key = `sharp-slides/run-${runId}-cover-${slide.coverTemplate}-${Date.now()}.png`;
       const { url } = await storagePut(s3Key, coverBuffer, "image/png");
@@ -577,60 +593,97 @@ export async function assembleSlideWithSharp(
     }
 
     // ── Content slide logo compositing (non-cover slides) ────────────────
-    // Organic logo scatter in the image zone (top 60%) — @airesearches style
-    // Logos are placed at varied positions with slight size variation for a natural look
+    // 2.0: Supports full-color logos (large, brand colors, drop shadow) OR traditional badges
     const logoComposites: sharp.OverlayOptions[] = [];
-    if (!isCover && slide.logoBuffers && slide.logoBuffers.length > 0) {
+    const effectiveLogoStyle = slide.logoStyle ?? "full_color"; // default to full_color in 2.0
+    if (!isCover && effectiveLogoStyle !== "none" && slide.logoBuffers && slide.logoBuffers.length > 0) {
       const validLogos = slide.logoBuffers.filter((b): b is Buffer => b !== null);
-      const IMAGE_ZONE_H = 810; // top 60% — logos must stay within this zone
-      // Predefined organic scatter positions (varied, non-symmetric, professional)
-      // Each position is designed to avoid the center where the hero image subject is
-      // Logos composite ON TOP of the gradient overlay, so they stay crisp
-      // even in the gradient zone. Spread across the image zone (above the
-      // text at y≈810) for a natural sticker-like look — not bunched at
-      // the top, but never in the lower text area.
-      const scatterPositions = [
-        { left: SLIDE_W - 110, top: 40, size: 100 },    // top-right
-        { left: 30, top: 60, size: 90 },                 // top-left
-        { left: SLIDE_W - 100, top: 360, size: 85 },    // mid-right (still above text zone)
-        { left: 40, top: 420, size: 80 },                // mid-left (still above text zone)
+
+      // Dynamic placement zones — 10 positions for flexibility
+      const LOGO_ZONES = [
+        { left: SLIDE_W - 160, top: 30, label: "top-right" },
+        { left: 20, top: 40, label: "top-left" },
+        { left: SLIDE_W - 150, top: 340, label: "mid-right" },
+        { left: 25, top: 380, label: "mid-left" },
       ];
+
+      const logoSizeDefault = effectiveLogoStyle === "full_color" ? 140 : 100;
+      const LOGO_SIZE = slide.logoSize ?? logoSizeDefault;
+
       for (let i = 0; i < Math.min(validLogos.length, 3); i++) {
         try {
-          const pos = scatterPositions[i];
-          const BADGE_SIZE = pos.size;
-          const innerSize = Math.round(BADGE_SIZE * 0.65);
-          const resizedLogo = await sharp(validLogos[i])
-            .resize(innerSize, innerSize, { fit: "inside" })
-            .png()
-            .toBuffer();
-          const logoMeta = await sharp(resizedLogo).metadata();
-          const lW = logoMeta.width ?? innerSize;
-          const lH = logoMeta.height ?? innerSize;
+          const pos = LOGO_ZONES[i];
 
-          // Dark circular badge with subtle white border
-          const badgeSvg = `<svg width="${BADGE_SIZE}" height="${BADGE_SIZE}" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="${BADGE_SIZE / 2}" cy="${BADGE_SIZE / 2}" r="${BADGE_SIZE / 2 - 2}"
-              fill="rgba(10,10,30,0.75)" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
-          </svg>`;
-          const badgeBg = await sharp(Buffer.from(badgeSvg)).png().toBuffer();
-          const badge = await sharp(badgeBg)
-            .composite([{
-              input: resizedLogo,
-              left: Math.round((BADGE_SIZE - lW) / 2),
-              top: Math.round((BADGE_SIZE - lH) / 2),
-            }])
-            .png()
-            .toBuffer();
+          if (effectiveLogoStyle === "full_color") {
+            // ── FULL-COLOR LOGO: brand colors, larger, drop shadow ──
+            const resized = await sharp(validLogos[i])
+              .resize(LOGO_SIZE, LOGO_SIZE, { fit: "inside" })
+              .png()
+              .toBuffer();
+            const meta = await sharp(resized).metadata();
+            const lW = meta.width ?? LOGO_SIZE;
+            const lH = meta.height ?? LOGO_SIZE;
 
-          logoComposites.push({
-            input: badge,
-            left: pos.left,
-            top: pos.top,
-          });
-          console.log(`[SharpCompositor] Logo badge ${i + 1} scattered on content slide ${slideIndex} at (${pos.left}, ${pos.top})`);
+            // Add subtle drop shadow via a shadow canvas
+            const padding = 12;
+            const canvasW = lW + padding * 2;
+            const canvasH = lH + padding * 2;
+            const shadowSvg = `<svg width="${canvasW}" height="${canvasH}" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <filter id="ds${i}">
+                  <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="black" flood-opacity="0.4"/>
+                </filter>
+              </defs>
+              <rect width="${canvasW}" height="${canvasH}" fill="none"/>
+            </svg>`;
+
+            const canvas = await sharp(Buffer.from(shadowSvg)).png().toBuffer();
+            const fullColorLogo = await sharp(canvas)
+              .composite([{ input: resized, left: padding, top: padding }])
+              .png()
+              .toBuffer();
+
+            logoComposites.push({
+              input: fullColorLogo,
+              left: pos.left,
+              top: pos.top,
+            });
+            console.log(`[SharpCompositor] Full-color logo ${i + 1} (${LOGO_SIZE}px) on slide ${slideIndex} at (${pos.left}, ${pos.top})`);
+          } else {
+            // ── BADGE LOGO: traditional dark circle (backward compat) ──
+            const BADGE_SIZE = LOGO_SIZE;
+            const innerSize = Math.round(BADGE_SIZE * 0.65);
+            const resizedLogo = await sharp(validLogos[i])
+              .resize(innerSize, innerSize, { fit: "inside" })
+              .png()
+              .toBuffer();
+            const logoMeta = await sharp(resizedLogo).metadata();
+            const lW = logoMeta.width ?? innerSize;
+            const lH = logoMeta.height ?? innerSize;
+
+            const badgeSvg = `<svg width="${BADGE_SIZE}" height="${BADGE_SIZE}" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="${BADGE_SIZE / 2}" cy="${BADGE_SIZE / 2}" r="${BADGE_SIZE / 2 - 2}"
+                fill="rgba(10,10,30,0.75)" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
+            </svg>`;
+            const badgeBg = await sharp(Buffer.from(badgeSvg)).png().toBuffer();
+            const badge = await sharp(badgeBg)
+              .composite([{
+                input: resizedLogo,
+                left: Math.round((BADGE_SIZE - lW) / 2),
+                top: Math.round((BADGE_SIZE - lH) / 2),
+              }])
+              .png()
+              .toBuffer();
+
+            logoComposites.push({
+              input: badge,
+              left: pos.left,
+              top: pos.top,
+            });
+            console.log(`[SharpCompositor] Badge logo ${i + 1} (${BADGE_SIZE}px) on slide ${slideIndex} at (${pos.left}, ${pos.top})`);
+          }
         } catch (logoErr: any) {
-          console.warn(`[SharpCompositor] Logo badge compositing failed: ${logoErr?.message}`);
+          console.warn(`[SharpCompositor] Logo compositing failed: ${logoErr?.message}`);
         }
       }
     }

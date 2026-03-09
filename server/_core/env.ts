@@ -24,6 +24,9 @@ export const ENV = {
   googleCseApiKey: process.env.GOOGLE_CSE_API_KEY ?? "",
   googleCseId: process.env.GOOGLE_CSE_ID ?? "",
 
+  // Replicate (Seedance video gen)
+  replicateApiToken: process.env.REPLICATE_API_TOKEN ?? "",
+
   // External APIs
   newsApiKey: process.env.NEWS_API_KEY ?? "",
   serpApiKey: process.env.SERP_API_KEY ?? "",

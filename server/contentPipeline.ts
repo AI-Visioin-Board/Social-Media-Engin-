@@ -24,6 +24,7 @@ import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
 import { generateImage, generateImageWithPeople } from "./_core/imageGeneration";
+import { generateVideoWithSeedance } from "./_core/videoGeneration";
 import { ENV } from "./_core/env";
 import { SignJWT } from "jose";
 
@@ -1477,6 +1478,10 @@ async function _runPipelineStages(
       additionalPersonBuffers: Array<Buffer | null>;
       logoBuffers: Array<Buffer | null>;
       screenshotBuffer?: Buffer | null;
+      /** Background buffer for multi-layer composition (DALL-E 3 no-people scene) */
+      backgroundBuffer?: Buffer | null;
+      /** Freeform composition manifest passed through to coverTemplateCompositor */
+      coverComposition?: import('./creativeDirector').SlideCreativeBrief["coverComposition"];
     }>();
 
     // ── Kling credential check (ONCE — fail fast, don't waste 8 min on timeouts) ──
@@ -1495,13 +1500,15 @@ async function _runPipelineStages(
       }
     }
     const hasKling = !!(klingAK && klingSK);
+    const hasSeedance = !!ENV.replicateApiToken;
     // ── CREDIT SAFEGUARD: Cap Kling attempts per run ──
     // Each Kling video costs credits and takes ~3 min. Cap at 3 attempts max per run
     // to prevent runaway costs if retries/fallbacks loop unexpectedly.
     const MAX_KLING_ATTEMPTS = 4;
     let klingAttemptsUsed = 0;
     console.log(`[ContentPipeline] ═══ Stage 5: Media Generation ═══`);
-    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials — all video slides will be still images)"}`);
+    console.log(`[ContentPipeline] Seedance video: ${hasSeedance ? "✅ ENABLED (primary)" : "❌ DISABLED (no REPLICATE_API_TOKEN)"}`);
+    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (fallback, max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials)"}`);
     console.log(`[ContentPipeline] Slides to generate: ${slides.length}`);
 
     // Import asset library + compositing functions
@@ -1555,21 +1562,16 @@ async function _runPipelineStages(
       // STRATEGY DISPATCH — each strategy has its own execution path + fallback
       // ════════════════════════════════════════════════════════════════════════
 
-      if (strategy === "kling_video" && hasKling && klingAttemptsUsed < MAX_KLING_ATTEMPTS) {
-        // ── KLING VIDEO: Generate 5-second cinematic video clip ──
-        // CREDIT SAFEGUARD: Check attempt limit before each Kling call
-        klingAttemptsUsed++;
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Kling attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS}`);
-        // PRIORITY: Use the Creative Director's scenePrompt if it has camera motion keywords
-        // (the CD was specifically told to include camera movement for kling_video slides).
-        // Only fall back to Marketing Brain re-generation if the CD prompt is missing/empty.
-        let videoSpecificPrompt = scenePrompt;
-        const hasCameraMotion = /camera|push[- ]in|dolly|orbit|pan|zoom|parallax|tracking|reveal/i.test(scenePrompt);
+      if (strategy === "kling_video") {
+        // ── VIDEO GENERATION: Seedance (primary) → Kling (fallback) ──
+        // Prefer videoNarrative.fullPrompt from Creative Director (story-driven),
+        // fall back to scenePrompt, then to marketingBrain re-generation.
+        let videoSpecificPrompt = brief?.videoNarrative?.fullPrompt || scenePrompt;
+        const hasCameraMotion = /camera|push[- ]in|dolly|orbit|pan|zoom|parallax|tracking|reveal/i.test(videoSpecificPrompt);
 
-        if (!scenePrompt || scenePrompt.length < 20 || !hasCameraMotion) {
-          // Creative Director didn't provide a video-quality prompt — regenerate
+        if (!videoSpecificPrompt || videoSpecificPrompt.length < 20 || !hasCameraMotion) {
           try {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 CD prompt lacks camera motion — generating video-specific prompt...`);
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 CD prompt lacks detail — generating video-specific prompt...`);
             videoSpecificPrompt = await marketingBrainPrompt({
               headline: slide.headline ?? "",
               summary: slide.summary ?? "",
@@ -1580,69 +1582,182 @@ async function _runPipelineStages(
             console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using scene prompt: ${err?.message}`);
           }
         } else {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Using Creative Director's video prompt (has camera motion)`);
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Using Creative Director's video prompt`);
         }
 
-        log.klingAttempted = true;
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Kling 2.5 Turbo video...`);
-        mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
-        log.klingSucceeded = !!mediaUrl;
-        if (mediaUrl) {
-          log.strategy = "kling_video";
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling video generated`);
-        } else {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to cinematic_scene`);
-          // Kling failed: fall through to cinematic_scene below
+        // ── Try Seedance first (if REPLICATE_API_TOKEN is set) ──
+        if (hasSeedance && !mediaUrl) {
+          try {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Seedance 1 Lite video...`);
+            const seedanceUrl = await generateVideoWithSeedance({
+              prompt: videoSpecificPrompt,
+              duration: 5,
+              aspectRatio: "9:16",
+            });
+            if (seedanceUrl) {
+              mediaUrl = seedanceUrl;
+              log.strategy = "seedance_video";
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Seedance video generated`);
+            } else {
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance returned null — trying Kling fallback`);
+            }
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Seedance failed: ${err?.message} — trying Kling fallback`);
+          }
         }
-      }
 
-      if (strategy === "kling_video" && hasKling && klingAttemptsUsed >= MAX_KLING_ATTEMPTS && !mediaUrl) {
-        console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_ATTEMPTS}) — falling back to cinematic_scene`);
+        // ── Try Kling as fallback ──
+        if (!mediaUrl && hasKling && klingAttemptsUsed < MAX_KLING_ATTEMPTS) {
+          klingAttemptsUsed++;
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Attempting Kling 2.5 Turbo (attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS})...`);
+          log.klingAttempted = true;
+          mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
+          log.klingSucceeded = !!mediaUrl;
+          if (mediaUrl) {
+            log.strategy = "kling_video";
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling video generated`);
+          } else {
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to cinematic_scene`);
+          }
+        }
+
+        if (!mediaUrl && hasKling && klingAttemptsUsed >= MAX_KLING_ATTEMPTS) {
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_ATTEMPTS}) — falling back to still image`);
+        }
       }
 
       if (!mediaUrl && strategy === "person_composite") {
         // ── PERSON COMPOSITE: AI-generated scene with person naturally integrated ──
         // Uses GPT Image 1 (gpt-image-1) which can generate named public figures
         // with contextually appropriate expressions, poses, and scene integration.
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite — generating person IN scene via GPT Image 1...`);
 
-        try {
-          // The scenePrompt from Creative Director now includes the person description,
-          // emotional context, and scene — all rendered together in one generation.
-          const personSceneResult = await generateImageWithPeople({ prompt: scenePrompt });
+        const isFreeformCover = slide.slideIndex === 0
+          && brief?.coverTemplate === "freeform_composition"
+          && brief?.coverComposition;
+        const isMultiLayer = isFreeformCover
+          && brief?.coverComposition?.compositionMode === "multi_layer"
+          && (brief?.coverComposition?.subjects?.length ?? 0) > 0;
 
-          if (personSceneResult.url) {
-            mediaUrl = personSceneResult.url;
-            log.strategy = "person_composite";
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ GPT Image 1 person scene generated`);
+        if (isMultiLayer && brief?.coverComposition) {
+          // ── MULTI-LAYER FREEFORM COVER: generate background + each person separately ──
+          const composition = brief.coverComposition;
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Multi-layer freeform cover — ${composition.subjects.length} subjects`);
 
-            // ── Cover template: download person image for Stage 6 compositor ──
-            if (slide.slideIndex === 0 && brief?.coverTemplate) {
-              console.log(`[ContentPipeline] Cover slide: collecting assets for template "${brief.coverTemplate}"...`);
-              const personBuffer = await downloadImage(personSceneResult.url);
+          try {
+            // Generate background (DALL-E 3, no people) + all persons (GPT Image 1) in PARALLEL
+            const [bgResult, ...personResults] = await Promise.all([
+              generateImage({ prompt: composition.backgroundPrompt }),
+              ...composition.subjects.map(s =>
+                generateImageWithPeople({ prompt: s.promptFragment ?? scenePrompt })
+              ),
+            ]);
+            console.log(`[ContentPipeline] Cover: background + ${personResults.length} person scene(s) generated in parallel`);
 
-              // Fetch logo buffers for cover template
-              const logoBuffers: Array<Buffer | null> = [];
-              const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
-              if (allLogoKeys.length > 0) {
-                const logoResults = await Promise.all(
-                  allLogoKeys.map(key => downloadLogo(key).catch(() => null))
-                );
-                logoBuffers.push(...logoResults);
-                console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
+            // Download all generated images as buffers
+            const bgBuffer = bgResult.url ? await downloadImage(bgResult.url) : null;
+            const personBuffers: Array<Buffer | null> = [];
+
+            // Background-remove each person image
+            for (let i = 0; i < personResults.length; i++) {
+              const pUrl = personResults[i].url;
+              if (!pUrl) { personBuffers.push(null); continue; }
+
+              let pBuf = await downloadImage(pUrl);
+              if (pBuf) {
+                // AI background removal for clean cutout
+                try {
+                  const BG_REMOVAL_TIMEOUT_MS = 45_000;
+                  const { removeBackground } = await import("@imgly/background-removal-node");
+                  const blob = new Blob([pBuf as unknown as ArrayBuffer], { type: "image/png" });
+                  const resultBlob = await Promise.race([
+                    removeBackground(blob, { model: "medium" }),
+                    new Promise<never>((_, reject) => {
+                      const t = setTimeout(() => reject(new Error("BG removal timeout")), BG_REMOVAL_TIMEOUT_MS);
+                      if (t && typeof t === "object" && "unref" in t) (t as NodeJS.Timeout).unref();
+                    }),
+                  ]);
+                  const arrayBuf = await resultBlob.arrayBuffer();
+                  pBuf = Buffer.from(arrayBuf);
+                  console.log(`[ContentPipeline] Cover: bg-removed subject ${i} "${composition.subjects[i]?.name}"`);
+                } catch (bgErr: any) {
+                  console.warn(`[ContentPipeline] Cover: bg-removal failed for subject ${i}: ${bgErr?.message} — using original`);
+                }
               }
-
-              if (personBuffer) {
-                coverAssets.set(0, { personBuffer, additionalPersonBuffers: [], logoBuffers });
-                console.log(`[ContentPipeline] Cover assets saved for template "${brief.coverTemplate}"`);
-              }
+              personBuffers.push(pBuf);
             }
-          } else {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 returned no URL — falling back to DALL-E scene`);
+
+            // Fetch logo buffers
+            const logoBuffers: Array<Buffer | null> = [];
+            const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
+            if (allLogoKeys.length > 0) {
+              const logoResults = await Promise.all(
+                allLogoKeys.map(key => downloadLogo(key).catch(() => null))
+              );
+              logoBuffers.push(...logoResults);
+              console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
+            }
+
+            // Use the first person image or background as the media URL for this slide
+            mediaUrl = personResults[0]?.url || bgResult.url || null;
+            log.strategy = "person_composite_multi_layer";
+
+            // Store all assets for Stage 6 compositor
+            coverAssets.set(0, {
+              personBuffer: personBuffers[0] ?? null,
+              additionalPersonBuffers: personBuffers.slice(1),
+              logoBuffers,
+              backgroundBuffer: bgBuffer,
+              coverComposition: composition,
+            });
+            console.log(`[ContentPipeline] Cover: multi-layer assets stored (${personBuffers.filter(Boolean).length} persons, ${logoBuffers.filter(Boolean).length} logos)`);
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Multi-layer cover failed: ${err?.message} — falling back to single-shot`);
+            // Fall through to single-shot below
           }
-        } catch (err: any) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 person scene failed: ${err?.message} — falling back to DALL-E scene`);
-          // Fall through to cinematic_scene below
+        }
+
+        if (!mediaUrl) {
+          // ── SINGLE-SHOT: Generate person IN scene via one GPT Image 1 call ──
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite (single-shot) via GPT Image 1...`);
+          try {
+            const personSceneResult = await generateImageWithPeople({ prompt: scenePrompt });
+
+            if (personSceneResult.url) {
+              mediaUrl = personSceneResult.url;
+              log.strategy = "person_composite";
+              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ GPT Image 1 person scene generated`);
+
+              // ── Cover: collect assets for Stage 6 ──
+              if (slide.slideIndex === 0 && brief?.coverTemplate) {
+                console.log(`[ContentPipeline] Cover slide: collecting assets for template "${brief.coverTemplate}"...`);
+                const personBuffer = await downloadImage(personSceneResult.url);
+
+                const logoBuffers: Array<Buffer | null> = [];
+                const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
+                if (allLogoKeys.length > 0) {
+                  const logoResults = await Promise.all(
+                    allLogoKeys.map(key => downloadLogo(key).catch(() => null))
+                  );
+                  logoBuffers.push(...logoResults);
+                  console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
+                }
+
+                if (personBuffer) {
+                  coverAssets.set(0, {
+                    personBuffer,
+                    additionalPersonBuffers: [],
+                    logoBuffers,
+                    coverComposition: brief?.coverComposition ?? undefined,
+                  });
+                  console.log(`[ContentPipeline] Cover assets saved for template "${brief.coverTemplate}"`);
+                }
+              }
+            } else {
+              console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 returned no URL — falling back to DALL-E scene`);
+            }
+          } catch (err: any) {
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 person scene failed: ${err?.message} — falling back to DALL-E scene`);
+          }
         }
       }
 
@@ -1748,9 +1863,10 @@ async function _runPipelineStages(
       console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Done in ${(log.timeMs / 1000).toFixed(1)}s — strategy: ${log.strategy}`);
     };
 
-    // ── Parallel generation: image slides concurrent, video slides sequential (Kling rate limit) ──
-    const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasKling && s.videoPrompt);
-    const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasKling) && s.videoPrompt);
+    // ── Parallel generation: image slides concurrent, video slides sequential (rate limits) ──
+    const hasAnyVideoProvider = hasSeedance || hasKling;
+    const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasAnyVideoProvider && s.videoPrompt);
+    const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasAnyVideoProvider) && s.videoPrompt);
 
     // ── Per-slide timeout: wrap each call in a race with proper cleanup ──
     // If a single slide hangs (e.g. Kling poll stuck), it won't block the entire run.
@@ -1865,6 +1981,7 @@ async function _runPipelineStages(
           const isCover = s.slideIndex === 0;
           const coverSlideAssets = isCover ? coverAssets.get(0) : undefined;
           const contentLogos = !isCover ? contentSlideLogos.get(s.slideIndex) : undefined;
+          const slideBrief = briefBySlide.get(s.slideIndex);
           return {
             runId,
             slideIndex: s.slideIndex,
@@ -1882,6 +1999,11 @@ async function _runPipelineStages(
             additionalPersonBuffers: coverSlideAssets?.additionalPersonBuffers ?? [],
             logoBuffers: coverSlideAssets?.logoBuffers ?? contentLogos ?? [],
             screenshotBuffer: coverSlideAssets?.screenshotBuffer ?? undefined,
+            // ── 2.0 fields ──
+            coverComposition: coverSlideAssets?.coverComposition ?? undefined,
+            dedicatedBackgroundBuffer: coverSlideAssets?.backgroundBuffer ?? undefined,
+            logoStyle: slideBrief?.logoStyle ?? undefined,
+            logoSize: slideBrief?.logoSize ?? undefined,
           };
         })
       );

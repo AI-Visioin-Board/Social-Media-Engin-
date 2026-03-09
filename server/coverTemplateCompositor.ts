@@ -85,6 +85,25 @@ export interface CoverTemplateInput {
   logoBuffers?: Array<Buffer | null>;
   /** For screenshot_overlay template: the captured/generated product screenshot (1080×742 PNG) */
   screenshotBuffer?: Buffer | null;
+  /** Freeform composition manifest from Creative Director (for freeform_composition template) */
+  coverComposition?: {
+    backgroundPrompt: string;
+    subjects: Array<{
+      name: string;
+      role?: string;
+      expression?: string;
+      placement: "center" | "left" | "right" | "background-left" | "background-right";
+      scale: "dominant" | "supporting" | "background";
+      promptFragment?: string;
+    }>;
+    logoTreatment: Array<{
+      logoKey: string;
+      size: "small" | "medium" | "large";
+      placement: string;
+    }>;
+    compositionMode: "single_shot" | "multi_layer";
+    compositionDescription: string;
+  };
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -569,6 +588,194 @@ async function renderScreenshotOverlay(input: CoverTemplateInput): Promise<Buffe
   return sharp(base).composite(composites).png({ quality: 92 }).toBuffer();
 }
 
+// ─── Template 9: freeform_composition ─────────────────────────────────────────
+//
+// Movie-poster style composition with dynamic person placement, full-color logos,
+// and scene-driven backgrounds. Two modes:
+//   single_shot  — The mainPersonBuffer IS the complete scene (GPT Image 1 generated
+//                  everyone in one pass). Use it as the full background canvas.
+//   multi_layer  — Separate background + bg-removed person cutouts composited at
+//                  specified placements and scales, then logos + text overlay.
+
+/** Parse a placement string like "top-right" into pixel coordinates */
+function parseFreeformPlacement(
+  placement: string, itemW: number, itemH: number
+): { left: number; top: number } {
+  const margin = 30;
+  const safeZoneBottom = TEXT_ZONE_TOP - 20; // Don't overlap text zone
+
+  switch (placement) {
+    case "top-left":      return { left: margin, top: margin };
+    case "top-center":    return { left: Math.round((W - itemW) / 2), top: margin };
+    case "top-right":     return { left: W - itemW - margin, top: margin };
+    case "mid-left":      return { left: margin, top: Math.round((safeZoneBottom - itemH) / 2) };
+    case "mid-right":     return { left: W - itemW - margin, top: Math.round((safeZoneBottom - itemH) / 2) };
+    case "above-text-left":   return { left: margin, top: Math.max(0, safeZoneBottom - itemH - 20) };
+    case "above-text-center": return { left: Math.round((W - itemW) / 2), top: Math.max(0, safeZoneBottom - itemH - 20) };
+    case "above-text-right":  return { left: W - itemW - margin, top: Math.max(0, safeZoneBottom - itemH - 20) };
+    case "bottom-left":       return { left: margin, top: Math.max(0, safeZoneBottom - itemH) };
+    case "bottom-right":      return { left: W - itemW - margin, top: Math.max(0, safeZoneBottom - itemH) };
+    case "bottom-center":     return { left: Math.round((W - itemW) / 2), top: Math.max(0, safeZoneBottom - itemH) };
+    default:
+      // Unknown placement — center horizontally, place above text
+      return { left: Math.round((W - itemW) / 2), top: Math.max(margin, safeZoneBottom - itemH - 60) };
+  }
+}
+
+async function renderFreeformComposition(input: CoverTemplateInput): Promise<Buffer> {
+  const composition = input.coverComposition;
+  const composites: sharp.OverlayOptions[] = [];
+
+  const mode = composition?.compositionMode ?? "single_shot";
+
+  let base: Buffer;
+
+  if (mode === "single_shot" && input.mainPersonBuffer) {
+    // ── Single-shot: mainPersonBuffer IS the complete scene ──
+    // GPT Image 1 generated the person(s) naturally inside the scene.
+    // Use the full image as the background canvas — no cutout compositing needed.
+    base = await sharp(input.mainPersonBuffer)
+      .resize(W, H, { fit: "cover", position: "center" })
+      .png()
+      .toBuffer();
+    console.log(`[CoverTemplate] Freeform single_shot: using GPT Image 1 scene as full canvas`);
+  } else if (mode === "multi_layer") {
+    // ── Multi-layer: background + person cutouts composited ──
+    base = await buildDarkBg(input.backgroundBuffer);
+    console.log(`[CoverTemplate] Freeform multi_layer: compositing persons onto background`);
+
+    // Gather all person buffers with their metadata
+    const allPersons: Array<{ buffer: Buffer; subjectIdx: number }> = [];
+    if (input.mainPersonBuffer) {
+      allPersons.push({ buffer: input.mainPersonBuffer, subjectIdx: 0 });
+    }
+    const supporting = (input.supportingPersonBuffers ?? []).filter(Boolean) as Buffer[];
+    for (let i = 0; i < supporting.length; i++) {
+      allPersons.push({ buffer: supporting[i], subjectIdx: i + 1 });
+    }
+
+    // Sort by scale: background → supporting → dominant (render back-to-front)
+    const scaleOrder: Record<string, number> = { background: 0, supporting: 1, dominant: 2 };
+    const sortedPersons = allPersons
+      .map(p => ({
+        ...p,
+        meta: composition?.subjects?.[p.subjectIdx],
+      }))
+      .sort((a, b) => {
+        const aOrder = scaleOrder[a.meta?.scale ?? "supporting"] ?? 1;
+        const bOrder = scaleOrder[b.meta?.scale ?? "supporting"] ?? 1;
+        return aOrder - bOrder;
+      });
+
+    for (const person of sortedPersons) {
+      const scale = person.meta?.scale ?? "supporting";
+      const placement = person.meta?.placement ?? "center";
+
+      // Scale factors: how much of the image zone each role occupies
+      const scaleFactors: Record<string, { maxH: number; maxW: number }> = {
+        dominant:   { maxH: 0.85, maxW: 0.65 },
+        supporting: { maxH: 0.55, maxW: 0.40 },
+        background: { maxH: 0.40, maxW: 0.30 },
+      };
+      const factors = scaleFactors[scale] ?? scaleFactors.supporting;
+      const maxH = Math.round(TEXT_ZONE_TOP * factors.maxH);
+      const maxW = Math.round(W * factors.maxW);
+
+      const vignetted = await applyVignetteMask(person.buffer);
+      const { buf: resized, w: rW, h: rH } = await resizeFit(vignetted, maxW, maxH);
+
+      // Position based on placement keyword
+      let left: number, top: number;
+      switch (placement) {
+        case "left":
+          left = Math.round(W * 0.05);
+          top = Math.max(0, TEXT_ZONE_TOP - rH);
+          break;
+        case "right":
+          left = Math.max(0, W - rW - Math.round(W * 0.05));
+          top = Math.max(0, TEXT_ZONE_TOP - rH);
+          break;
+        case "background-left":
+          left = 0;
+          top = Math.max(0, TEXT_ZONE_TOP - rH - 50);
+          break;
+        case "background-right":
+          left = Math.max(0, W - rW);
+          top = Math.max(0, TEXT_ZONE_TOP - rH - 50);
+          break;
+        case "center":
+        default:
+          left = Math.round((W - rW) / 2);
+          top = Math.max(0, TEXT_ZONE_TOP - rH);
+          break;
+      }
+
+      composites.push({ input: resized, left, top });
+      console.log(`[CoverTemplate] Freeform: placed "${person.meta?.name ?? "person"}" (${scale}) at [${left},${top}] ${rW}×${rH}px`);
+    }
+  } else {
+    // Fallback: just use background (single_shot without person buffer)
+    base = await buildDarkBg(input.backgroundBuffer);
+    console.log(`[CoverTemplate] Freeform fallback: background only (no person buffers)`);
+  }
+
+  // ── Logo layers (full-color with drop shadow, sized per logoTreatment) ──
+  const logos = (input.logoBuffers ?? []).filter(Boolean) as Buffer[];
+  if (logos.length > 0 && composition?.logoTreatment && composition.logoTreatment.length > 0) {
+    const sizeMap: Record<string, number> = { small: 80, medium: 140, large: 200 };
+    for (let i = 0; i < Math.min(logos.length, composition.logoTreatment.length); i++) {
+      const treatment = composition.logoTreatment[i];
+      const size = sizeMap[treatment.size] ?? 140;
+
+      const logoResized = await sharp(logos[i])
+        .resize(size, size, { fit: "inside" })
+        .png()
+        .toBuffer();
+      const logoMeta = await sharp(logoResized).metadata();
+      const lW = logoMeta.width ?? size;
+      const lH = logoMeta.height ?? size;
+
+      // Add drop shadow via SVG canvas
+      const canvasW = lW + 20;
+      const canvasH = lH + 20;
+      const shadowSvg = `<svg width="${canvasW}" height="${canvasH}" xmlns="http://www.w3.org/2000/svg">
+        <defs><filter id="logods${i}"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-opacity="0.4"/></filter></defs>
+        <rect width="${canvasW}" height="${canvasH}" fill="none" filter="url(#logods${i})" opacity="0"/>
+      </svg>`;
+      const logoWithShadow = await sharp(Buffer.from(shadowSvg))
+        .composite([{ input: logoResized, left: 10, top: 10 }])
+        .png()
+        .toBuffer();
+
+      const pos = parseFreeformPlacement(treatment.placement, canvasW, canvasH);
+      composites.push({ input: logoWithShadow, left: Math.max(0, pos.left), top: Math.max(0, pos.top) });
+      console.log(`[CoverTemplate] Freeform: logo "${treatment.logoKey}" (${treatment.size}) at ${treatment.placement}`);
+    }
+  } else if (logos.length > 0) {
+    // No treatment specified — default: place logos top-right stacked
+    const defaultPositions = [
+      { left: W - 180, top: 30 },
+      { left: W - 180, top: 180 },
+      { left: W - 180, top: 330 },
+    ];
+    for (let i = 0; i < Math.min(logos.length, 3); i++) {
+      const logoResized = await sharp(logos[i])
+        .resize(140, 140, { fit: "inside" })
+        .png()
+        .toBuffer();
+      composites.push({ input: logoResized, left: defaultPositions[i].left, top: defaultPositions[i].top });
+    }
+  }
+
+  // ── Text overlay (gradient + headline) ──
+  const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    ${buildTextZoneSvg(input.headline, TEXT_ZONE_TOP, WHITE, CYAN, true)}
+  </svg>`;
+  composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
+
+  return sharp(base).composite(composites).png({ quality: 92 }).toBuffer();
+}
+
 // ─── Main router ──────────────────────────────────────────────────────────────
 
 /**
@@ -585,6 +792,7 @@ export async function composeCoverTemplate(input: CoverTemplateInput): Promise<B
     case "left_column_logos":       return renderLeftColumnLogos(input);
     case "duo_reaction":            return renderDuoReaction(input);
     case "screenshot_overlay":      return renderScreenshotOverlay(input);
+    case "freeform_composition":    return renderFreeformComposition(input);
     default: {
       const _exhaustive: never = input.template;
       throw new Error(`Unknown cover template: ${_exhaustive}`);
