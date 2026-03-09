@@ -1461,6 +1461,16 @@ async function _runPipelineStages(
       };
     }
 
+    // ── Persist the full Creative Director brief to DB for diagnosis ──
+    try {
+      await db.update(contentRuns)
+        .set({ creativeBrief: JSON.stringify(creativeBrief) })
+        .where(eq(contentRuns.id, runId));
+      console.log(`[ContentPipeline] ✅ Creative Director brief persisted to DB (run #${runId})`);
+    } catch (briefErr: any) {
+      console.warn(`[ContentPipeline] ⚠️ Failed to persist CD brief: ${briefErr?.message}`);
+    }
+
     // Build a map of slide index → creative brief for Stage 5
     const briefBySlide = new Map(creativeBrief.slides.map(s => [s.slideIndex, s]));
 

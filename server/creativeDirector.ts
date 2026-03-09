@@ -1085,7 +1085,16 @@ Return ONLY the JSON object. No explanation, no preamble.`;
   console.log(`[CreativeDirector] FULL_BRIEF_JSON: ${JSON.stringify(brief)}`);
   console.log(`[CreativeDirector] ═══════════════════════════════════════\n`);
 
-  return brief;
+  // ── Quality Director Review (Supervisor) ──
+  // A second LLM pass reviews the CD brief for quality issues before media generation.
+  // If issues are found, the QD sends corrections back and the CD brief is revised.
+  try {
+    const reviewedBrief = await qualityDirectorReview(brief, researched);
+    return reviewedBrief;
+  } catch (qdErr: any) {
+    console.warn(`[QualityDirector] ⚠️ Review failed: ${qdErr?.message} — using original brief`);
+    return brief;
+  }
 }
 
 // ─── Fallback Brief Generator ────────────────────────────────────────────────
@@ -1221,4 +1230,173 @@ function generateFallbackBrief(
     slides,
     globalStyleNotes: "Fallback brief — maintain dark cinematic aesthetic with cyan accent highlights.",
   };
+}
+
+// ─── Quality Director (Supervisor) ──────────────────────────────────────────
+// Reviews the Creative Director's brief for quality issues before media generation.
+// Catches: banned scenes (server rooms), missing person_composite for CEO stories,
+// weak/generic prompts, missing PROMPTHIS structure, strategy monotony.
+// Returns revised brief if issues found, original brief if approved.
+
+const BANNED_SCENE_PATTERNS = [
+  /server\s*room/i, /data\s*center/i, /server\s*rack/i,
+  /glowing\s*circuit/i, /motherboard/i, /floating\s*data/i,
+  /code\s*stream/i, /faceless\s*silhouette/i, /neural\s*network\s*vis/i,
+  /holographic\s*(ui|interface|display)/i, /futuristic\s*(room|lab|facility)/i,
+];
+
+const PROMPTHIS_CHECKLIST = [
+  { label: "lighting", pattern: /light|lit|glow|shadow|neon|spotlight|backlight|rim\s*light/i },
+  { label: "camera/lens", pattern: /\d+mm|lens|f\/\d|depth\s*of\s*field|close-up|wide.?angle|bokeh/i },
+  { label: "color_grade", pattern: /color\s*grad|teal|orange|cyan|noir|golden\s*hour|cold\s*blue|warm/i },
+];
+
+async function qualityDirectorReview(
+  brief: CarouselCreativeBrief,
+  researched: ResearchedTopicInput[],
+): Promise<CarouselCreativeBrief> {
+  const startMs = Date.now();
+  console.log(`\n[QualityDirector] ═══ Reviewing Creative Brief ═══`);
+
+  const issues: Array<{ slideIndex: number; issue: string; fix: string }> = [];
+
+  for (const slide of brief.slides) {
+    const prompt = slide.scenePrompt || "";
+    const headline = researched[slide.slideIndex > 0 ? slide.slideIndex - 1 : 0]?.headline || "";
+
+    // ── Check 1: Banned scenes ──
+    for (const pattern of BANNED_SCENE_PATTERNS) {
+      if (pattern.test(prompt)) {
+        issues.push({
+          slideIndex: slide.slideIndex,
+          issue: `BANNED SCENE detected: "${prompt.match(pattern)?.[0]}"`,
+          fix: "Replace with a specific, story-relevant setting (rooftop, stage, desert, neon street, etc.)",
+        });
+        break;
+      }
+    }
+
+    // ── Check 2: Should be person_composite but isn't ──
+    if (slide.strategy !== "person_composite" && slide.strategy !== "kling_video") {
+      const headlineLower = headline.toLowerCase();
+      const mentionedPerson = Object.entries(KNOWN_FIGURES).find(([name]) =>
+        headlineLower.includes(name.toLowerCase())
+      );
+      if (mentionedPerson) {
+        issues.push({
+          slideIndex: slide.slideIndex,
+          issue: `Story mentions "${mentionedPerson[0]}" but strategy is "${slide.strategy}" instead of person_composite`,
+          fix: `Switch to person_composite with ${mentionedPerson[0]} as the subject. Generate a portrait-first prompt with 85mm f/1.4, dramatic lighting, person filling 60-80% of frame.`,
+        });
+      }
+    }
+
+    // ── Check 3: PROMPTHIS quality (skip video slides) ──
+    if (slide.strategy !== "kling_video" && prompt.length > 0) {
+      const missing = PROMPTHIS_CHECKLIST.filter(c => !c.pattern.test(prompt));
+      if (missing.length >= 2) {
+        issues.push({
+          slideIndex: slide.slideIndex,
+          issue: `Weak prompt — missing ${missing.map(m => m.label).join(", ")} from PROMPTHIS framework`,
+          fix: `Add specific ${missing.map(m => m.label).join(" + ")} details to the scene prompt`,
+        });
+      }
+    }
+
+    // ── Check 4: Too-short prompts ──
+    if (prompt.length > 0 && prompt.length < 80) {
+      issues.push({
+        slideIndex: slide.slideIndex,
+        issue: `Scene prompt is only ${prompt.length} chars — too generic for quality output`,
+        fix: "Expand with specific setting, lighting, camera, and mood details (aim for 150+ chars)",
+      });
+    }
+
+    // ── Check 5: Video without story arc ──
+    if (slide.strategy === "kling_video") {
+      const videoPrompt = slide.videoNarrative?.fullPrompt || prompt;
+      if (!/camera|push|dolly|orbit|pan|zoom|track|reveal/i.test(videoPrompt)) {
+        issues.push({
+          slideIndex: slide.slideIndex,
+          issue: "Video prompt has no camera movement",
+          fix: "Add camera direction: slow push-in, orbit, dolly zoom, tracking shot, or pull-back reveal",
+        });
+      }
+    }
+  }
+
+  // ── Check 6: Strategy monotony ──
+  const strategies = brief.slides.map(s => s.strategy);
+  const uniqueStrategies = new Set(strategies);
+  if (uniqueStrategies.size < 2) {
+    issues.push({
+      slideIndex: -1,
+      issue: `Only ${uniqueStrategies.size} strategy used across all slides: ${Array.from(uniqueStrategies).join(", ")}`,
+      fix: "Mix strategies: aim for 1-2 person_composite + 1-2 scene_with_badge + 2 kling_video",
+    });
+  }
+
+  if (issues.length === 0) {
+    console.log(`[QualityDirector] ✅ Brief APPROVED — no issues found (${((Date.now() - startMs) / 1000).toFixed(1)}s)`);
+    return brief;
+  }
+
+  // ── Issues found — ask LLM to fix the brief ──
+  console.log(`[QualityDirector] ⚠️ Found ${issues.length} issues:`);
+  for (const iss of issues) {
+    const slideLabel = iss.slideIndex >= 0 ? `Slide ${iss.slideIndex}` : "Global";
+    console.log(`[QualityDirector]   ${slideLabel}: ${iss.issue}`);
+    console.log(`[QualityDirector]     Fix: ${iss.fix}`);
+  }
+
+  // Build revision prompt
+  const revisionPrompt = `You are the Quality Director reviewing a Creative Director's brief. Fix the issues listed below.
+
+CURRENT BRIEF:
+${JSON.stringify(brief, null, 2)}
+
+ISSUES TO FIX:
+${issues.map((iss, i) => `${i + 1}. [Slide ${iss.slideIndex}] ${iss.issue}\n   FIX: ${iss.fix}`).join("\n")}
+
+RULES:
+- Return the COMPLETE revised brief JSON (all slides, not just fixed ones)
+- Keep everything that's already good — only fix the flagged issues
+- For person_composite: use Nano Banana (Gemini) — it CAN generate named people with recognizable faces
+- BANNED SCENES: no server rooms, data centers, server racks, generic circuits, floating data, holographic UIs
+- Every scene prompt must have: setting, camera/lens, lighting (2+ sources), color grade, mood
+- Return ONLY valid JSON, no explanation`;
+
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: "You are a quality control agent. Fix the creative brief based on the issues. Return ONLY the corrected JSON." },
+        { role: "user", content: revisionPrompt },
+      ],
+      responseFormat: { type: "json_object" },
+      maxTokens: 4000,
+    });
+
+    const raw = response?.choices?.[0]?.message?.content;
+    const revised = typeof raw === "string" ? raw.trim() : "";
+    if (!revised) throw new Error("Empty response from QD revision");
+
+    const cleanJson = revised.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleanJson) as CarouselCreativeBrief;
+
+    // Validate structure
+    if (!parsed.slides || !Array.isArray(parsed.slides) || parsed.slides.length === 0) {
+      throw new Error("Revised brief has no slides");
+    }
+
+    // Preserve runId
+    parsed.runId = brief.runId;
+
+    const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+    console.log(`[QualityDirector] ✅ Brief REVISED — ${issues.length} issues fixed (${elapsed}s)`);
+    console.log(`[QualityDirector] REVISED_BRIEF_JSON: ${JSON.stringify(parsed)}`);
+    return parsed;
+  } catch (revErr: any) {
+    console.warn(`[QualityDirector] ⚠️ Revision failed: ${revErr?.message} — using original brief`);
+    return brief;
+  }
 }

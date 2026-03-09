@@ -243,6 +243,8 @@ export const contentRuns = pgTable("content_runs", {
   postApproved: boolean("postApproved").default(false).notNull(),
   /** Make.com webhook response / Instagram post ID after posting */
   instagramPostId: varchar("instagramPostId", { length: 255 }),
+  /** Full Creative Director brief JSON — persisted for diagnosis/review */
+  creativeBrief: text("creativeBrief"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
