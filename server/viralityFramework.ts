@@ -191,44 +191,43 @@ Return ONLY the headline in ALL CAPS. Nothing else.`;
 
 export const MARKETING_BRAIN_ENHANCEMENT = `ADDITIONAL CREATIVE DIRECTIVES:
 
-CRITICAL REALITY CHECK — AI image generators CANNOT accurately render:
-- Real people's faces (they will look like random strangers, NOT the actual person)
-- Accurate company logos (they will be garbled/wrong)
-- Readable text of any kind
+IMAGE GENERATION CAPABILITIES (2026 — UPDATED):
 
-SO YOUR VISUAL STRATEGY MUST WORK AROUND THESE LIMITATIONS:
+✅ NANO BANANA (GEMINI) CAN GENERATE:
+- Named public figures with recognizable faces (tested: Elon Musk, Tim Cook, Sam Altman, Sundar Pichai — all look accurate)
+- Multiple named people in the same scene
+- People with specific expressions, poses, clothing, and settings
+- USE THIS FOR ALL person_composite slides — it is the PRIMARY model for people
 
-WHAT TO DO INSTEAD (pick the best approach for each story):
+✅ DALL-E 3 CAN GENERATE:
+- Stunning cinematic environments, landscapes, abstract scenes
+- Any scene WITHOUT people (pure backgrounds for cinematic_scene and scene_with_badge)
 
-1. REAL LOGOS → Use the logo as a PHYSICAL OBJECT in a scene. Don't try to draw it accurately. Instead describe: "A large glowing orb/sphere bearing the [company] brand colors [describe the specific colors], sitting on [dramatic scene]". Use the company's SIGNATURE COLORS as the identifier. OpenAI = green/white swirl shape. Google = red/blue/yellow/green. Anthropic = orange/brown. Meta = blue. Apple = silver/white. Microsoft = 4-color grid.
+❌ WHAT STILL DOESN'T WORK:
+- DALL-E 3 CANNOT render recognizable faces (always use Nano Banana for people)
+- No model can render accurate company logos (we composite real logo PNGs separately — just specify logoKeys)
+- No model can render readable text (we add text overlays in post-production)
 
-2. REAL PEOPLE → NEVER try to generate a specific person's face. Instead:
-   - Show them from BEHIND (silhouette at a podium, from-behind shot at a conference)
-   - Show their HANDS doing something (typing, holding a phone, gesturing at a screen)
-   - Show symbolic objects associated with them (Elon Musk = Tesla/rockets, Tim Cook = Apple products, Sam Altman = OpenAI brand colors)
-   - Show a CROWD REACTION to their announcement instead
+REAL LOGOS: Do NOT describe logos in the scene prompt. Just set logoKeys to the relevant companies — we composite real transparent PNG logos on top of the image separately. Your scene prompt should be LOGO-FREE.
 
-3. PRODUCTS & APPS → Show a PHONE or LAPTOP SCREEN from a distance (screen content blurred/abstract but with the right color scheme). Show someone's hand holding a phone with a glowing [brand color] interface. Show the product's PHYSICAL CONTEXT (someone using it in a coffee shop, office, etc.)
+REAL PEOPLE: For person_composite, describe the ACTUAL PERSON by name in your scenePrompt. Nano Banana generates recognizable faces. Include: full name, title, signature clothing, expression, pose, lighting, lens, color grade.
 
-4. COMPANY COMPETITION → Show two objects in brand colors facing off, clashing, or racing. NOT two people arguing.
-
-5. DECLINE/FAILURE → Show the brand-colored object cracking, falling, dissolving. NOT a sad person.
-
-6. BREAKTHROUGH → Show the product in action from a user's perspective. Phone screens, laptop screens, real-world integration.
+PRODUCTS & APPS: Show a phone or laptop screen from a distance with the right color scheme. Show someone's hand holding a phone with a glowing interface. Show the product's physical context.
 
 VISUAL QUALITY RULES:
-- Every prompt must pass the "recognition test": if someone saw ONLY the image (no headline), could they guess which company/story it's about from the COLORS and CONTEXT? If not, rewrite.
+- Every prompt must pass the "recognition test": if someone saw ONLY the image (no headline), could they guess which company/story it's about from the PEOPLE, COLORS and CONTEXT? If not, rewrite.
 - Prefer close-up compositions over wide shots (close-ups are more scroll-stopping on mobile)
 - Dramatic lighting is mandatory: golden hour, neon, or high-contrast studio lighting
 - Include depth of field (bokeh background) for product shots
+- PERSON-FIRST: If a story mentions a CEO/founder, the DEFAULT is person_composite with their face filling 60-80% of the frame
 
 ANTI-PATTERNS (automatic rejection):
-- Attempting to generate a real person's face = REJECTED (will look like a random stranger)
-- Attempting to generate an accurate logo = REJECTED (will be garbled)
+- Server rooms or data centers = REJECTED (overdone — we've used this 6+ times in a row)
 - Generic robot = REJECTED (unless the story is literally about a physical robot)
 - Floating holographic UI = REJECTED (overdone, not specific)
 - Abstract neural network visualization = REJECTED
-- Random people in suits = REJECTED`;
+- Faceless silhouettes in front of screens = REJECTED (use real people via person_composite instead)
+- Random people in suits = REJECTED (use named public figures)`;
 
 // ─── Insight Line Strategy ──────────────────────────────────────────────────
 // The chat bubble context line should add SHARE-WORTHY commentary
