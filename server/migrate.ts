@@ -225,6 +225,12 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE content_runs ADD COLUMN "creativeBrief" TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);
