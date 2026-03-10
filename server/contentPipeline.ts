@@ -875,42 +875,47 @@ Return ONLY the prompt, no explanation, no preamble, no step labels.`,
  * into one cinematic cover scene. Used for the cover slide (index 0).
  */
 async function generateCoverImagePrompt(headlines: string[]): Promise<string> {
+  // NOTE: This is a FALLBACK — only called when the Creative Director's scenePrompt is empty.
+  // With the 2.0 pipeline, the CD should always provide scenePrompt via the creative brief.
+  // This generates a DALL-E 3 background prompt (no people — people are handled by Nano Banana).
   const response = await invokeLLM({
     messages: [
       {
         role: "system",
-        content: "You create stunning, cinematic image prompts for DALL-E 3 (Google Imagen). Each prompt describes a single photorealistic still image that COMPOSITES MULTIPLE SUBJECTS together in one dramatic scene.",
+        content: "You create stunning, cinematic BACKGROUND image prompts for DALL-E 3. Each prompt describes a dramatic environment or scene that will be used as a BACKGROUND for a multi-layer composition where people and logos are composited ON TOP. The scene should be visually striking but leave room for foreground elements.",
       },
       {
         role: "user",
-        content: `Create a single SCROLL-STOPPING, cinematic image prompt for the cover slide of an Instagram AI news carousel. This is the THUMBNAIL — it must make someone stop mid-scroll and feel compelled to swipe.
+        content: `Create a SCROLL-STOPPING background scene for the cover slide of an Instagram AI news carousel. This will be the BACKGROUND LAYER — people and logos will be composited on top.
 
-This week's AI topics to synthesize visually:
+This week's AI topics:
 ${headlines.map((h, i) => `${i + 1}. ${h}`).join("\n")}
 
-CRITICAL COMPOSITION RULE — MULTIPLE SUBJECTS:
-The cover image MUST combine MULTIPLE elements from the week's stories into ONE dramatic scene. Think of it like a movie poster that teases ALL the stories at once.
+BACKGROUND COMPOSITION — this is NOT the final image, it's the backdrop:
+The background should set the MOOD and ATMOSPHERE for the stories. Think movie poster backgrounds.
 
-MULTI-SUBJECT COMPOSITION TECHNIQUES (pick ONE):
-1. COLLISION: Two or three symbolic objects in brand colors clashing/colliding in mid-air (e.g., a green glowing sphere and a red-blue sphere smashing together with sparks)
-2. LAYERED SCENE: Foreground + middle ground + background each represent different stories (e.g., a hand holding a cracked phone in foreground, a towering robot silhouette in midground, a burning cityscape in background)
-3. SPLIT COMPOSITION: Diagonal or vertical split showing two contrasting scenes side by side (e.g., left half = creation/building, right half = destruction/disruption)
-4. ENSEMBLE: 3-5 symbolic objects or figures arranged together (e.g., silhouettes of 3 figures at podiums each with different brand-color lighting, facing a crowd)
-5. SWIRL/VORTEX: Multiple brand-color elements spiraling together in a dramatic vortex or explosion
+GOOD BACKGROUNDS:
+- Dramatic storm clouds over a neon-lit city skyline at dusk (tension, disruption)
+- A massive stage with spotlights piercing fog, empty podium (competition, announcements)
+- Cracked earth splitting open with light bursting from below (upheaval, change)
+- A sleek glass corridor with reflections of multiple screens showing data (tech power)
+- An arena with dramatic overhead lighting and fog (battle, rivalry)
 
-DO NOT create a single-subject image. The cover MUST visually represent at least 2-3 of the week's stories.
+BAD BACKGROUNDS (banned):
+- Server rooms, data centers, server racks
+- Generic glowing circuits or motherboards
+- Abstract floating data/code streams
+- Plain office/boardroom interiors
 
-STYLE GUIDELINES (non-negotiable):
-- EDGY and MODERN — not corporate, not safe, not generic
-- SCI-FI aesthetic: think Blade Runner 2049, Ex Machina, Westworld
-- Hyper-cinematic: anamorphic lens flares, volumetric light rays, god rays, chromatic aberration
-- Color palette: deep blacks, neon electric blue (#00f0ff), hot magenta (#ff00aa), molten gold — high contrast
-- Composition: rule of thirds, multiple depth layers, 9:16 vertical portrait
-- Photorealistic, 8K quality, hyperdetailed
-- ABSOLUTELY NO text, NO logos, NO watermarks, NO readable characters in the image
-- NEVER attempt to draw real people's faces (will look wrong). Use silhouettes, from-behind shots, or symbolic representations with brand colors instead.
+STYLE:
+- Hyper-cinematic: dramatic lighting, volumetric rays, depth of field
+- Color palette: deep blacks, neon electric blue, warm gold, high contrast
+- Composition: leave CENTER and LOWER areas open for people/text overlay
+- 9:16 vertical portrait orientation
+- NO text, NO logos, NO people in the background — those are added separately
+- Photorealistic, 8K quality
 
-Return ONLY the image prompt, no explanation, no preamble.`,
+Return ONLY the image prompt, no explanation.`,
       },
     ],
   });
@@ -918,7 +923,7 @@ Return ONLY the image prompt, no explanation, no preamble.`,
   const raw = response?.choices?.[0]?.message?.content;
   const text = typeof raw === "string" ? raw : "";
   return text.trim() ||
-    "Hyper-cinematic 8K vertical portrait: three glowing orbs in green, blue, and red hovering above a dark cityscape at night, each orb cracking open to reveal swirling energy inside, lightning arcs connecting them, a massive crowd of silhouettes below looking up in awe, volumetric god rays piercing through storm clouds, neon reflections on wet streets, anamorphic lens flare, chromatic aberration, Blade Runner 2049 meets Akira aesthetic, rule of thirds, multiple depth layers, photorealistic hyperdetailed";
+    "Hyper-cinematic 8K vertical portrait background: a massive open-air arena at night, dramatic overhead spotlights piercing through fog and rain, neon blue and gold light rays cutting through storm clouds, a distant city skyline glowing on the horizon, wet reflective ground in the foreground catching the light, volumetric god rays, depth of field, anamorphic lens flare, center area left open for subject compositing, rule of thirds, photorealistic hyperdetailed";
 }
 
 // ─── Stage 5: Video / Image Generation ──────────────────────────────────────
@@ -1615,7 +1620,7 @@ async function _runPipelineStages(
       if (!slide.videoPrompt) return;
 
       const brief = briefBySlide.get(slide.slideIndex);
-      const strategy = brief?.strategy ?? (slide.isVideoSlide === 1 ? "kling_video" : "cinematic_scene");
+      let strategy = brief?.strategy ?? (slide.isVideoSlide === 1 ? "kling_video" : "cinematic_scene");
       await updateProgress(runId, `Generating slide ${slide.slideIndex + 1}/${mediaGenTotal}: ${strategy} — "${(slide.headline ?? "").slice(0, 40)}..."`);
 
       const log: typeof decisionLog[0] = {
@@ -1730,6 +1735,17 @@ async function _runPipelineStages(
         if (!mediaUrl && hasKling && klingSlidesAttempted >= MAX_KLING_SLIDES) {
           console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_SLIDES})`);
         }
+      }
+
+      // ── PIPELINE SAFETY NET: freeform_composition covers with subjects must route to person_composite ──
+      // Even if sanitizeSlides() missed it, force the correct path here at execution time.
+      const coverSubjectCount = brief?.coverComposition?.subjects?.length ?? 0;
+      if (!mediaUrl && slide.slideIndex === 0
+          && brief?.coverTemplate === "freeform_composition"
+          && coverSubjectCount > 0
+          && strategy !== "person_composite") {
+        console.warn(`[ContentPipeline] Slide 0: ⚠️ PIPELINE OVERRIDE: freeform cover has ${coverSubjectCount} subjects but strategy="${strategy}" — forcing person_composite path`);
+        strategy = "person_composite";
       }
 
       if (!mediaUrl && strategy === "person_composite") {

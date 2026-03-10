@@ -342,7 +342,7 @@ async function renderCouncilOfPlayers(input: CoverTemplateInput): Promise<Buffer
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(bg).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(bg).composite(composites).png().toBuffer();
 }
 
 // ─── Template 2: backs_to_the_storm ──────────────────────────────────────────
@@ -370,7 +370,7 @@ async function renderBacksToTheStorm(input: CoverTemplateInput): Promise<Buffer>
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(bg).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(bg).composite(composites).png().toBuffer();
 }
 
 // ─── Template 3: solo_machine ─────────────────────────────────────────────────
@@ -383,7 +383,7 @@ async function renderSoloMachine(input: CoverTemplateInput): Promise<Buffer> {
   </svg>`;
   return sharp(bg)
     .composite([{ input: Buffer.from(textSvg), left: 0, top: 0 }])
-    .png({ quality: 92 })
+    .png()
     .toBuffer();
 }
 
@@ -423,7 +423,7 @@ async function renderPersonFloatingOrbs(input: CoverTemplateInput): Promise<Buff
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(bg).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(bg).composite(composites).png().toBuffer();
 }
 
 // ─── Template 5: real_photo_corner_badges ────────────────────────────────────
@@ -447,7 +447,7 @@ async function renderRealPhotoCornerBadges(input: CoverTemplateInput): Promise<B
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(bg).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(bg).composite(composites).png().toBuffer();
 }
 
 // ─── Template 6: left_column_logos ───────────────────────────────────────────
@@ -473,7 +473,7 @@ async function renderLeftColumnLogos(input: CoverTemplateInput): Promise<Buffer>
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(bg).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(bg).composite(composites).png().toBuffer();
 }
 
 // ─── Template 7: duo_reaction ─────────────────────────────────────────────────
@@ -518,7 +518,7 @@ async function renderDuoReaction(input: CoverTemplateInput): Promise<Buffer> {
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(bg).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(bg).composite(composites).png().toBuffer();
 }
 
 // ─── Template 8: screenshot_overlay ──────────────────────────────────────────
@@ -585,7 +585,7 @@ async function renderScreenshotOverlay(input: CoverTemplateInput): Promise<Buffe
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(base).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(base).composite(composites).png().toBuffer();
 }
 
 // ─── Template 9: freeform_composition ─────────────────────────────────────────
@@ -632,13 +632,13 @@ async function renderFreeformComposition(input: CoverTemplateInput): Promise<Buf
 
   if (mode === "single_shot" && input.mainPersonBuffer) {
     // ── Single-shot: mainPersonBuffer IS the complete scene ──
-    // GPT Image 1 generated the person(s) naturally inside the scene.
+    // Nano Banana (Gemini) generated the person(s) naturally inside the scene.
     // Use the full image as the background canvas — no cutout compositing needed.
     base = await sharp(input.mainPersonBuffer)
       .resize(W, H, { fit: "cover", position: "center" })
       .png()
       .toBuffer();
-    console.log(`[CoverTemplate] Freeform single_shot: using GPT Image 1 scene as full canvas`);
+    console.log(`[CoverTemplate] Freeform single_shot: using Nano Banana scene as full canvas`);
   } else if (mode === "multi_layer") {
     // ── Multi-layer: background + person cutouts composited ──
     base = await buildDarkBg(input.backgroundBuffer);
@@ -773,7 +773,7 @@ async function renderFreeformComposition(input: CoverTemplateInput): Promise<Buf
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  return sharp(base).composite(composites).png({ quality: 92 }).toBuffer();
+  return sharp(base).composite(composites).png().toBuffer();
 }
 
 // ─── Main router ──────────────────────────────────────────────────────────────

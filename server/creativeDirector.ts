@@ -521,11 +521,12 @@ APPROACH 2: Legacy templates (for simpler covers)
   "screenshot_overlay" — screenshot + dark vignette + YELLOW headline (product launches)
 
 WHEN TO USE WHICH:
-  - 2+ recognizable people → freeform_composition (multi-layer) — arrange them like a movie poster
-  - 1 person + logos → freeform_composition (single_shot) or person_floating_orbs
-  - No people, dramatic metaphor → solo_machine or cinematic_scene
-  - Product launch with UI → screenshot_overlay
-  - Pure logo story → backs_to_the_storm or left_column_logos
+  - 2+ recognizable people → freeform_composition (multi_layer) + strategy "person_composite" — arrange them like a movie poster
+  - 1 person + logos → freeform_composition (single_shot) + strategy "person_composite" — person IS the scene
+  - No people, dramatic metaphor → solo_machine + strategy "cinematic_scene"
+  - Product launch with UI → screenshot_overlay + strategy "cinematic_scene"
+  - Pure logo story → backs_to_the_storm or left_column_logos + strategy "scene_with_badge"
+  REMEMBER: freeform_composition with subjects[] REQUIRES strategy "person_composite". This is what makes the Nano Banana pipeline generate actual faces.
 
 ═══ LOGO STRATEGY ═══
 
@@ -556,9 +557,12 @@ VARIETY IS MANDATORY:
 COVER SLIDE (index 0) = 80% OF THE POST:
 - The cover must be the single most scroll-stopping image in the carousel.
 - ALWAYS set coverTemplate for slide 0. Choose the template that best fits the week's stories.
-- For person_floating_orbs or council_of_players: set strategy to "person_composite" and provide personSearchQuery.
-- For all other templates: set strategy to "cinematic_scene".
-- CRITICAL: Do NOT use person-based templates (council_of_players, person_floating_orbs, duo_reaction) just because a person's company is mentioned in a different slide. The cover story itself must feature that person.
+- STRATEGY RULE FOR COVERS:
+  • If the cover has ANY people (freeform_composition with subjects, council_of_players, person_floating_orbs, duo_reaction): set strategy to "person_composite" and provide personSearchQuery.
+  • If the cover is purely scenic with NO people (solo_machine, backs_to_the_storm, left_column_logos, screenshot_overlay, real_photo_corner_badges): set strategy to "cinematic_scene" or "scene_with_badge".
+  • freeform_composition with subjects[] ALWAYS requires strategy "person_composite" — this is what triggers Nano Banana to generate recognizable faces.
+- DEFAULT TO PEOPLE ON COVERS. Most weeks have at least 1-2 recognizable figures in the news. Put them on the cover. People-centric covers get 3× more engagement than abstract scenes.
+- Only use cinematic_scene for the cover when NONE of the week's stories involve recognizable public figures.
 
 VIDEO STRATEGY:
 - Assign kling_video to exactly 2 slides (indices 1-4, NOT the cover).
@@ -714,7 +718,41 @@ function sanitizeSlides(
         coverTemplate = strategy === "person_composite" ? "freeform_composition" : "solo_machine";
         console.warn(`[${callerLabel}] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate}`);
       }
-      console.log(`[${callerLabel}] Cover template: ${coverTemplate}`);
+
+      // ── AUTO-UPGRADE: freeform_composition with subjects MUST use person_composite ──
+      // This is the critical safety net: the LLM may pair freeform_composition with
+      // cinematic_scene (which bypasses the Nano Banana pipeline entirely, producing
+      // generic cityscapes instead of movie-poster people compositions).
+      // If the LLM provided subjects[], the intent is clearly people-on-cover.
+      const hasSubjects = s.coverComposition?.subjects?.length > 0;
+      const isPersonTemplate = ["freeform_composition", "council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate);
+      if (isPersonTemplate && hasSubjects && strategy !== "person_composite") {
+        console.warn(`[${callerLabel}] Slide 0: ⚠️ AUTO-UPGRADE: ${coverTemplate} has ${s.coverComposition.subjects.length} subjects but strategy was "${strategy}" — upgrading to person_composite`);
+        strategy = "person_composite";
+        // Ensure we have a personSearchQuery for the primary subject
+        if (!s.personSearchQuery && s.coverComposition.subjects[0]?.name) {
+          s.personSearchQuery = `${s.coverComposition.subjects[0].name} portrait photo`;
+        }
+      }
+
+      // ── AUTO-UPGRADE: Cover with known people should use person_composite ──
+      // Even if the LLM didn't pick freeform_composition, if the headlines mention
+      // known figures, upgrade to person_composite + freeform_composition.
+      if (strategy !== "person_composite" && !hasSubjects) {
+        const allHeadlines = researched.map(t => t.headline).join(" ");
+        const coverPeople = detectKnownPeople(allHeadlines);
+        if (coverPeople.length > 0) {
+          console.warn(`[${callerLabel}] Slide 0: ⚠️ AUTO-UPGRADE: headlines mention ${coverPeople.map(p => p.name).join(", ")} but strategy was "${strategy}" — upgrading to person_composite + freeform_composition`);
+          strategy = "person_composite";
+          coverTemplate = "freeform_composition";
+          // Build a personSearchQuery from the first detected person
+          if (!s.personSearchQuery) {
+            s.personSearchQuery = `${coverPeople[0].name} portrait photo`;
+          }
+        }
+      }
+
+      console.log(`[${callerLabel}] Cover template: ${coverTemplate} (strategy: ${strategy})`);
     }
 
     // Validate person_composite: prefer known figures, but allow if LLM provided a search query
