@@ -1,7 +1,7 @@
 /**
  * coverTemplateCompositor.ts
  *
- * 8-template cover slide compositor for SuggestedByGPT.
+ * 10-template cover slide compositor for SuggestedByGPT.
  * Each template is a plug-and-play layout schema derived from top-performing
  * AI news Instagram accounts (@theaifield, @evolving.ai, @airesearches, @godofprompt).
  *
@@ -175,12 +175,14 @@ function buildTextZoneSvg(
   headlineColor: string = WHITE,
   accentColor: string = CYAN,
   showDivider: boolean = true,
+  /** Override default text layout for templates with compact text zones (e.g. triangle_triptych) */
+  layoutOverrides?: { fontSize?: number; lineHeight?: number; maxChars?: number; startYOffset?: number },
 ): string {
   const fontFamily = "Anton, 'Arial Black', Arial, sans-serif";
-  const fontSize = 72;
-  const lineHeight = 82;
-  const maxChars = 18;
-  const headlineStartY = textZoneTop + 80;
+  const fontSize = layoutOverrides?.fontSize ?? 72;
+  const lineHeight = layoutOverrides?.lineHeight ?? 82;
+  const maxChars = layoutOverrides?.maxChars ?? 18;
+  const headlineStartY = textZoneTop + (layoutOverrides?.startYOffset ?? 80);
 
   const headlineLines = buildHeadlineLines(
     headline, W / 2, headlineStartY, lineHeight, fontSize, fontFamily, maxChars, headlineColor, accentColor,
@@ -817,7 +819,7 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   while (images.length < 3) images.push(null);
 
   // ── Start with a black canvas ──
-  let base = await sharp({
+  const base = await sharp({
     create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
   }).png().toBuffer();
 
@@ -894,9 +896,14 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   </svg>`;
   composites.push({ input: Buffer.from(borderSvg), left: 0, top: 0 });
 
-  // ── Compact text zone (taller image zone = shorter text zone) ──
+  // ── Compact text zone (taller image zone = shorter text zone ~450px) ──
+  // Use smaller font + wider lines to prevent headline overlapping "SWIPE FOR MORE"
+  // Standard: 72px/82px/18chars → 5 lines can reach y=1308, overlapping swipe at 1295
+  // Compact:  64px/74px/22chars → 4 lines max reach y=960+3×74=1182, well clear
   const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    ${buildTextZoneSvg(input.headline, TRIPTYCH_TEXT_TOP, WHITE, CYAN, true)}
+    ${buildTextZoneSvg(input.headline, TRIPTYCH_TEXT_TOP, WHITE, CYAN, true, {
+      fontSize: 64, lineHeight: 74, maxChars: 22, startYOffset: 60,
+    })}
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 

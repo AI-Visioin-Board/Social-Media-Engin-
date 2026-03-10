@@ -1883,10 +1883,10 @@ async function _runPipelineStages(
                 }
               }
             } else {
-              console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 returned no URL — falling back to DALL-E scene`);
+              console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Nano Banana returned no URL — falling back to DALL-E scene`);
             }
           } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ GPT Image 1 person scene failed: ${err?.message} — falling back to DALL-E scene`);
+            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Nano Banana person scene failed: ${err?.message} — falling back to DALL-E scene`);
           }
         }
       }
