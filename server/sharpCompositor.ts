@@ -83,6 +83,102 @@ function buildFontFaceCSS(): string {
     </style>`;
 }
 
+// ─── Circular Logo Renderer ──────────────────────────────────────────────────
+// ALL logos are rendered as circular badges with a white glow border for:
+// 1. Standardized shape — no more jarring square logos (Copilot, etc.)
+// 2. Universal visibility — white glow ring ensures the logo is visible on ANY background
+// 3. Professional aesthetic — matches @theaifield, @airesearches competitor style
+
+async function renderCircularLogo(
+  logoBuffer: Buffer,
+  size: number,
+  style: "full_color" | "badge",
+): Promise<Buffer | null> {
+  try {
+    const OUTER = size;                        // full diameter of the final circle
+    const GLOW_WIDTH = 3;                      // white glow ring thickness
+    const INNER = OUTER - GLOW_WIDTH * 2;      // inner circle diameter
+    const LOGO_PAD = style === "full_color" ? 0.15 : 0.20; // padding inside circle (% of inner)
+    const LOGO_AREA = Math.round(INNER * (1 - LOGO_PAD * 2)); // logo fits within this box
+    const R = OUTER / 2;                       // outer radius
+    const RI = INNER / 2;                      // inner radius
+
+    // 1. Resize the logo to fit inside the inner circle with padding
+    const resized = await sharp(logoBuffer)
+      .resize(LOGO_AREA, LOGO_AREA, { fit: "inside" })
+      .png()
+      .toBuffer();
+    const meta = await sharp(resized).metadata();
+    const lW = meta.width ?? LOGO_AREA;
+    const lH = meta.height ?? LOGO_AREA;
+
+    // 2. Build SVG with: outer glow ring + semi-transparent dark fill + circular clip for logo
+    const bgFill = style === "full_color"
+      ? "rgba(15, 15, 30, 0.80)"    // dark translucent background
+      : "rgba(10, 10, 30, 0.85)";   // slightly darker for badge mode
+
+    const svgCanvas = `<svg width="${OUTER}" height="${OUTER}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge>
+            <feMergeNode in="blur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+        <clipPath id="circClip">
+          <circle cx="${R}" cy="${R}" r="${RI - 1}"/>
+        </clipPath>
+      </defs>
+      <!-- White glow ring -->
+      <circle cx="${R}" cy="${R}" r="${R - 1}" fill="none"
+        stroke="rgba(255,255,255,0.60)" stroke-width="${GLOW_WIDTH}" filter="url(#glow)"/>
+      <!-- Dark circular background -->
+      <circle cx="${R}" cy="${R}" r="${RI}" fill="${bgFill}"/>
+    </svg>`;
+
+    const canvas = await sharp(Buffer.from(svgCanvas)).png().toBuffer();
+
+    // 3. Composite the logo centered on the dark circle
+    const logoLeft = Math.round((OUTER - lW) / 2);
+    const logoTop = Math.round((OUTER - lH) / 2);
+
+    // 4. Create a circular mask to clip the logo to the inner circle
+    const maskSvg = `<svg width="${OUTER}" height="${OUTER}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${R}" cy="${R}" r="${RI - 1}" fill="white"/>
+    </svg>`;
+    const mask = await sharp(Buffer.from(maskSvg)).png().toBuffer();
+
+    // Clip the logo to circle shape first
+    const logoOnTransparent = await sharp({
+      create: { width: OUTER, height: OUTER, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .png()
+      .toBuffer();
+
+    const logoPlaced = await sharp(logoOnTransparent)
+      .composite([{ input: resized, left: logoLeft, top: logoTop }])
+      .png()
+      .toBuffer();
+
+    const logoClipped = await sharp(logoPlaced)
+      .composite([{ input: mask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+
+    // 5. Final composite: canvas (glow ring + dark bg) + clipped logo on top
+    const final = await sharp(canvas)
+      .composite([{ input: logoClipped, left: 0, top: 0 }])
+      .png()
+      .toBuffer();
+
+    return final;
+  } catch (err: any) {
+    console.warn(`[SharpCompositor] renderCircularLogo failed: ${err?.message}`);
+    return null;
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface SharpSlideInput {
@@ -612,13 +708,14 @@ export async function assembleSlideWithSharp(
     }
 
     // ── Content slide logo compositing (non-cover slides) ────────────────
-    // 2.0: Supports full-color logos (large, brand colors, drop shadow) OR traditional badges
+    // 3.0: ALL logos rendered as circular badges with white glow for universal visibility.
+    // Standardizes shape (no more square logos) and ensures visibility on any background.
     const logoComposites: sharp.OverlayOptions[] = [];
     const effectiveLogoStyle = slide.logoStyle ?? "full_color"; // default to full_color in 2.0
     if (!isCover && effectiveLogoStyle !== "none" && slide.logoBuffers && slide.logoBuffers.length > 0) {
       const validLogos = slide.logoBuffers.filter((b): b is Buffer => b !== null);
 
-      // Dynamic placement zones — logos placed in the image zone, safely ABOVE the gradient
+      // Placement zones — logos placed in the image zone, safely ABOVE the gradient
       // Gradient starts at y=515 (IMAGE_ZONE_H - 160), so all logos stay above that
       const LOGO_ZONES = [
         { left: SLIDE_W - 160, top: 30, label: "top-right" },
@@ -626,80 +723,16 @@ export async function assembleSlideWithSharp(
         { left: SLIDE_W - 150, top: 200, label: "mid-right" },
       ];
 
-      const logoSizeDefault = effectiveLogoStyle === "full_color" ? 140 : 100;
+      const logoSizeDefault = effectiveLogoStyle === "full_color" ? 120 : 90;
       const LOGO_SIZE = slide.logoSize ?? logoSizeDefault;
 
       for (let i = 0; i < Math.min(validLogos.length, 3); i++) {
         try {
           const pos = LOGO_ZONES[i];
-
-          if (effectiveLogoStyle === "full_color") {
-            // ── FULL-COLOR LOGO: brand colors, larger, drop shadow ──
-            const resized = await sharp(validLogos[i])
-              .resize(LOGO_SIZE, LOGO_SIZE, { fit: "inside" })
-              .png()
-              .toBuffer();
-            const meta = await sharp(resized).metadata();
-            const lW = meta.width ?? LOGO_SIZE;
-            const lH = meta.height ?? LOGO_SIZE;
-
-            // Add subtle drop shadow via a shadow canvas
-            const padding = 12;
-            const canvasW = lW + padding * 2;
-            const canvasH = lH + padding * 2;
-            const shadowSvg = `<svg width="${canvasW}" height="${canvasH}" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <filter id="ds${i}">
-                  <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="black" flood-opacity="0.4"/>
-                </filter>
-              </defs>
-              <rect width="${canvasW}" height="${canvasH}" fill="none"/>
-            </svg>`;
-
-            const canvas = await sharp(Buffer.from(shadowSvg)).png().toBuffer();
-            const fullColorLogo = await sharp(canvas)
-              .composite([{ input: resized, left: padding, top: padding }])
-              .png()
-              .toBuffer();
-
-            logoComposites.push({
-              input: fullColorLogo,
-              left: pos.left,
-              top: pos.top,
-            });
-            console.log(`[SharpCompositor] Full-color logo ${i + 1} (${LOGO_SIZE}px) on slide ${slideIndex} at (${pos.left}, ${pos.top})`);
-          } else {
-            // ── BADGE LOGO: traditional dark circle (backward compat) ──
-            const BADGE_SIZE = LOGO_SIZE;
-            const innerSize = Math.round(BADGE_SIZE * 0.65);
-            const resizedLogo = await sharp(validLogos[i])
-              .resize(innerSize, innerSize, { fit: "inside" })
-              .png()
-              .toBuffer();
-            const logoMeta = await sharp(resizedLogo).metadata();
-            const lW = logoMeta.width ?? innerSize;
-            const lH = logoMeta.height ?? innerSize;
-
-            const badgeSvg = `<svg width="${BADGE_SIZE}" height="${BADGE_SIZE}" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="${BADGE_SIZE / 2}" cy="${BADGE_SIZE / 2}" r="${BADGE_SIZE / 2 - 2}"
-                fill="rgba(10,10,30,0.75)" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
-            </svg>`;
-            const badgeBg = await sharp(Buffer.from(badgeSvg)).png().toBuffer();
-            const badge = await sharp(badgeBg)
-              .composite([{
-                input: resizedLogo,
-                left: Math.round((BADGE_SIZE - lW) / 2),
-                top: Math.round((BADGE_SIZE - lH) / 2),
-              }])
-              .png()
-              .toBuffer();
-
-            logoComposites.push({
-              input: badge,
-              left: pos.left,
-              top: pos.top,
-            });
-            console.log(`[SharpCompositor] Badge logo ${i + 1} (${BADGE_SIZE}px) on slide ${slideIndex} at (${pos.left}, ${pos.top})`);
+          const circledLogo = await renderCircularLogo(validLogos[i], LOGO_SIZE, effectiveLogoStyle);
+          if (circledLogo) {
+            logoComposites.push({ input: circledLogo, left: pos.left, top: pos.top });
+            console.log(`[SharpCompositor] Circular logo ${i + 1} (${LOGO_SIZE}px) on slide ${slideIndex} at (${pos.left}, ${pos.top})`);
           }
         } catch (logoErr: any) {
           console.warn(`[SharpCompositor] Logo compositing failed: ${logoErr?.message}`);

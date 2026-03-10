@@ -1985,10 +1985,20 @@ async function _runPipelineStages(
       log.mediaUrl = mediaUrl;
       decisionLog.push(log);
 
+      // If this was a video slide but Kling failed (fell back to still image),
+      // clear the isVideoSlide flag so assembly doesn't get confused.
+      const isStillFallback = slide.isVideoSlide === 1
+        && mediaUrl
+        && /\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/i.test(mediaUrl);
+      if (isStillFallback) {
+        console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video slide fell back to still image — clearing isVideoSlide flag`);
+      }
+
       await db.update(generatedSlides)
         .set({
           videoUrl: mediaUrl ?? null,
           status: mediaUrl ? "assembling" : "ready",
+          ...(isStillFallback ? { isVideoSlide: 0 } : {}),
         })
         .where(eq(generatedSlides.id, slide.id));
 

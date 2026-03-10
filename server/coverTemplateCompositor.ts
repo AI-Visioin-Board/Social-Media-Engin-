@@ -223,25 +223,66 @@ async function resizeFit(buf: Buffer, maxW: number, maxH: number): Promise<{ buf
   return { buf: resized, w: meta.width ?? maxW, h: meta.height ?? maxH };
 }
 
-/** Make a circular logo badge from a logo buffer */
-async function makeCircularBadge(logoBuf: Buffer, size: number, bgColor: string = "#1a1a2e"): Promise<Buffer> {
-  const innerSize = Math.round(size * 0.72);
+/** Make a circular logo badge with white glow border for universal visibility.
+ *  All logos are clipped to a circle, ensuring standardized shape regardless of
+ *  source PNG dimensions (no more jarring square logos like Copilot). */
+async function makeCircularBadge(logoBuf: Buffer, size: number, _bgColor: string = "#1a1a2e"): Promise<Buffer> {
+  const GLOW_W = 3;
+  const INNER = size - GLOW_W * 2;
+  const LOGO_AREA = Math.round(INNER * 0.62);
+  const R = size / 2;
+  const RI = INNER / 2;
+
   const logoResized = await sharp(logoBuf)
-    .resize(innerSize, innerSize, { fit: "inside" })
+    .resize(LOGO_AREA, LOGO_AREA, { fit: "inside" })
     .png()
     .toBuffer();
   const logoMeta = await sharp(logoResized).metadata();
-  const lW = logoMeta.width ?? innerSize;
-  const lH = logoMeta.height ?? innerSize;
+  const lW = logoMeta.width ?? LOGO_AREA;
+  const lH = logoMeta.height ?? LOGO_AREA;
   const lLeft = Math.round((size - lW) / 2);
   const lTop = Math.round((size - lH) / 2);
 
+  // SVG: white glow ring + dark translucent circle
   const circleSvg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="${size / 2}" cy="${size / 2}" r="${size / 2 - 2}" fill="${bgColor}" stroke="white" stroke-width="3" stroke-opacity="0.4"/>
+    <defs>
+      <filter id="badgeGlow">
+        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <clipPath id="badgeClip">
+        <circle cx="${R}" cy="${R}" r="${RI - 1}"/>
+      </clipPath>
+    </defs>
+    <circle cx="${R}" cy="${R}" r="${R - 1}" fill="none"
+      stroke="rgba(255,255,255,0.60)" stroke-width="${GLOW_W}" filter="url(#badgeGlow)"/>
+    <circle cx="${R}" cy="${R}" r="${RI}" fill="rgba(15, 15, 30, 0.80)"/>
   </svg>`;
 
-  return sharp(Buffer.from(circleSvg))
+  const canvas = await sharp(Buffer.from(circleSvg)).png().toBuffer();
+
+  // Clip logo to inner circle, then composite onto canvas
+  const maskSvg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="${R}" cy="${R}" r="${RI - 1}" fill="white"/>
+  </svg>`;
+  const mask = await sharp(Buffer.from(maskSvg)).png().toBuffer();
+
+  const logoOnTransparent = await sharp({
+    create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  }).png().toBuffer();
+
+  const logoPlaced = await sharp(logoOnTransparent)
     .composite([{ input: logoResized, left: lLeft, top: lTop }])
+    .png()
+    .toBuffer();
+
+  const logoClipped = await sharp(logoPlaced)
+    .composite([{ input: mask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+
+  return sharp(canvas)
+    .composite([{ input: logoClipped, left: 0, top: 0 }])
     .png()
     .toBuffer();
 }
@@ -721,51 +762,28 @@ async function renderFreeformComposition(input: CoverTemplateInput): Promise<Buf
     console.log(`[CoverTemplate] Freeform fallback: background only (no person buffers)`);
   }
 
-  // ── Logo layers (full-color with drop shadow, sized per logoTreatment) ──
+  // ── Logo layers (circular badges with white glow, sized per logoTreatment) ──
   const logos = (input.logoBuffers ?? []).filter(Boolean) as Buffer[];
   if (logos.length > 0 && composition?.logoTreatment && composition.logoTreatment.length > 0) {
-    const sizeMap: Record<string, number> = { small: 80, medium: 140, large: 200 };
+    const sizeMap: Record<string, number> = { small: 80, medium: 120, large: 160 };
     for (let i = 0; i < Math.min(logos.length, composition.logoTreatment.length); i++) {
       const treatment = composition.logoTreatment[i];
-      const size = sizeMap[treatment.size] ?? 140;
-
-      const logoResized = await sharp(logos[i])
-        .resize(size, size, { fit: "inside" })
-        .png()
-        .toBuffer();
-      const logoMeta = await sharp(logoResized).metadata();
-      const lW = logoMeta.width ?? size;
-      const lH = logoMeta.height ?? size;
-
-      // Add drop shadow via SVG canvas
-      const canvasW = lW + 20;
-      const canvasH = lH + 20;
-      const shadowSvg = `<svg width="${canvasW}" height="${canvasH}" xmlns="http://www.w3.org/2000/svg">
-        <defs><filter id="logods${i}"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-opacity="0.4"/></filter></defs>
-        <rect width="${canvasW}" height="${canvasH}" fill="none" filter="url(#logods${i})" opacity="0"/>
-      </svg>`;
-      const logoWithShadow = await sharp(Buffer.from(shadowSvg))
-        .composite([{ input: logoResized, left: 10, top: 10 }])
-        .png()
-        .toBuffer();
-
-      const pos = parseFreeformPlacement(treatment.placement, canvasW, canvasH);
-      composites.push({ input: logoWithShadow, left: Math.max(0, pos.left), top: Math.max(0, pos.top) });
-      console.log(`[CoverTemplate] Freeform: logo "${treatment.logoKey}" (${treatment.size}) at ${treatment.placement}`);
+      const size = sizeMap[treatment.size] ?? 120;
+      const badge = await makeCircularBadge(logos[i], size);
+      const pos = parseFreeformPlacement(treatment.placement, size, size);
+      composites.push({ input: badge, left: Math.max(0, pos.left), top: Math.max(0, pos.top) });
+      console.log(`[CoverTemplate] Freeform: circular logo "${treatment.logoKey}" (${treatment.size}=${size}px) at ${treatment.placement}`);
     }
   } else if (logos.length > 0) {
     // No treatment specified — default: place logos top-right stacked
     const defaultPositions = [
-      { left: W - 180, top: 30 },
-      { left: W - 180, top: 180 },
-      { left: W - 180, top: 330 },
+      { left: W - 160, top: 30 },
+      { left: W - 160, top: 170 },
+      { left: W - 160, top: 310 },
     ];
     for (let i = 0; i < Math.min(logos.length, 3); i++) {
-      const logoResized = await sharp(logos[i])
-        .resize(140, 140, { fit: "inside" })
-        .png()
-        .toBuffer();
-      composites.push({ input: logoResized, left: defaultPositions[i].left, top: defaultPositions[i].top });
+      const badge = await makeCircularBadge(logos[i], 120);
+      composites.push({ input: badge, left: defaultPositions[i].left, top: defaultPositions[i].top });
     }
   }
 

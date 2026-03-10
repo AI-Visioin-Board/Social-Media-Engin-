@@ -820,10 +820,27 @@ function sanitizeSlides(
         if (s.personSearchQuery && s.personSearchQuery.trim().length > 10) {
           console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite for non-verified figure — allowing (LLM query: "${s.personSearchQuery?.slice(0, 50)}")`);
         } else {
-          console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
-          strategy = "scene_with_badge";
-          if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition", "triangle_triptych"].includes(coverTemplate)) {
-            coverTemplate = "backs_to_the_storm";
+          // Check if we have logos available before choosing a logo-dependent fallback.
+          // Without logos, backs_to_the_storm will render empty → cinematic_scene double-downgrade.
+          const availableLogos = s.logoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2) ?? [];
+          const autoLogos = availableLogos.length === 0
+            ? Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos))).slice(0, 3)
+            : availableLogos;
+
+          if (autoLogos.length > 0) {
+            console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
+            strategy = "scene_with_badge";
+            if (!s.logoKeys || s.logoKeys.length === 0) s.logoKeys = autoLogos;
+            if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition", "triangle_triptych"].includes(coverTemplate)) {
+              coverTemplate = "backs_to_the_storm";
+            }
+          } else {
+            // No logos available either — go straight to cinematic_scene (skip the double-downgrade)
+            console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite requested but no known figures, no search query, no logos — downgrading directly to cinematic_scene`);
+            strategy = "cinematic_scene";
+            if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition", "triangle_triptych"].includes(coverTemplate)) {
+              coverTemplate = "solo_machine";
+            }
           }
         }
       }

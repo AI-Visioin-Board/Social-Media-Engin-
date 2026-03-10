@@ -64,21 +64,13 @@ export const LOGO_LIBRARY: Record<string, { url: string; bgColor?: string; descr
     bgColor: "#D4A574",
     description: "Anthropic wordmark",
   },
-  claude: {
-    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Anthropic_logo.svg/1024px-Anthropic_logo.svg.png",
-    bgColor: "#D4A574",
-    description: "Claude / Anthropic logo",
-  },
+  // "claude" removed — duplicate of "anthropic" (same PNG)
   meta: {
     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Meta_Platforms_Inc._logo.svg/1200px-Meta_Platforms_Inc._logo.svg.png",
     bgColor: "#0668E1",
     description: "Meta blue infinity logo",
   },
-  llama: {
-    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Meta_Platforms_Inc._logo.svg/1200px-Meta_Platforms_Inc._logo.svg.png",
-    bgColor: "#0668E1",
-    description: "Meta LLaMA (uses Meta logo)",
-  },
+  // "llama" removed — duplicate of "meta" (same PNG)
   microsoft: {
     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/96/Microsoft_logo_%282012%29.svg/1024px-Microsoft_logo_%282012%29.svg.png",
     bgColor: "#FFFFFF",
@@ -109,11 +101,7 @@ export const LOGO_LIBRARY: Record<string, { url: string; bgColor?: string; descr
     bgColor: "#000000",
     description: "xAI logo",
   },
-  grok: {
-    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/XAI-Logo.svg/1024px-XAI-Logo.svg.png",
-    bgColor: "#000000",
-    description: "Grok / xAI logo",
-  },
+  // "grok" removed — duplicate of "xai" (same PNG)
   amazon: {
     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/1200px-Amazon_logo.svg.png",
     bgColor: "#FF9900",
@@ -144,11 +132,7 @@ export const LOGO_LIBRARY: Record<string, { url: string; bgColor?: string; descr
     bgColor: "#000000",
     description: "Stability AI logo",
   },
-  midjourney: {
-    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Midjourney_Emblem.png/600px-Midjourney_Emblem.png",
-    bgColor: "#000000",
-    description: "Midjourney sailboat emblem",
-  },
+  // "midjourney" removed — bland gray outline, not recognizable at small sizes
   mistral: {
     url: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Mistral_AI_logo_%282025%29.svg/1024px-Mistral_AI_logo_%282025%29.svg.png",
     bgColor: "#000000",
@@ -179,11 +163,7 @@ export const LOGO_LIBRARY: Record<string, { url: string; bgColor?: string; descr
     bgColor: "#000000",
     description: "ByteDance logo",
   },
-  baidu: {
-    url: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Baidu_Logo_%282019%29.svg/1200px-Baidu_Logo_%282019%29.svg.png",
-    bgColor: "#2319DC",
-    description: "Baidu logo",
-  },
+  // "baidu" removed — mixed Chinese/English characters, doesn't mesh with content style
 };
 
 // ─── Company name normalization ────────────────────────────────────────────────
@@ -195,18 +175,17 @@ const COMPANY_ALIASES: Record<string, string> = {
   "chat gpt": "chatgpt", "chat-gpt": "chatgpt",
   "google ai": "google", "google deepmind": "deepmind", "deep mind": "deepmind",
   "google gemini": "gemini",
-  "claude ai": "claude", "claude 3": "claude", "claude 4": "claude",
-  "meta ai": "meta", "meta llama": "llama", "llama 3": "llama", "llama 4": "llama",
+  "claude ai": "anthropic", "claude 3": "anthropic", "claude 4": "anthropic", "claude": "anthropic",
+  "meta ai": "meta", "meta llama": "meta", "llama 3": "meta", "llama 4": "meta", "llama": "meta",
   "facebook": "meta",
   "copilot ai": "copilot", "microsoft copilot": "copilot",
   "bing ai": "microsoft", "azure ai": "microsoft",
   "apple intelligence": "apple", "apple ai": "apple", "siri": "apple",
   "elon musk": "xai", "elon": "xai", "musk": "xai",
-  "grok ai": "grok",
+  "grok ai": "xai", "grok": "xai",
   "amazon ai": "amazon", "alexa": "amazon", "bedrock": "aws",
   "hugging face": "huggingface",
   "stable diffusion": "stability", "stability ai": "stability",
-  "mid journey": "midjourney", "mid-journey": "midjourney",
   "mistral ai": "mistral",
   "perplexity ai": "perplexity",
   "ibm watson": "ibm", "watson": "ibm", "watsonx": "ibm",
