@@ -49,7 +49,7 @@ import { findAllLogosForText, LOGO_LIBRARY } from "./assetLibrary";
  *                      Best for: CEO announcements, founder drama, executive moves.
  *                      ONLY for well-known public figures.
  *
- * "kling_video"      — 5-second cinematic video clip via Kling 2.5 Turbo.
+ * "kling_video"      — 5-second cinematic video clip via Kling 2.5 Turbo (sole video provider).
  *                      Most engaging format. 2 per carousel (cost + time).
  *                      Best for: the most dramatic/action-oriented story.
  */
@@ -647,6 +647,289 @@ Return valid JSON matching this exact schema:
 }`;
 }
 
+// ─── Shared Brief Sanitization ──────────────────────────────────────────────
+// Used by BOTH the Creative Director (initial output) AND the Quality Director
+// (revised output). Ensures every brief meets structural/data constraints before
+// it reaches Stage 5 (Media Generation).
+
+/** Raw slide shape coming from either CD or QD LLM calls */
+interface RawSlideInput {
+  slideIndex: number;
+  strategy: string;
+  coverTemplate?: string;
+  reasoning?: string;
+  scenePrompt?: string;
+  logoKeys?: string[];
+  additionalLogoKeys?: string[];
+  personSearchQuery?: string;
+  additionalPersonQueries?: string[];
+  personPlacement?: string;
+  screenshotDescription?: string;
+  engagementScore?: number;
+  coverComposition?: any;
+  videoNarrative?: any;
+  logoStyle?: string;
+  logoSize?: number;
+}
+
+interface TopicAnalysisInput {
+  index: number;
+  slideIndex: number;
+  headline: string;
+  summary: string;
+  detectedLogos: string[];
+  detectedPeople: Array<{ name: string; title: string }>;
+}
+
+const VALID_STRATEGIES = new Set<VisualStrategy>([
+  "cinematic_scene", "scene_with_badge", "person_composite", "kling_video",
+]);
+const VALID_COVER_TEMPLATES = new Set<CoverTemplate>([
+  "council_of_players", "backs_to_the_storm", "solo_machine", "person_floating_orbs",
+  "real_photo_corner_badges", "left_column_logos", "duo_reaction", "screenshot_overlay",
+  "freeform_composition",
+]);
+
+function sanitizeSlides(
+  rawSlides: RawSlideInput[],
+  topicAnalysis: TopicAnalysisInput[],
+  researched: ResearchedTopicInput[],
+  callerLabel: string,
+): SlideCreativeBrief[] {
+  const sanitizedSlides: SlideCreativeBrief[] = rawSlides.map((s) => {
+    let strategy = s.strategy as VisualStrategy;
+
+    // Validate strategy name
+    if (!VALID_STRATEGIES.has(strategy)) {
+      console.warn(`[${callerLabel}] Invalid strategy "${s.strategy}" for slide ${s.slideIndex} — falling back to cinematic_scene`);
+      strategy = "cinematic_scene";
+    }
+
+    // Validate coverTemplate for cover slide
+    let coverTemplate: CoverTemplate | undefined;
+    if (s.slideIndex === 0) {
+      if (s.coverTemplate && VALID_COVER_TEMPLATES.has(s.coverTemplate as CoverTemplate)) {
+        coverTemplate = s.coverTemplate as CoverTemplate;
+      } else {
+        coverTemplate = strategy === "person_composite" ? "freeform_composition" : "solo_machine";
+        console.warn(`[${callerLabel}] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate}`);
+      }
+      console.log(`[${callerLabel}] Cover template: ${coverTemplate}`);
+    }
+
+    // Validate person_composite: prefer known figures, but allow if LLM provided a search query
+    if (strategy === "person_composite") {
+      const topicIdx = s.slideIndex === 0 ? -1 : s.slideIndex - 1;
+      const analysis = topicIdx >= 0 ? topicAnalysis[topicIdx] : null;
+      const allText = analysis
+        ? `${analysis.headline} ${analysis.summary}`
+        : researched.map(t => t.headline).join(" ");
+      const knownPeople = detectKnownPeople(allText);
+
+      if (knownPeople.length === 0) {
+        if (s.personSearchQuery && s.personSearchQuery.trim().length > 10) {
+          console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite for non-verified figure — allowing (LLM query: "${s.personSearchQuery?.slice(0, 50)}")`);
+        } else {
+          console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
+          strategy = "scene_with_badge";
+          if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition"].includes(coverTemplate)) {
+            coverTemplate = "backs_to_the_storm";
+          }
+        }
+      }
+    }
+
+    // Validate logoKeys: only allow keys that exist in LOGO_LIBRARY
+    let logoKeys = s.logoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2);
+    let additionalLogoKeys = s.additionalLogoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2);
+    if (strategy === "scene_with_badge" && (!logoKeys || logoKeys.length === 0)) {
+      const topicIdx = s.slideIndex === 0 ? -1 : s.slideIndex - 1;
+      if (topicIdx >= 0 && topicAnalysis[topicIdx]?.detectedLogos.length > 0) {
+        logoKeys = topicAnalysis[topicIdx].detectedLogos.slice(0, 2);
+      } else {
+        console.warn(`[${callerLabel}] Slide ${s.slideIndex}: scene_with_badge but no valid logos — downgrading to cinematic_scene`);
+        strategy = "cinematic_scene";
+      }
+    }
+
+    // For cover templates that need logos but none provided, try auto-detect
+    if (s.slideIndex === 0 && coverTemplate && !(["solo_machine"].includes(coverTemplate))) {
+      if (!logoKeys || logoKeys.length === 0) {
+        const uniqueLogos = Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos))).slice(0, 3);
+        if (uniqueLogos.length > 0) {
+          logoKeys = uniqueLogos.slice(0, 2);
+          additionalLogoKeys = uniqueLogos.slice(2);
+          console.log(`[${callerLabel}] Cover: auto-detected logos for template ${coverTemplate}: ${uniqueLogos.join(", ")}`);
+        }
+      }
+    }
+
+    // Validate personPlacement
+    const validPlacements = new Set(["center", "left", "right"]);
+    const personPlacement = validPlacements.has(s.personPlacement ?? "")
+      ? (s.personPlacement as "center" | "left" | "right")
+      : "center";
+
+    // Validate additionalPersonQueries
+    const additionalPersonQueries = Array.isArray(s.additionalPersonQueries)
+      ? s.additionalPersonQueries.filter(q => typeof q === "string" && q.length > 0).slice(0, 3)
+      : undefined;
+
+    // Auto-detect logos for ALL content slides (not just scene_with_badge)
+    if (s.slideIndex !== 0 && (!logoKeys || logoKeys.length === 0)) {
+      const topicIdx = s.slideIndex - 1;
+      if (topicIdx >= 0 && topicAnalysis[topicIdx]?.detectedLogos.length > 0) {
+        logoKeys = topicAnalysis[topicIdx].detectedLogos.slice(0, 2);
+        console.log(`[${callerLabel}] Slide ${s.slideIndex}: auto-detected logos for ${strategy}: ${logoKeys.join(", ")}`);
+      }
+    }
+
+    // ── Parse 2.0 fields ──
+    let coverComposition: SlideCreativeBrief["coverComposition"];
+    if (s.slideIndex === 0 && coverTemplate === "freeform_composition" && s.coverComposition) {
+      const cc = s.coverComposition;
+      coverComposition = {
+        backgroundPrompt: cc.backgroundPrompt ?? "Dark dramatic cinematic environment, neon lighting, no people, vertical 9:16",
+        subjects: Array.isArray(cc.subjects) ? cc.subjects.map((sub: any) => ({
+          name: sub.name ?? "Unknown",
+          role: sub.role ?? "",
+          expression: sub.expression ?? "neutral",
+          placement: ["center", "left", "right", "background-left", "background-right"].includes(sub.placement) ? sub.placement : "center",
+          scale: ["dominant", "supporting", "background"].includes(sub.scale) ? sub.scale : "supporting",
+          promptFragment: sub.promptFragment ?? `${sub.name ?? "A person"}, photorealistic editorial portrait, dramatic lighting, 85mm f/1.4`,
+        })) : [],
+        logoTreatment: Array.isArray(cc.logoTreatment) ? cc.logoTreatment.filter((lt: any) => lt.logoKey && lt.logoKey in LOGO_LIBRARY).map((lt: any) => ({
+          logoKey: lt.logoKey,
+          size: ["small", "medium", "large"].includes(lt.size) ? lt.size : "medium",
+          placement: lt.placement ?? "top-right",
+        })) : [],
+        compositionMode: cc.compositionMode === "multi_layer" ? "multi_layer" : "single_shot",
+        compositionDescription: cc.compositionDescription ?? "Freeform composition",
+      };
+      console.log(`[${callerLabel}] Cover: freeform_composition with ${coverComposition.subjects.length} subjects, ${coverComposition.logoTreatment.length} logos, mode=${coverComposition.compositionMode}`);
+    }
+
+    let videoNarrative: SlideCreativeBrief["videoNarrative"];
+    if (strategy === "kling_video" && s.videoNarrative) {
+      const vn = s.videoNarrative;
+      videoNarrative = {
+        beginning: vn.beginning ?? "",
+        middle: vn.middle ?? "",
+        end: vn.end ?? "",
+        fullPrompt: vn.fullPrompt ?? `${vn.beginning ?? ""} ${vn.middle ?? ""} ${vn.end ?? ""}`.trim(),
+      };
+    }
+
+    const validLogoStyles = ["full_color", "badge", "none"] as const;
+    const logoStyle = validLogoStyles.includes(s.logoStyle as any) ? s.logoStyle as "full_color" | "badge" | "none" : undefined;
+    const logoSize = typeof s.logoSize === "number" && s.logoSize >= 80 && s.logoSize <= 200
+      ? s.logoSize : undefined;
+
+    return {
+      slideIndex: s.slideIndex,
+      strategy,
+      coverTemplate,
+      reasoning: s.reasoning ?? "No reasoning provided",
+      scenePrompt: s.scenePrompt ?? "",
+      logoKeys: logoKeys?.length ? logoKeys : undefined,
+      additionalLogoKeys: s.slideIndex === 0 ? (additionalLogoKeys?.length ? additionalLogoKeys : undefined) : undefined,
+      personSearchQuery: (strategy === "person_composite" || s.slideIndex === 0) ? s.personSearchQuery : undefined,
+      additionalPersonQueries: s.slideIndex === 0 ? additionalPersonQueries : undefined,
+      personPlacement: strategy === "person_composite" ? personPlacement : undefined,
+      screenshotDescription: s.slideIndex === 0 && coverTemplate === "screenshot_overlay" ? s.screenshotDescription : undefined,
+      engagementScore: typeof s.engagementScore === "number" ? s.engagementScore : undefined,
+      coverComposition,
+      videoNarrative,
+      logoStyle,
+      logoSize,
+    };
+  });
+
+  // ── Ensure correct slide count: must have cover (0) + one per topic (1..N) ──
+  const expectedCount = researched.length + 1;
+  const existingIndices = new Set(sanitizedSlides.map(s => s.slideIndex));
+
+  for (let idx = 0; idx < expectedCount; idx++) {
+    if (!existingIndices.has(idx)) {
+      console.warn(`[${callerLabel}] LLM omitted slide ${idx} — adding cinematic_scene default`);
+      const topicIdx = idx === 0 ? 0 : idx - 1;
+      sanitizedSlides.push({
+        slideIndex: idx,
+        strategy: "cinematic_scene",
+        coverTemplate: idx === 0 ? "solo_machine" : undefined,
+        reasoning: "Auto-filled — LLM omitted this slide",
+        scenePrompt: idx === 0
+          ? researched.map(t => t.headline).join(". ") + ". Dramatic cinematic AI scene, vertical 9:16, no text."
+          : researched[topicIdx]?.videoPrompt ?? "Dramatic cinematic AI technology scene, neon lighting, vertical 9:16",
+        engagementScore: 5,
+      });
+    }
+  }
+
+  // Remove excess slides / deduplicate
+  if (sanitizedSlides.length > expectedCount) {
+    console.warn(`[${callerLabel}] ${sanitizedSlides.length} slides, expected ${expectedCount} — trimming`);
+    const validSlides = sanitizedSlides.filter(s => s.slideIndex >= 0 && s.slideIndex < expectedCount);
+    const seen = new Set<number>();
+    sanitizedSlides.length = 0;
+    for (const s of validSlides) {
+      if (!seen.has(s.slideIndex)) {
+        seen.add(s.slideIndex);
+        sanitizedSlides.push(s);
+      }
+    }
+  }
+
+  sanitizedSlides.sort((a, b) => a.slideIndex - b.slideIndex);
+
+  // ── Ensure variety: at least 2 different strategies ──
+  const uniqueStrategies = new Set(sanitizedSlides.map(s => s.strategy));
+  if (uniqueStrategies.size < 2 && sanitizedSlides.length >= 3) {
+    console.warn(`[${callerLabel}] Only ${uniqueStrategies.size} unique strategy — forcing variety`);
+    const sorted = [...sanitizedSlides].sort(
+      (a, b) => (a.engagementScore ?? 5) - (b.engagementScore ?? 5)
+    );
+    const weakest = sorted[0];
+    if (weakest.strategy !== "cinematic_scene") {
+      weakest.strategy = "cinematic_scene";
+      weakest.logoKeys = undefined;
+    } else {
+      weakest.strategy = "scene_with_badge";
+      const topicIdx = weakest.slideIndex === 0 ? 0 : weakest.slideIndex - 1;
+      const logos = topicAnalysis[topicIdx]?.detectedLogos;
+      if (logos && logos.length > 0) {
+        weakest.logoKeys = logos.slice(0, 2);
+      } else {
+        weakest.strategy = "cinematic_scene";
+      }
+    }
+  }
+
+  // ── Ensure video count: exactly 2 video slides ──
+  const videoSlides = sanitizedSlides.filter(s => s.strategy === "kling_video");
+  if (videoSlides.length < 2) {
+    const nonVideoContent = sanitizedSlides
+      .filter(s => s.slideIndex > 0 && s.strategy !== "kling_video")
+      .sort((a, b) => (b.engagementScore ?? 5) - (a.engagementScore ?? 5));
+    const needed = 2 - videoSlides.length;
+    for (let i = 0; i < Math.min(needed, nonVideoContent.length); i++) {
+      const slide = nonVideoContent[i];
+      console.log(`[${callerLabel}] Upgrading slide ${slide.slideIndex} to kling_video (enforcing min 2 videos)`);
+      slide.strategy = "kling_video";
+      slide.logoKeys = undefined;
+      slide.personSearchQuery = undefined;
+    }
+  } else if (videoSlides.length > 2) {
+    const toDowngrade = videoSlides.slice(2);
+    for (const slide of toDowngrade) {
+      console.log(`[${callerLabel}] Too many video slides — downgrading slide ${slide.slideIndex} to cinematic_scene`);
+      slide.strategy = "cinematic_scene";
+    }
+  }
+
+  return sanitizedSlides;
+}
+
 // ─── The Creative Director Agent ─────────────────────────────────────────────
 
 export interface ResearchedTopicInput {
@@ -796,264 +1079,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
     }
 
     // ── Validate and sanitize the response ──
-    const validStrategies = new Set<VisualStrategy>([
-      "cinematic_scene", "scene_with_badge", "person_composite", "kling_video",
-    ]);
-    const validCoverTemplates = new Set<CoverTemplate>([
-      "council_of_players", "backs_to_the_storm", "solo_machine", "person_floating_orbs",
-      "real_photo_corner_badges", "left_column_logos", "duo_reaction", "screenshot_overlay",
-      "freeform_composition",
-    ]);
-
-    const sanitizedSlides: SlideCreativeBrief[] = parsed.slides.map((s) => {
-      let strategy = s.strategy as VisualStrategy;
-
-      // Validate strategy name
-      if (!validStrategies.has(strategy)) {
-        console.warn(`[CreativeDirector] Invalid strategy "${s.strategy}" for slide ${s.slideIndex} — falling back to cinematic_scene`);
-        strategy = "cinematic_scene";
-      }
-
-      // Validate coverTemplate for cover slide
-      let coverTemplate: CoverTemplate | undefined;
-      if (s.slideIndex === 0) {
-        if (s.coverTemplate && validCoverTemplates.has(s.coverTemplate as CoverTemplate)) {
-          coverTemplate = s.coverTemplate as CoverTemplate;
-        } else {
-          // Default cover template — prefer freeform_composition for richest output
-          coverTemplate = strategy === "person_composite" ? "freeform_composition" : "solo_machine";
-          console.warn(`[CreativeDirector] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate}`);
-        }
-        console.log(`[CreativeDirector] Cover template: ${coverTemplate}`);
-      }
-
-      // Validate person_composite: prefer known figures, but allow if LLM provided a search query
-      if (strategy === "person_composite") {
-        const topicIdx = s.slideIndex === 0 ? -1 : s.slideIndex - 1;
-        const analysis = topicIdx >= 0 ? topicAnalysis[topicIdx] : null;
-        const allText = analysis
-          ? `${analysis.headline} ${analysis.summary}`
-          : researched.map(t => t.headline).join(" ");
-        const knownPeople = detectKnownPeople(allText);
-
-        if (knownPeople.length === 0) {
-          // If the LLM provided a specific person search query, trust it (soft validation)
-          if (s.personSearchQuery && s.personSearchQuery.trim().length > 10) {
-            console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite for non-verified figure — allowing (LLM query: "${s.personSearchQuery?.slice(0, 50)}")`);
-          } else {
-            // No known figure AND no specific search query — downgrade
-            console.warn(`[CreativeDirector] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
-            strategy = "scene_with_badge";
-            // Re-assign cover template if this was a person-based template
-            if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition"].includes(coverTemplate)) {
-              coverTemplate = "backs_to_the_storm";
-            }
-          }
-        }
-      }
-
-      // Validate logoKeys: only allow keys that exist in LOGO_LIBRARY
-      let logoKeys = s.logoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2);
-      let additionalLogoKeys = s.additionalLogoKeys?.filter(k => k in LOGO_LIBRARY).slice(0, 2);
-      if (strategy === "scene_with_badge" && (!logoKeys || logoKeys.length === 0)) {
-        // Try to auto-detect logos from the topic
-        const topicIdx = s.slideIndex === 0 ? -1 : s.slideIndex - 1;
-        if (topicIdx >= 0 && topicAnalysis[topicIdx]?.detectedLogos.length > 0) {
-          logoKeys = topicAnalysis[topicIdx].detectedLogos.slice(0, 2);
-        } else {
-          console.warn(`[CreativeDirector] Slide ${s.slideIndex}: scene_with_badge but no valid logos — downgrading to cinematic_scene`);
-          strategy = "cinematic_scene";
-        }
-      }
-
-      // For cover templates that need logos but none provided, try auto-detect
-      if (s.slideIndex === 0 && coverTemplate && !(["solo_machine"].includes(coverTemplate))) {
-        if (!logoKeys || logoKeys.length === 0) {
-          const uniqueLogos = Array.from(new Set(topicAnalysis.flatMap(ta => ta.detectedLogos))).slice(0, 3);
-          if (uniqueLogos.length > 0) {
-            logoKeys = uniqueLogos.slice(0, 2);
-            additionalLogoKeys = uniqueLogos.slice(2);
-            console.log(`[CreativeDirector] Cover: auto-detected logos for template ${coverTemplate}: ${uniqueLogos.join(", ")}`);
-          }
-        }
-      }
-
-      // Validate personPlacement
-      const validPlacements = new Set(["center", "left", "right"]);
-      const personPlacement = validPlacements.has(s.personPlacement ?? "")
-        ? (s.personPlacement as "center" | "left" | "right")
-        : "center";
-
-      // Validate additionalPersonQueries (only for cover templates that need multiple people)
-      const additionalPersonQueries = Array.isArray(s.additionalPersonQueries)
-        ? s.additionalPersonQueries.filter(q => typeof q === "string" && q.length > 0).slice(0, 3)
-        : undefined;
-
-      // Auto-detect logos for ALL content slides (not just scene_with_badge)
-      // This enables logo badges on cinematic_scene and person_composite slides too
-      if (s.slideIndex !== 0 && (!logoKeys || logoKeys.length === 0)) {
-        const topicIdx = s.slideIndex - 1;
-        if (topicIdx >= 0 && topicAnalysis[topicIdx]?.detectedLogos.length > 0) {
-          logoKeys = topicAnalysis[topicIdx].detectedLogos.slice(0, 2);
-          console.log(`[CreativeDirector] Slide ${s.slideIndex}: auto-detected logos for ${strategy}: ${logoKeys.join(", ")}`);
-        }
-      }
-
-      // ── Parse new 2.0 fields ──
-      // coverComposition (only for slide 0 with freeform_composition)
-      let coverComposition: SlideCreativeBrief["coverComposition"];
-      if (s.slideIndex === 0 && coverTemplate === "freeform_composition" && (s as any).coverComposition) {
-        const cc = (s as any).coverComposition;
-        coverComposition = {
-          backgroundPrompt: cc.backgroundPrompt ?? "Dark dramatic cinematic environment, neon lighting, no people, vertical 9:16",
-          subjects: Array.isArray(cc.subjects) ? cc.subjects.map((sub: any) => ({
-            name: sub.name ?? "Unknown",
-            role: sub.role ?? "",
-            expression: sub.expression ?? "neutral",
-            placement: ["center", "left", "right", "background-left", "background-right"].includes(sub.placement) ? sub.placement : "center",
-            scale: ["dominant", "supporting", "background"].includes(sub.scale) ? sub.scale : "supporting",
-            promptFragment: sub.promptFragment ?? `${sub.name ?? "A person"}, photorealistic editorial portrait, dramatic lighting, 85mm f/1.4`,
-          })) : [],
-          logoTreatment: Array.isArray(cc.logoTreatment) ? cc.logoTreatment.filter((lt: any) => lt.logoKey && lt.logoKey in LOGO_LIBRARY).map((lt: any) => ({
-            logoKey: lt.logoKey,
-            size: ["small", "medium", "large"].includes(lt.size) ? lt.size : "medium",
-            placement: lt.placement ?? "top-right",
-          })) : [],
-          compositionMode: cc.compositionMode === "multi_layer" ? "multi_layer" : "single_shot",
-          compositionDescription: cc.compositionDescription ?? "Freeform composition",
-        };
-        console.log(`[CreativeDirector] Cover: freeform_composition with ${coverComposition.subjects.length} subjects, ${coverComposition.logoTreatment.length} logos, mode=${coverComposition.compositionMode}`);
-      }
-
-      // videoNarrative (only for kling_video slides)
-      let videoNarrative: SlideCreativeBrief["videoNarrative"];
-      if (strategy === "kling_video" && (s as any).videoNarrative) {
-        const vn = (s as any).videoNarrative;
-        videoNarrative = {
-          beginning: vn.beginning ?? "",
-          middle: vn.middle ?? "",
-          end: vn.end ?? "",
-          fullPrompt: vn.fullPrompt ?? `${vn.beginning ?? ""} ${vn.middle ?? ""} ${vn.end ?? ""}`.trim(),
-        };
-      }
-
-      // logoStyle and logoSize (per-slide logo control)
-      const validLogoStyles = ["full_color", "badge", "none"] as const;
-      const logoStyle = validLogoStyles.includes((s as any).logoStyle) ? (s as any).logoStyle as "full_color" | "badge" | "none" : undefined;
-      const logoSize = typeof (s as any).logoSize === "number" && (s as any).logoSize >= 80 && (s as any).logoSize <= 200
-        ? (s as any).logoSize as number : undefined;
-
-      return {
-        slideIndex: s.slideIndex,
-        strategy,
-        coverTemplate,
-        reasoning: s.reasoning ?? "No reasoning provided",
-        scenePrompt: s.scenePrompt ?? "",
-        // Pass logoKeys for ALL slides (cover, scene_with_badge, AND content slides for badge compositing)
-        logoKeys: logoKeys?.length ? logoKeys : undefined,
-        additionalLogoKeys: s.slideIndex === 0 ? (additionalLogoKeys?.length ? additionalLogoKeys : undefined) : undefined,
-        personSearchQuery: (strategy === "person_composite" || s.slideIndex === 0) ? s.personSearchQuery : undefined,
-        additionalPersonQueries: s.slideIndex === 0 ? additionalPersonQueries : undefined,
-        personPlacement: strategy === "person_composite" ? personPlacement : undefined,
-        screenshotDescription: s.slideIndex === 0 && coverTemplate === "screenshot_overlay" ? s.screenshotDescription : undefined,
-        engagementScore: typeof s.engagementScore === "number" ? s.engagementScore : undefined,
-        // 2.0 fields
-        coverComposition,
-        videoNarrative,
-        logoStyle,
-        logoSize,
-      };
-    });
-
-    // ── Ensure correct slide count: must have cover (0) + one per topic (1..N) ──
-    const expectedCount = researched.length + 1; // cover + content slides
-    const existingIndices = new Set(sanitizedSlides.map(s => s.slideIndex));
-
-    // Fill in any missing slides with cinematic_scene defaults
-    for (let idx = 0; idx < expectedCount; idx++) {
-      if (!existingIndices.has(idx)) {
-        console.warn(`[CreativeDirector] LLM omitted slide ${idx} — adding cinematic_scene default`);
-        const topicIdx = idx === 0 ? 0 : idx - 1;
-        sanitizedSlides.push({
-          slideIndex: idx,
-          strategy: "cinematic_scene",
-          coverTemplate: idx === 0 ? "solo_machine" : undefined,
-          reasoning: "Auto-filled — LLM omitted this slide",
-          scenePrompt: idx === 0
-            ? researched.map(t => t.headline).join(". ") + ". Dramatic cinematic AI scene, vertical 9:16, no text."
-            : researched[topicIdx]?.videoPrompt ?? "Dramatic cinematic AI technology scene, neon lighting, vertical 9:16",
-          engagementScore: 5,
-        });
-      }
-    }
-
-    // Remove any excess slides beyond expected count
-    if (sanitizedSlides.length > expectedCount) {
-      console.warn(`[CreativeDirector] LLM returned ${sanitizedSlides.length} slides, expected ${expectedCount} — trimming`);
-      // Keep only the expected indices, sorted
-      const validSlides = sanitizedSlides.filter(s => s.slideIndex >= 0 && s.slideIndex < expectedCount);
-      // Deduplicate: keep first occurrence of each slideIndex
-      const seen = new Set<number>();
-      sanitizedSlides.length = 0;
-      for (const s of validSlides) {
-        if (!seen.has(s.slideIndex)) {
-          seen.add(s.slideIndex);
-          sanitizedSlides.push(s);
-        }
-      }
-    }
-
-    // Sort by slideIndex for consistent ordering
-    sanitizedSlides.sort((a, b) => a.slideIndex - b.slideIndex);
-
-    // ── Ensure variety: at least 2 different strategies ──
-    const uniqueStrategies = new Set(sanitizedSlides.map(s => s.strategy));
-    if (uniqueStrategies.size < 2 && sanitizedSlides.length >= 3) {
-      console.warn(`[CreativeDirector] Only ${uniqueStrategies.size} unique strategy — forcing variety`);
-      // Find the slide with the lowest engagement score and switch it
-      const sorted = [...sanitizedSlides].sort(
-        (a, b) => (a.engagementScore ?? 5) - (b.engagementScore ?? 5)
-      );
-      const weakest = sorted[0];
-      if (weakest.strategy !== "cinematic_scene") {
-        weakest.strategy = "cinematic_scene";
-        weakest.logoKeys = undefined;
-      } else {
-        weakest.strategy = "scene_with_badge";
-        const topicIdx = weakest.slideIndex === 0 ? 0 : weakest.slideIndex - 1;
-        const logos = topicAnalysis[topicIdx]?.detectedLogos;
-        if (logos && logos.length > 0) {
-          weakest.logoKeys = logos.slice(0, 2);
-        } else {
-          // Pick a random available logo relevant to the headline
-          weakest.strategy = "cinematic_scene";
-        }
-      }
-    }
-
-    // ── Ensure video count: exactly 2 video slides (minimum) ──
-    const videoSlides = sanitizedSlides.filter(s => s.strategy === "kling_video");
-    if (videoSlides.length < 2) {
-      // Force top engagement content slides to be video until we have 2
-      const nonVideoContent = sanitizedSlides
-        .filter(s => s.slideIndex > 0 && s.strategy !== "kling_video")
-        .sort((a, b) => (b.engagementScore ?? 5) - (a.engagementScore ?? 5));
-      const needed = 2 - videoSlides.length;
-      for (let i = 0; i < Math.min(needed, nonVideoContent.length); i++) {
-        const slide = nonVideoContent[i];
-        console.log(`[CreativeDirector] Upgrading slide ${slide.slideIndex} to kling_video (enforcing min 2 videos)`);
-        slide.strategy = "kling_video";
-        slide.logoKeys = undefined;
-        slide.personSearchQuery = undefined;
-      }
-    } else if (videoSlides.length > 2) {
-      // Downgrade excess video slides
-      const toDowngrade = videoSlides.slice(2);
-      for (const slide of toDowngrade) {
-        console.log(`[CreativeDirector] Too many video slides — downgrading slide ${slide.slideIndex} to cinematic_scene`);
-        slide.strategy = "cinematic_scene";
-      }
-    }
+    const sanitizedSlides = sanitizeSlides(parsed.slides, topicAnalysis, researched, "CreativeDirector");
 
     brief = {
       runId,
@@ -1089,7 +1115,7 @@ Return ONLY the JSON object. No explanation, no preamble.`;
   // A second LLM pass reviews the CD brief for quality issues before media generation.
   // If issues are found, the QD sends corrections back and the CD brief is revised.
   try {
-    const reviewedBrief = await qualityDirectorReview(brief, researched);
+    const reviewedBrief = await qualityDirectorReview(brief, researched, topicAnalysis);
     return reviewedBrief;
   } catch (qdErr: any) {
     console.warn(`[QualityDirector] ⚠️ Review failed: ${qdErr?.message} — using original brief`);
@@ -1254,6 +1280,7 @@ const PROMPTHIS_CHECKLIST = [
 async function qualityDirectorReview(
   brief: CarouselCreativeBrief,
   researched: ResearchedTopicInput[],
+  topicAnalysis: TopicAnalysisInput[],
 ): Promise<CarouselCreativeBrief> {
   const startMs = Date.now();
   console.log(`\n[QualityDirector] ═══ Reviewing Creative Brief ═══`);
@@ -1262,7 +1289,11 @@ async function qualityDirectorReview(
 
   for (const slide of brief.slides) {
     const prompt = slide.scenePrompt || "";
-    const headline = researched[slide.slideIndex > 0 ? slide.slideIndex - 1 : 0]?.headline || "";
+    // For the cover (index 0), check ALL headlines — the cover synthesizes all stories.
+    // For content slides, check just the matching headline.
+    const headline = slide.slideIndex === 0
+      ? researched.map(r => r.headline).join(" ")
+      : researched[slide.slideIndex - 1]?.headline || "";
 
     // ── Check 1: Banned scenes ──
     for (const pattern of BANNED_SCENE_PATTERNS) {
@@ -1349,11 +1380,29 @@ async function qualityDirectorReview(
     console.log(`[QualityDirector]     Fix: ${iss.fix}`);
   }
 
-  // Build revision prompt
+  // Build a trimmed version of the brief for the revision prompt to stay within token limits.
+  // Strip verbose coverComposition fields — the QD only needs per-slide strategy/prompt info.
+  const trimmedSlides = brief.slides.map(s => ({
+    slideIndex: s.slideIndex,
+    strategy: s.strategy,
+    coverTemplate: s.coverTemplate,
+    reasoning: s.reasoning,
+    scenePrompt: s.scenePrompt,
+    logoKeys: s.logoKeys,
+    personSearchQuery: s.personSearchQuery,
+    personPlacement: s.personPlacement,
+    engagementScore: s.engagementScore,
+    logoStyle: s.logoStyle,
+    logoSize: s.logoSize,
+    videoNarrative: s.videoNarrative,
+    // coverComposition intentionally omitted — too large, QD doesn't need to rewrite it
+  }));
+  const trimmedBrief = { runId: brief.runId, globalStyleNotes: brief.globalStyleNotes, slides: trimmedSlides };
+
   const revisionPrompt = `You are the Quality Director reviewing a Creative Director's brief. Fix the issues listed below.
 
 CURRENT BRIEF:
-${JSON.stringify(brief, null, 2)}
+${JSON.stringify(trimmedBrief)}
 
 ISSUES TO FIX:
 ${issues.map((iss, i) => `${i + 1}. [Slide ${iss.slideIndex}] ${iss.issue}\n   FIX: ${iss.fix}`).join("\n")}
@@ -1373,7 +1422,7 @@ RULES:
         { role: "user", content: revisionPrompt },
       ],
       responseFormat: { type: "json_object" },
-      maxTokens: 4000,
+      maxTokens: 6000,
     });
 
     const raw = response?.choices?.[0]?.message?.content;
@@ -1381,20 +1430,34 @@ RULES:
     if (!revised) throw new Error("Empty response from QD revision");
 
     const cleanJson = revised.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleanJson) as CarouselCreativeBrief;
+    const parsed = JSON.parse(cleanJson) as { runId?: number; globalStyleNotes?: string; slides?: RawSlideInput[] };
 
-    // Validate structure
     if (!parsed.slides || !Array.isArray(parsed.slides) || parsed.slides.length === 0) {
       throw new Error("Revised brief has no slides");
     }
 
-    // Preserve runId
-    parsed.runId = brief.runId;
+    // ── CRITICAL: Run the same sanitization on QD output as we do on CD output ──
+    // The QD LLM could hallucinate invalid strategies, missing logoKeys, etc.
+    const sanitizedSlides = sanitizeSlides(parsed.slides, topicAnalysis, researched, "QualityDirector");
+
+    // Preserve coverComposition from original brief — QD revision doesn't touch it
+    for (const slide of sanitizedSlides) {
+      const original = brief.slides.find(s => s.slideIndex === slide.slideIndex);
+      if (original?.coverComposition && !slide.coverComposition) {
+        slide.coverComposition = original.coverComposition;
+      }
+    }
+
+    const revisedBrief: CarouselCreativeBrief = {
+      runId: brief.runId,
+      globalStyleNotes: parsed.globalStyleNotes ?? brief.globalStyleNotes,
+      slides: sanitizedSlides,
+    };
 
     const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
-    console.log(`[QualityDirector] ✅ Brief REVISED — ${issues.length} issues fixed (${elapsed}s)`);
-    console.log(`[QualityDirector] REVISED_BRIEF_JSON: ${JSON.stringify(parsed)}`);
-    return parsed;
+    console.log(`[QualityDirector] ✅ Brief REVISED + SANITIZED — ${issues.length} issues fixed (${elapsed}s)`);
+    console.log(`[QualityDirector] REVISED_BRIEF_JSON: ${JSON.stringify(revisedBrief)}`);
+    return revisedBrief;
   } catch (revErr: any) {
     console.warn(`[QualityDirector] ⚠️ Revision failed: ${revErr?.message} — using original brief`);
     return brief;

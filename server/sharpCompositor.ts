@@ -346,6 +346,12 @@ function buildContentOverlaySvg(
     if (!fittingText.trim()) {
       fittingText = sentences[0] || fullText;
     }
+    // Hard safety cap: if fittingText (e.g. from no-punctuation summary) still
+    // exceeds the line limit, truncate to the max number of wrapped lines.
+    const safetyWrapped = wrapText(fittingText.trim(), 44);
+    if (safetyWrapped.length > lineLimit) {
+      fittingText = safetyWrapped.slice(0, lineLimit).join(" ");
+    }
     // Ensure it ends with punctuation (complete sentence)
     fittingText = fittingText.trim();
     if (!/[.!?]$/.test(fittingText)) {
@@ -720,7 +726,7 @@ export async function assembleSlideWithSharp(
         { input: Buffer.from(overlaySvg), top: 0, left: 0 },
         ...logoComposites,
       ])
-      .png({ quality: 92, compressionLevel: 5 })
+      .png({ compressionLevel: 5 })
       .toBuffer();
 
     // Upload to S3

@@ -1461,14 +1461,16 @@ async function _runPipelineStages(
       };
     }
 
-    // ── Persist the full Creative Director brief to DB for diagnosis ──
+    // ── Persist the FINAL brief (post-QD review) to DB for diagnosis ──
+    // This runs AFTER the Quality Director has reviewed and potentially revised the brief,
+    // so the persisted JSON matches what actually gets sent to Stage 5.
     try {
       await db.update(contentRuns)
         .set({ creativeBrief: JSON.stringify(creativeBrief) })
         .where(eq(contentRuns.id, runId));
-      console.log(`[ContentPipeline] ✅ Creative Director brief persisted to DB (run #${runId})`);
+      console.log(`[ContentPipeline] ✅ Creative brief persisted to DB (run #${runId})`);
     } catch (briefErr: any) {
-      console.warn(`[ContentPipeline] ⚠️ Failed to persist CD brief: ${briefErr?.message}`);
+      console.warn(`[ContentPipeline] ⚠️ Failed to persist brief: ${briefErr?.message}`);
     }
 
     // Build a map of slide index → creative brief for Stage 5
@@ -1589,10 +1591,12 @@ async function _runPipelineStages(
     // ── CREDIT SAFEGUARD: Cap Kling attempts per run ──
     // Each Kling video costs credits and takes ~3 min. Cap at 4 attempts max per run
     // to prevent runaway costs if retries/fallbacks loop unexpectedly.
-    const MAX_KLING_ATTEMPTS = 4;
-    let klingAttemptsUsed = 0;
+    // Each Kling slide may try img2vid then text2vid (2 API calls per slide).
+    // This cap limits the number of SLIDES that attempt Kling, not individual API calls.
+    const MAX_KLING_SLIDES = 4;
+    let klingSlidesAttempted = 0;
     console.log(`[ContentPipeline] ═══ Stage 5: Media Generation ═══`);
-    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (primary, max ${MAX_KLING_ATTEMPTS} attempts)` : "❌ DISABLED (no credentials)"}`);
+    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (primary, max ${MAX_KLING_SLIDES} attempts)` : "❌ DISABLED (no credentials)"}`);
     console.log(`[ContentPipeline] Slides to generate: ${slides.length}`);
 
     // Import asset library + compositing functions
@@ -1689,12 +1693,12 @@ async function _runPipelineStages(
         }
 
         // ── Step 2: Kling video — img2vid if we have a still, text2vid otherwise ──
-        if (!mediaUrl && hasKling && klingAttemptsUsed < MAX_KLING_ATTEMPTS) {
-          klingAttemptsUsed++;
+        if (!mediaUrl && hasKling && klingSlidesAttempted < MAX_KLING_SLIDES) {
+          klingSlidesAttempted++;
           log.klingAttempted = true;
 
           if (startingImageUrl) {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling img2vid (attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS})...`);
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling img2vid (attempt ${klingSlidesAttempted}/${MAX_KLING_SLIDES})...`);
             mediaUrl = await generateKlingImageToVideo(videoSpecificPrompt, startingImageUrl, klingAK, klingSK);
             if (mediaUrl) {
               log.strategy = "kling_img2vid";
@@ -1704,7 +1708,7 @@ async function _runPipelineStages(
           }
 
           if (!mediaUrl) {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling text2vid (attempt ${klingAttemptsUsed}/${MAX_KLING_ATTEMPTS})...`);
+            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling text2vid (attempt ${klingSlidesAttempted}/${MAX_KLING_SLIDES})...`);
             mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
             log.klingSucceeded = !!mediaUrl;
             if (mediaUrl) {
@@ -1723,8 +1727,8 @@ async function _runPipelineStages(
           console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 📸 Using Nano Banana still as fallback (no video providers succeeded)`);
         }
 
-        if (!mediaUrl && hasKling && klingAttemptsUsed >= MAX_KLING_ATTEMPTS) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_ATTEMPTS})`);
+        if (!mediaUrl && hasKling && klingSlidesAttempted >= MAX_KLING_SLIDES) {
+          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_SLIDES})`);
         }
       }
 
