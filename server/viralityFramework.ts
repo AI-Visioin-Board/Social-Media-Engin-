@@ -162,7 +162,7 @@ HEADLINE TONE CATEGORIES (rotate between these — never use the same tone twice
 8. CONTRARIAN — go against the grain ("EVERYONE IS WRONG ABOUT WHAT HAPPENED IN AI THIS WEEK")
 
 RULES:
-- ALL CAPS, 6-12 words max
+- ALL CAPS, 8-16 words max (longer headlines perform better — fill the space)
 - Must hint at MULTIPLE stories (it's a carousel) OR name the single biggest story
 - Power words are fine but NOT required every time — sometimes a clean, direct headline wins
 - Do NOT use quotation marks
@@ -443,7 +443,7 @@ Topics with Virality Score < 5.0 should be REPLACED.
 
 export const READABILITY_RULES = `
 READABILITY FOR VIRALITY (backed by research):
-- Headlines: 6-12 words. Flesch-Kincaid grade level 4-6 (5th grader can understand)
+- Headlines: 8-16 words. Flesch-Kincaid grade level 4-6 (5th grader can understand)
 - Slide text: Max 10-15 words per slide. ONE idea per slide.
 - Caption: 150-250 words. Grade level 6-8. Short sentences (under 20 words each).
 - Use CONCRETE language: specific numbers, names, actions — never abstract concepts

@@ -60,7 +60,7 @@ export type VisualStrategy =
   | "kling_video";
 
 /**
- * The 8 cover template layouts the Creative Director can choose for the cover slide (index 0).
+ * The 10 cover template layouts the Creative Director can choose for the cover slide (index 0).
  * Each template is a plug-and-play layout schema — the CD fills in the actual images and logos.
  */
 export type CoverTemplate =
@@ -72,7 +72,8 @@ export type CoverTemplate =
   | "left_column_logos"
   | "duo_reaction"
   | "screenshot_overlay"
-  | "freeform_composition";
+  | "freeform_composition"
+  | "triangle_triptych";
 
 /** Per-slide creative brief — the output of the Creative Director for one slide */
 export interface SlideCreativeBrief {
@@ -520,13 +521,33 @@ APPROACH 2: Legacy templates (for simpler covers)
   "duo_reaction" — 2 people side by side + 2 logos (rivalries)
   "screenshot_overlay" — screenshot + dark vignette + YELLOW headline (product launches)
 
+APPROACH 3: "triangle_triptych" (PREFERRED for 3 distinct subjects — DEFAULT for weekly roundups)
+  Three triangular slivers on a tall image zone, each containing its own FULL-SCENE IMAGE.
+  Like a movie poster with diagonal panel dividers. Each panel is independently generated.
+
+  Set coverTemplate to "triangle_triptych" and fill the coverComposition field:
+  - backgroundPrompt: NOT USED (set to empty string — each triangle has its own scene)
+  - subjects[]: EXACTLY 3 entries. Each subject gets its own triangle panel:
+    - subjects[0] = LEFT triangle
+    - subjects[1] = CENTER triangle
+    - subjects[2] = RIGHT triangle
+    - Each promptFragment MUST describe a COMPLETE SCENE: the person in a dramatic environment
+      with cinematic lighting. NOT a headshot — a full editorial portrait with context and setting.
+      Example: "Sam Altman in a dark boardroom, neon blue backlighting, intense expression, medium shot, dramatic shadows, 85mm f/1.4, editorial photorealism"
+  - logoTreatment[]: NOT used for triangle_triptych (logos don't go on triangles)
+  - compositionMode: always "multi_layer" (3 independent generations)
+  - compositionDescription: Describe the overall triptych vision
+
+  The subjects do NOT need to all be people. One could be a building (White House), a symbolic scene, or a product. But at least 2 should be recognizable subjects.
+
 WHEN TO USE WHICH:
-  - 2+ recognizable people → freeform_composition (multi_layer) + strategy "person_composite" — arrange them like a movie poster
-  - 1 person + logos → freeform_composition (single_shot) + strategy "person_composite" — person IS the scene
+  - 3 distinct people/stories (MOST WEEKS) → triangle_triptych + strategy "person_composite" — structured triptych, each panel is its own scene. THIS IS THE DEFAULT CHOICE for weekly roundups.
+  - 2 people in one composition → freeform_composition (multi_layer) + strategy "person_composite"
+  - 1 person + logos → freeform_composition (single_shot) + strategy "person_composite"
   - No people, dramatic metaphor → solo_machine + strategy "cinematic_scene"
   - Product launch with UI → screenshot_overlay + strategy "cinematic_scene"
   - Pure logo story → backs_to_the_storm or left_column_logos + strategy "scene_with_badge"
-  REMEMBER: freeform_composition with subjects[] REQUIRES strategy "person_composite". This is what makes the Nano Banana pipeline generate actual faces.
+  REMEMBER: triangle_triptych and freeform_composition with subjects[] REQUIRE strategy "person_composite". This is what makes the Nano Banana pipeline generate actual faces.
 
 ═══ LOGO STRATEGY ═══
 
@@ -598,7 +619,7 @@ Return valid JSON matching this exact schema:
     {
       "slideIndex": 0,
       "strategy": "cinematic_scene" | "person_composite",
-      "coverTemplate": "freeform_composition" | "council_of_players" | "backs_to_the_storm" | "solo_machine" | "person_floating_orbs" | "real_photo_corner_badges" | "left_column_logos" | "duo_reaction" | "screenshot_overlay",
+      "coverTemplate": "triangle_triptych" | "freeform_composition" | "council_of_players" | "backs_to_the_storm" | "solo_machine" | "person_floating_orbs" | "real_photo_corner_badges" | "left_column_logos" | "duo_reaction" | "screenshot_overlay",
       "reasoning": "Why this composition for this specific cover (1-2 sentences)",
       "scenePrompt": "Fallback scene prompt if coverComposition is not used",
       "coverComposition": {
@@ -691,7 +712,7 @@ const VALID_STRATEGIES = new Set<VisualStrategy>([
 const VALID_COVER_TEMPLATES = new Set<CoverTemplate>([
   "council_of_players", "backs_to_the_storm", "solo_machine", "person_floating_orbs",
   "real_photo_corner_badges", "left_column_logos", "duo_reaction", "screenshot_overlay",
-  "freeform_composition",
+  "freeform_composition", "triangle_triptych",
 ]);
 
 function sanitizeSlides(
@@ -725,7 +746,7 @@ function sanitizeSlides(
       // generic cityscapes instead of movie-poster people compositions).
       // If the LLM provided subjects[], the intent is clearly people-on-cover.
       const hasSubjects = s.coverComposition?.subjects?.length > 0;
-      const isPersonTemplate = ["freeform_composition", "council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate);
+      const isPersonTemplate = ["freeform_composition", "triangle_triptych", "council_of_players", "person_floating_orbs", "duo_reaction"].includes(coverTemplate);
       if (isPersonTemplate && hasSubjects && strategy !== "person_composite") {
         console.warn(`[${callerLabel}] Slide 0: ⚠️ AUTO-UPGRADE: ${coverTemplate} has ${s.coverComposition.subjects.length} subjects but strategy was "${strategy}" — upgrading to person_composite`);
         strategy = "person_composite";
@@ -770,7 +791,7 @@ function sanitizeSlides(
         } else {
           console.warn(`[${callerLabel}] Slide ${s.slideIndex}: person_composite requested but no known figures and no search query — downgrading to scene_with_badge`);
           strategy = "scene_with_badge";
-          if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition"].includes(coverTemplate)) {
+          if (s.slideIndex === 0 && coverTemplate && ["council_of_players", "person_floating_orbs", "duo_reaction", "freeform_composition", "triangle_triptych"].includes(coverTemplate)) {
             coverTemplate = "backs_to_the_storm";
           }
         }
@@ -824,7 +845,8 @@ function sanitizeSlides(
 
     // ── Parse 2.0 fields ──
     let coverComposition: SlideCreativeBrief["coverComposition"];
-    if (s.slideIndex === 0 && coverTemplate === "freeform_composition" && s.coverComposition) {
+    const usesCoverComposition = coverTemplate === "freeform_composition" || coverTemplate === "triangle_triptych";
+    if (s.slideIndex === 0 && usesCoverComposition && s.coverComposition) {
       const cc = s.coverComposition;
       coverComposition = {
         backgroundPrompt: cc.backgroundPrompt ?? "Dark dramatic cinematic environment, neon lighting, no people, vertical 9:16",
@@ -834,7 +856,7 @@ function sanitizeSlides(
           expression: sub.expression ?? "neutral",
           placement: ["center", "left", "right", "background-left", "background-right"].includes(sub.placement) ? sub.placement : "center",
           scale: ["dominant", "supporting", "background"].includes(sub.scale) ? sub.scale : "supporting",
-          promptFragment: sub.promptFragment ?? `${sub.name ?? "A person"}, photorealistic editorial portrait, dramatic lighting, 85mm f/1.4`,
+          promptFragment: sub.promptFragment ?? `${sub.name ?? "A person"}, photorealistic editorial portrait, dramatic cinematic lighting, medium shot, 85mm f/1.4`,
         })) : [],
         logoTreatment: Array.isArray(cc.logoTreatment) ? cc.logoTreatment.filter((lt: any) => lt.logoKey && lt.logoKey in LOGO_LIBRARY).map((lt: any) => ({
           logoKey: lt.logoKey,
@@ -844,7 +866,28 @@ function sanitizeSlides(
         compositionMode: cc.compositionMode === "multi_layer" ? "multi_layer" : "single_shot",
         compositionDescription: cc.compositionDescription ?? "Freeform composition",
       };
-      console.log(`[${callerLabel}] Cover: freeform_composition with ${coverComposition.subjects.length} subjects, ${coverComposition.logoTreatment.length} logos, mode=${coverComposition.compositionMode}`);
+
+      // ── triangle_triptych: enforce exactly 3 subjects, always multi_layer ──
+      if (coverTemplate === "triangle_triptych") {
+        coverComposition.compositionMode = "multi_layer";
+        // Pad to 3 subjects if fewer provided
+        while (coverComposition.subjects.length < 3) {
+          console.warn(`[${callerLabel}] triangle_triptych: padding subjects (have ${coverComposition.subjects.length}, need 3)`);
+          coverComposition.subjects.push({
+            name: "AI Technology",
+            role: "Symbolic Scene",
+            expression: "dramatic",
+            placement: "center",
+            scale: "supporting",
+            promptFragment: "Dramatic cinematic scene of advanced AI technology, neon blue and gold lighting, futuristic environment, volumetric fog, 85mm f/1.4, editorial quality, photorealistic",
+          });
+        }
+        if (coverComposition.subjects.length > 3) {
+          coverComposition.subjects = coverComposition.subjects.slice(0, 3);
+        }
+      }
+
+      console.log(`[${callerLabel}] Cover: ${coverTemplate} with ${coverComposition.subjects.length} subjects, ${coverComposition.logoTreatment.length} logos, mode=${coverComposition.compositionMode}`);
     }
 
     let videoNarrative: SlideCreativeBrief["videoNarrative"];

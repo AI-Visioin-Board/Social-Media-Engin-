@@ -1741,7 +1741,7 @@ async function _runPipelineStages(
       // Even if sanitizeSlides() missed it, force the correct path here at execution time.
       const coverSubjectCount = brief?.coverComposition?.subjects?.length ?? 0;
       if (!mediaUrl && slide.slideIndex === 0
-          && brief?.coverTemplate === "freeform_composition"
+          && (brief?.coverTemplate === "freeform_composition" || brief?.coverTemplate === "triangle_triptych")
           && coverSubjectCount > 0
           && strategy !== "person_composite") {
         console.warn(`[ContentPipeline] Slide 0: ⚠️ PIPELINE OVERRIDE: freeform cover has ${coverSubjectCount} subjects but strategy="${strategy}" — forcing person_composite path`);
@@ -1755,21 +1755,26 @@ async function _runPipelineStages(
         //   Falls back to GPT Image 1 if GEMINI_API_KEY not set.
 
         const isFreeformCover = slide.slideIndex === 0
-          && brief?.coverTemplate === "freeform_composition"
+          && (brief?.coverTemplate === "freeform_composition" || brief?.coverTemplate === "triangle_triptych")
           && brief?.coverComposition;
         const isMultiLayer = isFreeformCover
           && brief?.coverComposition?.compositionMode === "multi_layer"
           && (brief?.coverComposition?.subjects?.length ?? 0) > 0;
+        const isTriangleTriptych = brief?.coverTemplate === "triangle_triptych";
 
         if (isMultiLayer && brief?.coverComposition) {
-          // ── MULTI-LAYER FREEFORM COVER: generate background + each person separately ──
+          // ── MULTI-LAYER COVER: generate each subject separately ──
+          // For freeform_composition: background (DALL-E 3) + person cutouts (Nano Banana, bg-removed)
+          // For triangle_triptych: NO background, NO bg-removal — each triangle gets its own FULL scene
           const composition = brief.coverComposition;
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Multi-layer freeform cover — ${composition.subjects.length} subjects (Nano Banana)`);
+          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 ${isTriangleTriptych ? "Triangle triptych" : "Multi-layer freeform"} cover — ${composition.subjects.length} subjects (Nano Banana)`);
 
           try {
-            // Generate background (DALL-E 3, no people) + all persons (Nano Banana) in PARALLEL
+            // Generate background (skip for triangle_triptych) + all persons in PARALLEL
             const [bgResult, ...personResults] = await Promise.all([
-              generateImage({ prompt: composition.backgroundPrompt }),
+              isTriangleTriptych
+                ? Promise.resolve({ url: null } as { url: string | null })
+                : generateImage({ prompt: composition.backgroundPrompt }),
               ...composition.subjects.map(s =>
                 generateImageWithNanoBanana({ prompt: s.promptFragment ?? scenePrompt })
               ),
@@ -1780,14 +1785,14 @@ async function _runPipelineStages(
             const bgBuffer = bgResult.url ? await downloadImage(bgResult.url) : null;
             const personBuffers: Array<Buffer | null> = [];
 
-            // Background-remove each person image
+            // Download each person image (skip bg-removal for triangle_triptych — full scenes, not cutouts)
             for (let i = 0; i < personResults.length; i++) {
               const pUrl = personResults[i].url;
               if (!pUrl) { personBuffers.push(null); continue; }
 
               let pBuf = await downloadImage(pUrl);
-              if (pBuf) {
-                // AI background removal for clean cutout
+              if (pBuf && !isTriangleTriptych) {
+                // AI background removal for clean cutout (freeform_composition only)
                 try {
                   const BG_REMOVAL_TIMEOUT_MS = 45_000;
                   const { removeBackground } = await import("@imgly/background-removal-node");
@@ -1805,6 +1810,8 @@ async function _runPipelineStages(
                 } catch (bgErr: any) {
                   console.warn(`[ContentPipeline] Cover: bg-removal failed for subject ${i}: ${bgErr?.message} — using original`);
                 }
+              } else if (pBuf && isTriangleTriptych) {
+                console.log(`[ContentPipeline] Cover: triangle_triptych — keeping full scene for subject ${i} "${composition.subjects[i]?.name}" (no bg-removal)`);
               }
               personBuffers.push(pBuf);
             }

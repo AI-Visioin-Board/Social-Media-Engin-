@@ -776,6 +776,133 @@ async function renderFreeformComposition(input: CoverTemplateInput): Promise<Buf
   return sharp(base).composite(composites).png().toBuffer();
 }
 
+// ─── Template 10: triangle_triptych ────────────────────────────────────────────
+//
+// Three triangular slivers fanning from a central apex point, each containing
+// a separate independently-generated full-scene image. Movie-poster triptych:
+// each panel is its own scene (person in environment), clipped to a triangle shape.
+//
+// Geometry: taller image zone (~900px) for proper sliver proportions on portrait canvas.
+// Three triangles share apex at bottom-center of image zone.
+// Text zone is compact (~450px) below the triangles.
+
+/** Image zone height for triangle triptych — taller than standard (675) for sliver proportions */
+const TRIPTYCH_IMAGE_H = 900;
+/** Where the text zone begins for triptych */
+const TRIPTYCH_TEXT_TOP = TRIPTYCH_IMAGE_H;
+/** Apex point where all three triangles meet */
+const TRIPTYCH_APEX = { x: W / 2, y: TRIPTYCH_IMAGE_H };
+
+const TRIPTYCH_TRIANGLES = [
+  { // Left panel
+    vertices: [{ x: 0, y: 0 }, { x: Math.round(W / 3), y: 0 }, { x: W / 2, y: TRIPTYCH_IMAGE_H }],
+    label: "left",
+  },
+  { // Center panel
+    vertices: [{ x: Math.round(W / 3), y: 0 }, { x: Math.round(2 * W / 3), y: 0 }, { x: W / 2, y: TRIPTYCH_IMAGE_H }],
+    label: "center",
+  },
+  { // Right panel
+    vertices: [{ x: Math.round(2 * W / 3), y: 0 }, { x: W, y: 0 }, { x: W / 2, y: TRIPTYCH_IMAGE_H }],
+    label: "right",
+  },
+];
+
+async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer> {
+  // ── Gather 3 image buffers: mainPerson + 2 supporting ──
+  const images: Array<Buffer | null> = [
+    input.mainPersonBuffer ?? null,
+    ...(input.supportingPersonBuffers ?? []).slice(0, 2),
+  ];
+  while (images.length < 3) images.push(null);
+
+  // ── Start with a black canvas ──
+  let base = await sharp({
+    create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+  }).png().toBuffer();
+
+  const composites: sharp.OverlayOptions[] = [];
+
+  for (let i = 0; i < 3; i++) {
+    const tri = TRIPTYCH_TRIANGLES[i];
+    const imgBuf = images[i];
+
+    // Calculate bounding box of this triangle
+    const xs = tri.vertices.map(v => v.x);
+    const ys = tri.vertices.map(v => v.y);
+    const bboxLeft = Math.min(...xs);
+    const bboxTop = Math.min(...ys);
+    const bboxW = Math.max(...xs) - bboxLeft;
+    const bboxH = Math.max(...ys) - bboxTop;
+
+    if (!imgBuf) {
+      // ── Fallback: dark gradient fill for missing image ──
+      const fallbackSvg = `<svg width="${bboxW}" height="${bboxH}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <clipPath id="triClipFallback${i}">
+            <polygon points="${tri.vertices.map(v => `${v.x - bboxLeft},${v.y - bboxTop}`).join(" ")}"/>
+          </clipPath>
+          <linearGradient id="triFallbackGrad${i}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#1a1a2e"/>
+            <stop offset="100%" stop-color="#0a0a14"/>
+          </linearGradient>
+        </defs>
+        <rect width="${bboxW}" height="${bboxH}" fill="url(#triFallbackGrad${i})" clip-path="url(#triClipFallback${i})"/>
+      </svg>`;
+      composites.push({ input: Buffer.from(fallbackSvg), left: bboxLeft, top: bboxTop });
+      console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${tri.label}) — no image, using dark gradient fallback`);
+      continue;
+    }
+
+    // ── Resize image to COVER the bounding box (subject centered) ──
+    const resized = await sharp(imgBuf)
+      .resize(bboxW, bboxH, { fit: "cover", position: "centre" })
+      .ensureAlpha()
+      .png()
+      .toBuffer();
+
+    // ── Create SVG alpha mask: white polygon on transparent background ──
+    // Triangle vertices offset to bounding box origin
+    const offsetPoints = tri.vertices
+      .map(v => `${v.x - bboxLeft},${v.y - bboxTop}`)
+      .join(" ");
+    const maskSvg = `<svg width="${bboxW}" height="${bboxH}" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="${offsetPoints}" fill="white"/>
+    </svg>`;
+    const mask = await sharp(Buffer.from(maskSvg))
+      .greyscale()
+      .png()
+      .toBuffer();
+
+    // ── Apply mask: clip image to triangle shape ──
+    const clipped = await sharp(resized)
+      .composite([{ input: mask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+
+    composites.push({ input: clipped, left: bboxLeft, top: bboxTop });
+    console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${tri.label}) placed at [${bboxLeft},${bboxTop}] ${bboxW}×${bboxH}px`);
+  }
+
+  // ── White border lines between triangles (4px) ──
+  const BORDER_W = 4;
+  const thirdW = Math.round(W / 3);
+  const twoThirdW = Math.round(2 * W / 3);
+  const borderSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <line x1="${thirdW}" y1="0" x2="${TRIPTYCH_APEX.x}" y2="${TRIPTYCH_APEX.y}" stroke="white" stroke-width="${BORDER_W}" stroke-linecap="round"/>
+    <line x1="${twoThirdW}" y1="0" x2="${TRIPTYCH_APEX.x}" y2="${TRIPTYCH_APEX.y}" stroke="white" stroke-width="${BORDER_W}" stroke-linecap="round"/>
+  </svg>`;
+  composites.push({ input: Buffer.from(borderSvg), left: 0, top: 0 });
+
+  // ── Compact text zone (taller image zone = shorter text zone) ──
+  const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    ${buildTextZoneSvg(input.headline, TRIPTYCH_TEXT_TOP, WHITE, CYAN, true)}
+  </svg>`;
+  composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
+
+  return sharp(base).composite(composites).png().toBuffer();
+}
+
 // ─── Main router ──────────────────────────────────────────────────────────────
 
 /**
@@ -793,6 +920,7 @@ export async function composeCoverTemplate(input: CoverTemplateInput): Promise<B
     case "duo_reaction":            return renderDuoReaction(input);
     case "screenshot_overlay":      return renderScreenshotOverlay(input);
     case "freeform_composition":    return renderFreeformComposition(input);
+    case "triangle_triptych":       return renderTriangleTriptych(input);
     default: {
       const _exhaustive: never = input.template;
       throw new Error(`Unknown cover template: ${_exhaustive}`);
