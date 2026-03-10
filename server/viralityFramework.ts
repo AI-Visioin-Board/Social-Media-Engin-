@@ -212,6 +212,8 @@ REAL LOGOS: Do NOT describe logos in the scene prompt. Just set logoKeys to the 
 
 REAL PEOPLE: For person_composite, describe the ACTUAL PERSON by name in your scenePrompt. Nano Banana generates recognizable faces. Include: full name, title, signature clothing, expression, pose, lighting, lens, color grade.
 
+10-PART FRAMEWORK MANDATORY: Every scene prompt (person or not) MUST include all 10 parts: (1) Subject, (2) Action & Context, (3) Environment, (4) Mood & Story, (5) Visual Style, (6) Lighting & Color, (7) Camera & Composition, (8) Detail & Texture, (9) Quality & Realism, (10) Negative Constraints. If any part is missing, the image WILL look generic.
+
 PRODUCTS & APPS: Show a phone or laptop screen from a distance with the right color scheme. Show someone's hand holding a phone with a glowing interface. Show the product's physical context.
 
 VISUAL QUALITY RULES:

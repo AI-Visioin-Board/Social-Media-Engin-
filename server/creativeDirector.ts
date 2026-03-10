@@ -448,14 +448,17 @@ Carousel facts:
    ENGAGEMENT: Very high P(share) — people share content about people they recognize. High P(dwell) — faces draw eyes.
    CONSTRAINT: ONLY use for these verified public figures: ${Object.entries(KNOWN_FIGURES).map(([n, t]) => `${n} (${t})`).join(", ")}
    CRITICAL — THE PERSON IS THE HERO OF THE IMAGE. Not the environment. The person fills the frame.
-   SCENE PROMPT REQUIREMENTS — include ALL of these:
-   • PERSON: Full name + signature appearance detail (e.g., "Sam Altman, CEO of OpenAI, wearing his signature dark grey crewneck" or "Jensen Huang, CEO of NVIDIA, in his trademark black leather jacket")
-   • EXPRESSION/POSE: Match the story's emotional context — concerned/furrowed brow for bad news, triumphant/arms raised for victories, thoughtful/chin resting on hand for strategy, defiant/crossed arms for conflicts, smirking/confident for wins
-   • FRAMING: The person should be chest-up or waist-up, filling most of the frame. NOT full body. NOT tiny in a vast scene.
-   • LIGHTING: ALWAYS specify 2+ light sources with colors. E.g., "dramatic orange-cyan split lighting from opposing neon signs" or "cold blue rim light from behind, warm key light from above-left"
-   • LENS: Always specify a lens. 85mm f/1.4 for intense portraits, 50mm f/2 for medium shots, 35mm f/2.8 for environmental portraits
-   • COLOR GRADE: Always specify. "teal-and-orange", "cold blue steel", "warm golden hour", "high-contrast noir"
-   • ENVIRONMENT: The environment should reinforce the story mood but stay BEHIND the person as atmosphere, NOT compete with them
+   SCENE PROMPT REQUIREMENTS — ALL 10 framework parts, person-first:
+   1. SUBJECT: Full name + signature appearance detail ("Sam Altman, CEO of OpenAI, wearing his signature dark grey crewneck")
+   2. ACTION & CONTEXT: Expression + pose matching the story ("arms crossed, expression halfway between smirk and concern" for conflict, "leaning forward mid-gesture" for announcements)
+   3. ENVIRONMENT: Reinforces story mood but stays BEHIND the person as atmosphere, NOT competing
+   4. MOOD & STORY: Emotional connection to the news ("tension of a billion-dollar gamble", "quiet defiance")
+   5. VISUAL STYLE: Reference a specific look ("Christopher Nolan editorial", "Vanity Fair power portrait", "cinematic noir")
+   6. LIGHTING & COLOR: ALWAYS 2+ light sources with colors ("dramatic orange-cyan split lighting from opposing neon signs", "cold blue rim light from behind, warm key light from above-left")
+   7. CAMERA & COMPOSITION: Person chest-up or waist-up, filling 60-80% of frame. Specify lens: 85mm f/1.4 for intense portraits, 50mm f/2 for medium shots, 35mm f/2.8 for environmental. Specify color grade: "teal-and-orange", "cold blue steel", "high-contrast noir"
+   8. DETAIL & TEXTURE: Fabric of clothing, skin texture, environmental materials ("crisp tailored wool suit", "rain droplets on leather jacket", "polished mahogany desk reflection")
+   9. QUALITY & REALISM: "ultra-photorealistic, editorial quality, 8K detail, RAW photograph look"
+   10. NEGATIVE CONSTRAINTS: "no text, no logos, no other people in frame, no blurry elements"
 
    ❌ BAD PROMPT: "Sam Altman standing in a boardroom overlooking Silicon Valley at twilight, wearing a polo"
    ✅ GOOD PROMPT: "Sam Altman, CEO of OpenAI, standing at the edge of a rain-slicked rooftop at night, city lights reflecting in puddles around his feet, wearing a dark grey crewneck, arms crossed, expression halfway between a smirk and concern, dramatic orange-cyan split lighting from opposing neon signs below, shallow depth of field 85mm f/1.4, photorealistic editorial portrait, cinematic color grade"
@@ -473,10 +476,17 @@ Carousel facts:
    • END: The emotional payoff — a reaction, a consequence, a dramatic moment (1-2 seconds)
    • CAMERA: Must MOVE — slow push-in, orbit, dolly zoom, pull-back reveal. No static shots.
 
+   VIDEO PROMPTS MUST ALSO include framework parts 5-10:
+   5. VISUAL STYLE: Reference a cinematic style ("Michael Mann night cinematography", "Denis Villeneuve sci-fi")
+   6. LIGHTING & COLOR: Specific light sources that CHANGE during the 5-second arc
+   8. DETAIL & TEXTURE: Materials and surfaces visible in the scene ("rain-slicked concrete", "brushed aluminum desk")
+   9. QUALITY: "cinematic 4K, photorealistic, film grain"
+   10. NEGATIVE: "no text, no watermarks, no static shots"
+
    ❌ BAD VIDEO PROMPT: "A glowing server room with blue neon lights and data flowing through cables"
    ❌ BAD VIDEO PROMPT: "A futuristic AI interface with holographic displays"
-   ✅ GOOD VIDEO PROMPT: "A figure in a hoodie sits at a dual-monitor setup in a dark room, typing rapidly. The screens flash bright green — OpenAI's interface appears with streaming text. The figure leans back slowly, the screens' glow illuminating their amazed expression as a holographic interface begins expanding from the monitors into the room around them. Slow dolly zoom from over-the-shoulder to wide shot. Cyan and green lighting, volumetric haze."
-   ✅ GOOD VIDEO PROMPT: "A CEO in a sharp suit walks down a long glass corridor in a tech headquarters, city skyline visible through the windows. They pause at the end, looking out at the city below. A massive holographic display activates beside them showing stock charts plunging downward. Their reflection in the glass shows concern. Slow tracking shot following from behind, transitioning to profile close-up. Cold blue-steel color grade, dramatic backlighting."
+   ✅ GOOD VIDEO PROMPT: "A figure in a hoodie sits at a dual-monitor setup in a dark room, typing rapidly. The screens flash bright green — OpenAI's interface appears with streaming text. The figure leans back slowly, the screens' glow illuminating their amazed expression as a holographic interface begins expanding from the monitors into the room around them. Slow dolly zoom from over-the-shoulder to wide shot. Cyan and green neon lighting shifting to warm amber, volumetric haze, rain-streaked window reflections, cinematic 4K photorealistic, Denis Villeneuve sci-fi aesthetic. No text, no watermarks."
+   ✅ GOOD VIDEO PROMPT: "A CEO in a sharp tailored charcoal wool suit walks down a long glass corridor in a tech headquarters, city skyline visible through floor-to-ceiling windows. They pause at the end, looking out at the city below. A massive holographic display activates beside them showing stock charts plunging downward. Their reflection in the polished marble floor shows concern. Slow tracking shot following from behind, transitioning to profile close-up at 85mm. Cold blue-steel color grade shifting to warm amber as display ignites, dramatic rim backlighting. Michael Mann night-cinematography style, photorealistic 4K. No text, no logos."
 
    You MUST fill the videoNarrative field for all kling_video slides:
    { "beginning": "...", "middle": "...", "end": "...", "fullPrompt": "the complete assembled narrative prompt" }
@@ -590,13 +600,19 @@ VIDEO STRATEGY:
 - Choose the 2 stories with the MOST DYNAMIC visual potential for video.
 - Video prompts MUST describe: camera movement type, action/motion, lighting changes, 5-second arc.
 
-SCENE PROMPT QUALITY (PROMPTHIS Framework):
-Every scenePrompt must follow this structure for maximum AI image quality:
-1. SETTING: Specific location/environment (not "futuristic room" — say "a glass-walled boardroom overlooking a neon-lit Tokyo skyline at night")
-2. CAMERA: Shot type + lens + angle ("extreme close-up, 85mm lens, low angle looking up")
-3. SUBJECT: The main visual element in specific detail ("a pair of hands hovering over a glowing green holographic interface")
-4. LIGHTING: Specific light sources + quality ("dramatic side-lit by a single cyan neon strip, deep shadows on the right")
-5. MOOD: Color palette + emotional tone ("cold blue-green palette, tension, corporate thriller feel")
+SCENE PROMPT QUALITY (10-Part Framework):
+Every scenePrompt MUST include ALL 10 of these elements for maximum AI image quality. Missing ANY part = generic output.
+
+1. SUBJECT: The main focus — specific, named, detailed (not "a person" but "Sam Altman, CEO of OpenAI, in his signature grey crewneck")
+2. ACTION & CONTEXT: What is happening — the narrative moment (not just "standing" but "leaning forward with hands on the table, mid-argument")
+3. ENVIRONMENT: Specific location (not "futuristic room" — say "a glass-walled boardroom overlooking a neon-lit Tokyo skyline at 2am")
+4. MOOD & STORY: Emotional tone that connects to the news story ("tension of a billion-dollar gamble", "quiet triumph after vindication")
+5. VISUAL STYLE: Artistic reference or genre ("Christopher Nolan-style cinematography", "editorial Vogue portrait", "cyberpunk noir")
+6. LIGHTING & COLOR: 2+ specific light sources with colors ("warm golden key light from above-left, cold blue neon rim light from behind, deep shadows on right")
+7. CAMERA & COMPOSITION: Shot type + lens + angle + framing ("chest-up medium shot, 85mm f/1.4, slight low angle, rule of thirds with subject offset right")
+8. DETAIL & TEXTURE: Materials, surfaces, fabrics, environmental texture ("rain-slicked concrete reflecting neon, brushed steel desk surface, crisp tailored wool suit")
+9. QUALITY & REALISM: Rendering quality markers ("ultra-photorealistic, editorial quality, 8K detail, RAW photograph look")
+10. NEGATIVE CONSTRAINTS: What to EXCLUDE ("no text, no logos, no other people in frame, no blurry elements")
 
 🚫 BANNED SCENES — NEVER use these overused visuals:
 - Server rooms, data centers, server racks (WE HAVE USED THESE 6 TIMES IN A ROW)
@@ -784,6 +800,21 @@ function sanitizeSlides(
         ? `${analysis.headline} ${analysis.summary}`
         : researched.map(t => t.headline).join(" ");
       const knownPeople = detectKnownPeople(allText);
+
+      // Also check names provided in coverComposition subjects — the CD already identified people
+      // by name, but those names might not appear literally in the headlines (e.g., headline says
+      // "OpenAI" but the CD correctly assigned "Sam Altman" as a subject).
+      if (knownPeople.length === 0 && s.coverComposition?.subjects?.length > 0) {
+        const subjectNames = s.coverComposition.subjects
+          .map((sub: any) => sub.name?.toLowerCase())
+          .filter(Boolean)
+          .join(" ");
+        const subjectPeople = detectKnownPeople(subjectNames);
+        if (subjectPeople.length > 0) {
+          knownPeople.push(...subjectPeople);
+          console.log(`[${callerLabel}] Slide ${s.slideIndex}: detected ${subjectPeople.length} known people from coverComposition subjects: ${subjectPeople.map(p => p.name).join(", ")}`);
+        }
+      }
 
       if (knownPeople.length === 0) {
         if (s.personSearchQuery && s.personSearchQuery.trim().length > 10) {
@@ -1356,6 +1387,9 @@ const PROMPTHIS_CHECKLIST = [
   { label: "lighting", pattern: /light|lit|glow|shadow|neon|spotlight|backlight|rim\s*light/i },
   { label: "camera/lens", pattern: /\d+mm|lens|f\/\d|depth\s*of\s*field|close-up|wide.?angle|bokeh/i },
   { label: "color_grade", pattern: /color\s*grad|teal|orange|cyan|noir|golden\s*hour|cold\s*blue|warm/i },
+  { label: "texture_detail", pattern: /texture|surface|fabric|material|concrete|steel|glass|leather|wool|rain|wet|slick|polished|brushed|chrome/i },
+  { label: "quality", pattern: /photorealistic|editorial|8k|hyper.?detail|raw\s*photo|cinematic\s*4k/i },
+  { label: "action", pattern: /\b(lean|stand|sit|walk|gesture|point|hold|grip|gaze|stare|cross|fold|reach|raise|rest|clutch|press)\w*/i },
 ];
 
 async function qualityDirectorReview(
@@ -1406,7 +1440,7 @@ async function qualityDirectorReview(
     // ── Check 3: PROMPTHIS quality (skip video slides) ──
     if (slide.strategy !== "kling_video" && prompt.length > 0) {
       const missing = PROMPTHIS_CHECKLIST.filter(c => !c.pattern.test(prompt));
-      if (missing.length >= 2) {
+      if (missing.length >= 3) {
         issues.push({
           slideIndex: slide.slideIndex,
           issue: `Weak prompt — missing ${missing.map(m => m.label).join(", ")} from PROMPTHIS framework`,

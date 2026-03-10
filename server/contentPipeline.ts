@@ -789,23 +789,27 @@ Your creative philosophy:
 - You are somewhat comedic and irreverent when the story warrants it (not forced)
 - You always ask yourself: "If I saw this image/video, would I IMMEDIATELY know what company/story it's about?"
 
-CRITICAL LIMITATION — AI image generators CANNOT accurately render:
-- Real people's faces (they generate random strangers, NOT the actual person)
-- Accurate company logos (they will be garbled and wrong)
-- Readable text
+IMAGE GENERATION CAPABILITIES (2026):
+- Nano Banana (Gemini) CAN generate recognizable named public figures (tested & confirmed: Elon Musk, Tim Cook, Sam Altman, Sundar Pichai, Jensen Huang)
+- DALL-E 3 is for environments ONLY (zero people)
+- No model can render accurate company logos — we composite real PNGs separately
+- No model can render readable text — we overlay text in post-production
 
-YOUR WORKAROUNDS:
-- For PEOPLE: show them from behind (silhouette at podium), show their hands, show crowd reactions, show symbolic objects (Tesla for Musk, Apple products for Tim Cook). NEVER describe a face.
-- For LOGOS: use the company's SIGNATURE COLORS as the visual identifier. OpenAI = green/white swirl shape. Google = red/blue/yellow/green. Meta = blue. Anthropic = orange/brown. Apple = silver/white minimalist. Describe brand-colored objects, not the logo itself.
-- For PRODUCTS: show a phone/laptop screen from a distance with the right color scheme glowing. Show someone's hand holding a device.
+For person_composite slides: describe the ACTUAL PERSON by name with full detail (expression, pose, lighting, clothing, environment).
+For cinematic_scene slides: NO PEOPLE in the prompt — pure environment.
+For PRODUCTS: show a phone/laptop screen from a distance with the right color scheme glowing.
 
-MANDATORY PROMPT STRUCTURE — follow this exact formula for every prompt:
-1. SETTING: Specific location with environmental details (e.g., "a glass-walled boardroom overlooking a neon-lit Tokyo skyline at night")
-2. CAMERA: Shot type + focal length + aperture + angle (e.g., "three-quarter shot, 85mm f/1.8, low angle looking up")
-3. SUBJECT: Main visual element with specific materials, colors, textures (e.g., "a pair of hands hovering over a glowing green holographic interface")
-4. LIGHTING: Named lighting recipe with specifics (e.g., "warm Rembrandt lighting from left, soft cyan rim light on shoulders, deep shadows on right")
-5. MOOD: Color palette + emotional tone (e.g., "teal-and-orange cinematic grade, corporate thriller tension, Blade Runner 2049 aesthetic")
-6. QUALITY: Always end with "ultra-photorealistic, editorial quality, 8K detail"
+MANDATORY PROMPT STRUCTURE (10-Part Framework) — every prompt MUST include ALL of these:
+1. SUBJECT: Main focus, specific and named (e.g., "Sam Altman, CEO of OpenAI, in his signature grey crewneck")
+2. ACTION & CONTEXT: What is happening — the narrative moment (e.g., "leaning forward mid-argument")
+3. ENVIRONMENT: Specific location (e.g., "a glass-walled boardroom overlooking a neon-lit Tokyo skyline at night")
+4. MOOD & STORY: Emotional tone tied to the story (e.g., "corporate thriller tension, billion-dollar gamble")
+5. VISUAL STYLE: Artistic reference (e.g., "Christopher Nolan cinematography", "Blade Runner 2049 aesthetic")
+6. LIGHTING & COLOR: 2+ light sources with colors (e.g., "warm Rembrandt lighting from left, soft cyan rim light on shoulders, deep shadows on right")
+7. CAMERA & COMPOSITION: Shot type + lens + angle (e.g., "three-quarter shot, 85mm f/1.8, low angle looking up")
+8. DETAIL & TEXTURE: Materials, surfaces, fabrics (e.g., "rain-slicked concrete, brushed steel desk, crisp wool suit")
+9. QUALITY & REALISM: "ultra-photorealistic, editorial quality, 8K detail, RAW photograph look"
+10. NEGATIVE CONSTRAINTS: What to exclude ("no text, no logos, no blurry elements")
 
 Technical requirements:
 - Ultra-photorealistic, editorial, high-fashion magazine quality
@@ -2106,6 +2110,20 @@ async function _runPipelineStages(
         });
       await Promise.all(contentLogoFetches);
 
+      // ── Diagnostic: log video slide status before assembly ──
+      const videoSlidesSummary = slidesForAssembly
+        .filter(s => s.isVideoSlide === 1)
+        .map(s => {
+          const url = s.videoUrl ?? "null";
+          const isImageFallback = /\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/i.test(url);
+          return `  Slide ${s.slideIndex}: videoUrl=${url.slice(0, 80)}… isImageFallback=${isImageFallback}`;
+        });
+      if (videoSlidesSummary.length > 0) {
+        console.log(`[ContentPipeline] ═══ Video Slides Diagnostic ═══\n${videoSlidesSummary.join("\n")}`);
+      } else {
+        console.warn(`[ContentPipeline] ⚠️ No video slides (isVideoSlide=1) found in assembly batch!`);
+      }
+
       const assembled = await assembleAllSlides(
         slidesForAssembly.map((s) => {
           const isCover = s.slideIndex === 0;
@@ -2119,9 +2137,10 @@ async function _runPipelineStages(
             summary: s.summary ?? undefined,
             insightLine: s.insightLine ?? undefined,
             mediaUrl: s.videoUrl ?? null,
-            // A slide is treated as video if: (a) isVideoSlide flag is set AND it has an MP4 URL
-            // Without Kling keys, video slides fall back to still images (no .mp4 URL) so they get composited
-            isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && (s.videoUrl.includes(".mp4") || s.videoUrl.includes("video"))),
+            // A slide is video if: (a) isVideoSlide flag is set AND (b) it has a media URL that's NOT a known still-image format.
+            // When Kling fails, fallback stores a Nano Banana still (.png/.jpg/.webp) — those are NOT video.
+            // Kling CDN URLs typically contain .mp4 or /video/ but we also accept any non-image URL.
+            isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && !(/\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/i.test(s.videoUrl))),
             isCover,
             // ── Cover template fields ──
             coverTemplate: isCover ? coverBriefForAssembly?.coverTemplate : undefined,
