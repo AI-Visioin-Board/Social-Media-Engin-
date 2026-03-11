@@ -1,7 +1,15 @@
 /**
  * sharpCompositor.ts
  *
- * Assembles @airesearches/@evolving.ai-style Instagram carousel slides using Sharp.
+ * Assembles @airesearches/@evolving.ai-style Instagram carousel slides.
+ *
+ * Architecture (post-Gemini upgrade):
+ * - Content slides use HTML/CSS templates (htmlCompositor.ts) rendered via a headless
+ *   browser (screenshot.ts) for pixel-perfect typography and Flexbox layout.
+ * - Sharp is still used for: image preprocessing (resize, attention crop, color grading),
+ *   cover template compositing (multi-layer freeform, triptych), and logo badge rendering.
+ * - The old SVG string approach (buildContentOverlaySvg, buildCoverOverlaySvg) is kept
+ *   as a FALLBACK if the headless browser is unavailable (e.g. Chromium not installed).
  *
  * Design spec (matching @airesearches 1.1M followers):
  * - Full-bleed background image (1080×1350 portrait, 4:5 ratio)
@@ -11,7 +19,6 @@
  * - "SWIPE FOR MORE →" call-to-action at very bottom
  * - Small "SuggestedByGPT" watermark bottom-left
  * - For video slides: returns the original video URL unchanged (Instagram plays natively)
- * - Runs in <3 seconds per slide, zero external API calls
  */
 
 import sharp from "sharp";
@@ -661,7 +668,7 @@ export async function assembleSlideWithSharp(
     }
   }
 
-  // ── Cover slide: route to 8-template compositor ───────────────────────────
+  // ── Cover slide: route to cover template compositor ─────────────────────
   if (isCover && slide.coverTemplate) {
     try {
       console.log(`[SharpCompositor] Cover slide — routing to template: ${slide.coverTemplate}`);
@@ -689,36 +696,103 @@ export async function assembleSlideWithSharp(
     }
   }
 
-  try {
-    const font = { path: "", name: "Anton" };
-    const overlaySvg = isCover
-      ? buildCoverOverlaySvg(headline, font)
-      : buildContentOverlaySvg(headline, font, slide.insightLine, slide.summary);
+  // ── Content slides: HTML/CSS compositor (primary) with SVG fallback ─────
+  // The HTML approach uses a headless browser for pixel-perfect typography,
+  // automatic text wrapping, and CSS Flexbox layout. If Chromium is unavailable,
+  // we fall back to the legacy SVG overlay approach.
 
-    let pipeline: sharp.Sharp;
+  try {
+    // ── Step 1: Prepare background image with Sharp ──
+    // Sharp is still the right tool for: resize, attention crop, color grading.
+    // We prep the image here, then pass it to the HTML compositor as a buffer.
+    let preparedBgBuffer: Buffer | null = null;
 
     if (bgImageBuffer) {
       if (!isCover) {
-        // ── Content slides: center image in the VISIBLE top zone (675px) ──
-        // Without this, the image fills the full 1350px canvas and the subject
-        // ends up at y≈675 — right where the gradient starts, half-hidden.
-        // Resize to 1080×675 with attention-based crop (focuses on faces/subjects),
-        // then place on a full-height black canvas.
+        // Content slides: center image in the VISIBLE top zone (675px)
         const IMAGE_ZONE_H = 675;
         const topZone = await sharp(bgImageBuffer)
           .resize(SLIDE_W, IMAGE_ZONE_H, { fit: "cover", position: sharp.strategy.attention })
           .png()
           .toBuffer();
-        pipeline = sharp({
+        // Place on full-height black canvas
+        const canvas = await sharp({
           create: { width: SLIDE_W, height: SLIDE_H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
-        }).composite([{ input: topZone, left: 0, top: 0 }]);
+        })
+          .composite([{ input: topZone, left: 0, top: 0 }])
+          .png()
+          .toBuffer();
+        preparedBgBuffer = canvas;
       } else {
-        // Cover slides (fallback from template): full canvas, center crop
-        pipeline = sharp(bgImageBuffer)
-          .resize(SLIDE_W, SLIDE_H, { fit: "cover", position: "center" });
+        preparedBgBuffer = await sharp(bgImageBuffer)
+          .resize(SLIDE_W, SLIDE_H, { fit: "cover", position: "center" })
+          .png()
+          .toBuffer();
       }
+    }
+
+    // ── Color grading: boost saturation and contrast for cinematic look ──
+    if (preparedBgBuffer) {
+      try {
+        preparedBgBuffer = await sharp(preparedBgBuffer)
+          .modulate({ brightness: 1.05, saturation: 1.25 })
+          .linear(1.15, -(128 * 0.15))
+          .sharpen({ sigma: 0.8 })
+          .png()
+          .toBuffer();
+      } catch { /* color grading failed — use raw buffer */ }
+    }
+
+    // ── Step 2: Try HTML/CSS compositor (primary path) ──
+    try {
+      const { generateContentSlideHtml, generateCoverSlideHtml } = await import("./htmlCompositor");
+      const { captureHtmlToImage } = await import("./screenshot");
+
+      let html: string;
+      if (isCover) {
+        html = generateCoverSlideHtml({
+          backgroundBuffer: preparedBgBuffer,
+          headline,
+          logoBuffers: slide.logoBuffers,
+          logoStyle: slide.logoStyle,
+          logoSize: slide.logoSize,
+        });
+      } else {
+        html = generateContentSlideHtml({
+          backgroundBuffer: preparedBgBuffer,
+          headline,
+          summary: slide.summary,
+          insightLine: slide.insightLine,
+          logoBuffers: slide.logoBuffers,
+          logoStyle: slide.logoStyle,
+          logoSize: slide.logoSize,
+        });
+      }
+
+      const screenshotBuffer = await captureHtmlToImage(html);
+      console.log(`[SharpCompositor] HTML compositor rendered slide ${slideIndex} (${Math.round(screenshotBuffer.length / 1024)}KB)`);
+
+      // Upload to S3
+      const s3Key = `sharp-slides/run-${runId}-slide-${slideIndex}-html-${Date.now()}.png`;
+      const { url } = await storagePut(s3Key, screenshotBuffer, "image/png");
+      console.log(`[SharpCompositor] Slide ${slideIndex} uploaded → ${url.slice(0, 80)}...`);
+      return url;
+
+    } catch (htmlErr: any) {
+      console.warn(`[SharpCompositor] HTML compositor failed (${htmlErr?.message}) — falling back to SVG overlay`);
+      // Fall through to legacy SVG approach
+    }
+
+    // ── Step 3: Legacy SVG fallback (if HTML compositor unavailable) ──
+    const font = { path: "", name: "Anton" };
+    const overlaySvg = isCover
+      ? buildCoverOverlaySvg(headline, font)
+      : buildContentOverlaySvg(headline, font, slide.insightLine, slide.summary);
+
+    let baseBuffer: Buffer;
+    if (preparedBgBuffer) {
+      baseBuffer = preparedBgBuffer;
     } else {
-      // Fallback: deep cinematic dark background
       const fallbackSvg = `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
@@ -729,25 +803,19 @@ export async function assembleSlideWithSharp(
         </defs>
         <rect width="${SLIDE_W}" height="${SLIDE_H}" fill="url(#bg)"/>
       </svg>`;
-      pipeline = sharp(Buffer.from(fallbackSvg));
+      baseBuffer = await sharp(Buffer.from(fallbackSvg)).png().toBuffer();
     }
 
-    // ── Content slide logo compositing (non-cover slides) ────────────────
-    // 3.0: ALL logos rendered as circular badges with white glow for universal visibility.
-    // Standardizes shape (no more square logos) and ensures visibility on any background.
+    // Logo compositing (legacy Sharp approach)
     const logoComposites: sharp.OverlayOptions[] = [];
-    const effectiveLogoStyle = slide.logoStyle ?? "full_color"; // default to full_color in 2.0
+    const effectiveLogoStyle = slide.logoStyle ?? "full_color";
     if (!isCover && effectiveLogoStyle !== "none" && slide.logoBuffers && slide.logoBuffers.length > 0) {
       const validLogos = slide.logoBuffers.filter((b): b is Buffer => b !== null);
-
-      // Placement zones — logos placed in the image zone, safely ABOVE the gradient
-      // Gradient starts at y=515 (IMAGE_ZONE_H - 160), so all logos stay above that
       const LOGO_ZONES = [
-        { left: SLIDE_W - 160, top: 30, label: "top-right" },
-        { left: 20, top: 30, label: "top-left" },
-        { left: SLIDE_W - 150, top: 200, label: "mid-right" },
+        { left: SLIDE_W - 160, top: 30 },
+        { left: 20, top: 30 },
+        { left: SLIDE_W - 150, top: 200 },
       ];
-
       const logoSizeDefault = effectiveLogoStyle === "full_color" ? 120 : 90;
       const LOGO_SIZE = slide.logoSize ?? logoSizeDefault;
 
@@ -757,7 +825,6 @@ export async function assembleSlideWithSharp(
           const circledLogo = await renderCircularLogo(validLogos[i], LOGO_SIZE, effectiveLogoStyle);
           if (circledLogo) {
             logoComposites.push({ input: circledLogo, left: pos.left, top: pos.top });
-            console.log(`[SharpCompositor] Circular logo ${i + 1} (${LOGO_SIZE}px) on slide ${slideIndex} at (${pos.left}, ${pos.top})`);
           }
         } catch (logoErr: any) {
           console.warn(`[SharpCompositor] Logo compositing failed: ${logoErr?.message}`);
@@ -765,21 +832,7 @@ export async function assembleSlideWithSharp(
       }
     }
 
-    // ── Color grading: boost saturation and contrast for cinematic look ──
-    let gradedBuffer = await pipeline.png().toBuffer();
-    try {
-      gradedBuffer = await sharp(gradedBuffer)
-        .modulate({ brightness: 1.05, saturation: 1.25 })
-        .linear(1.15, -(128 * 0.15))
-        .sharpen({ sigma: 0.8 })
-        .png()
-        .toBuffer();
-    } catch { /* color grading failed — use raw buffer */ }
-
-    // Composite order matters: gradient overlay FIRST, then logos ON TOP.
-    // This lets logos sit anywhere on the slide (even in the gradient zone)
-    // without getting swallowed by the dark fade.
-    const composited = await sharp(gradedBuffer)
+    const composited = await sharp(baseBuffer)
       .composite([
         { input: Buffer.from(overlaySvg), top: 0, left: 0 },
         ...logoComposites,
@@ -787,10 +840,9 @@ export async function assembleSlideWithSharp(
       .png({ compressionLevel: 5 })
       .toBuffer();
 
-    // Upload to S3
     const s3Key = `sharp-slides/run-${runId}-slide-${slideIndex}-${Date.now()}.png`;
     const { url } = await storagePut(s3Key, composited, "image/png");
-    console.log(`[SharpCompositor] Slide ${slideIndex} uploaded → ${url.slice(0, 80)}...`);
+    console.log(`[SharpCompositor] Slide ${slideIndex} (SVG fallback) uploaded → ${url.slice(0, 80)}...`);
     return url;
 
   } catch (err: any) {

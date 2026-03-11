@@ -422,14 +422,23 @@ export async function compositeVideoSlide(input: VideoCompositorInput): Promise<
   const tmpVideoPath = await downloadToTemp(videoUrl, ext);
   console.log(`[VideoCompositor] Downloaded ${ext} (${Math.round(fs.statSync(tmpVideoPath).size / 1024)}KB)`);
 
-  // 2. Generate Sharp overlay PNG
-  const svgOverlay = buildVideoOverlaySvg(headline, insightLine, summary);
-  const overlayBuffer = await sharp(Buffer.from(svgOverlay))
-    .png()
-    .toBuffer();
+  // 2. Generate overlay PNG — try HTML/CSS compositor first, SVG fallback
+  let overlayBuffer: Buffer;
+  try {
+    const { generateVideoOverlayHtml } = await import("./htmlCompositor");
+    const { captureHtmlToImage } = await import("./screenshot");
+    const html = generateVideoOverlayHtml({ headline, summary, insightLine });
+    // transparent: true captures with alpha channel so video shows through the top 70%
+    overlayBuffer = await captureHtmlToImage(html, { transparent: true });
+    console.log(`[VideoCompositor] HTML overlay PNG generated (${Math.round(overlayBuffer.length / 1024)}KB)`);
+  } catch (htmlErr: any) {
+    console.warn(`[VideoCompositor] HTML compositor failed (${htmlErr?.message}) — falling back to SVG overlay`);
+    const svgOverlay = buildVideoOverlaySvg(headline, insightLine, summary);
+    overlayBuffer = await sharp(Buffer.from(svgOverlay)).png().toBuffer();
+    console.log(`[VideoCompositor] SVG overlay PNG generated (${Math.round(overlayBuffer.length / 1024)}KB)`);
+  }
   const tmpOverlayPath = path.join(os.tmpdir(), `sbgpt-overlay-${Date.now()}.png`);
   fs.writeFileSync(tmpOverlayPath, overlayBuffer);
-  console.log(`[VideoCompositor] Sharp overlay PNG generated (${Math.round(overlayBuffer.length / 1024)}KB)`);
 
   // 3. FFmpeg composite
   const tmpOutputPath = path.join(os.tmpdir(), `sbgpt-composed-${Date.now()}.mp4`);

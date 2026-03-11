@@ -851,7 +851,53 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   ];
   while (images.length < 3) images.push(null);
 
-  // ── Start with a black canvas ──
+  // ── Try HTML/CSS compositor first (CSS clip-path replaces Sharp polygon math) ──
+  // This is cleaner: 3 <img> elements with clip-path: polygon(...) instead of
+  // ~80 lines of Sharp buffer manipulation, SVG masks, and dest-in blending.
+  try {
+    const { generateTriptychCoverHtml } = await import("./htmlCompositor");
+    const { captureHtmlToImage } = await import("./screenshot");
+
+    // Prepare image buffers — resize with attention crop (Sharp is still right for this)
+    const preparedBuffers: [Buffer, Buffer, Buffer] = [
+      Buffer.alloc(0), Buffer.alloc(0), Buffer.alloc(0),
+    ];
+    for (let i = 0; i < 3; i++) {
+      const imgBuf = images[i];
+      if (imgBuf) {
+        // Attention-based crop ensures faces/subjects stay centered in each sliver
+        preparedBuffers[i] = await sharp(imgBuf)
+          .resize(W, TRIPTYCH_IMAGE_H, { fit: "cover", position: sharp.strategy.attention })
+          .png()
+          .toBuffer();
+      } else {
+        // Dark gradient fallback for missing images
+        const fallbackSvg = `<svg width="${W}" height="${TRIPTYCH_IMAGE_H}" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#1a1a2e"/><stop offset="100%" stop-color="#0a0a14"/>
+          </linearGradient></defs>
+          <rect width="${W}" height="${TRIPTYCH_IMAGE_H}" fill="url(#g)"/>
+        </svg>`;
+        preparedBuffers[i] = await sharp(Buffer.from(fallbackSvg)).png().toBuffer();
+      }
+    }
+
+    const html = generateTriptychCoverHtml({
+      sliverBuffers: preparedBuffers,
+      headline: input.headline,
+      logoBuffers: input.logoBuffers,
+    });
+
+    const buffer = await captureHtmlToImage(html);
+    console.log(`[CoverTemplate] triangle_triptych: HTML compositor rendered (${Math.round(buffer.length / 1024)}KB)`);
+    return buffer;
+
+  } catch (htmlErr: any) {
+    console.warn(`[CoverTemplate] triangle_triptych: HTML compositor failed (${htmlErr?.message}) — falling back to Sharp`);
+  }
+
+  // ── Fallback: Sharp polygon math (original approach) ──
+
   const base = await sharp({
     create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
   }).png().toBuffer();
@@ -862,7 +908,6 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
     const sliver = TRIPTYCH_SLIVERS[i];
     const imgBuf = images[i];
 
-    // Calculate bounding box of this sliver (polygon)
     const xs = sliver.vertices.map(v => v.x);
     const ys = sliver.vertices.map(v => v.y);
     const bboxLeft = Math.min(...xs);
@@ -871,7 +916,6 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
     const bboxH = Math.max(...ys) - bboxTop;
 
     if (!imgBuf) {
-      // ── Fallback: dark gradient fill for missing image ──
       const fallbackSvg = `<svg width="${bboxW}" height="${bboxH}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <clipPath id="sliverClipFallback${i}">
@@ -885,21 +929,15 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
         <rect width="${bboxW}" height="${bboxH}" fill="url(#sliverFallbackGrad${i})" clip-path="url(#sliverClipFallback${i})"/>
       </svg>`;
       composites.push({ input: Buffer.from(fallbackSvg), left: bboxLeft, top: bboxTop });
-      console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${sliver.label}) — no image, using dark gradient fallback`);
       continue;
     }
 
-    // ── Resize image to COVER the bounding box, focusing on faces/subjects ──
-    // attention strategy ensures the most prominent feature (face, person) stays centered
-    // in the crop, rather than centering on the geometric middle of the bounding box.
     const resized = await sharp(imgBuf)
       .resize(bboxW, bboxH, { fit: "cover", position: sharp.strategy.attention })
       .ensureAlpha()
       .png()
       .toBuffer();
 
-    // ── Create SVG alpha mask: white polygon on transparent background ──
-    // Sliver vertices offset to bounding box origin
     const offsetPoints = sliver.vertices
       .map(v => `${v.x - bboxLeft},${v.y - bboxTop}`)
       .join(" ");
@@ -911,17 +949,15 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
       .png()
       .toBuffer();
 
-    // ── Apply mask: clip image to sliver shape ──
     const clipped = await sharp(resized)
       .composite([{ input: mask, blend: "dest-in" }])
       .png()
       .toBuffer();
 
     composites.push({ input: clipped, left: bboxLeft, top: bboxTop });
-    console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${sliver.label}) placed at [${bboxLeft},${bboxTop}] ${bboxW}×${bboxH}px`);
   }
 
-  // ── White border lines between slivers (4px diagonal) ──
+  // White border lines between slivers
   const BORDER_W = 4;
   const thirdW = Math.round(W / 3);
   const twoThirdW = Math.round(2 * W / 3);
@@ -931,12 +967,7 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   </svg>`;
   composites.push({ input: Buffer.from(borderSvg), left: 0, top: 0 });
 
-  // ── Compact text zone (taller image zone = shorter text zone ~450px) ──
-  // Use smaller font + wider lines to prevent headline overlapping "SWIPE FOR MORE"
-  // Standard: 72px/82px/18chars → 5 lines can reach y=1308, overlapping swipe at 1295
-  // Compact:  64px/74px/22chars → 4 lines max reach y=960+3×74=1182, well clear
-  // NOTE: text SVG (with gradient) is composited BEFORE logos so logos render ON TOP
-  // of the gradient overlay. Previously logos were added first and got painted over.
+  // Text zone SVG (composited BEFORE logos so logos render ON TOP of gradient)
   const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
     ${buildTextZoneSvg(input.headline, TRIPTYCH_TEXT_TOP, WHITE, CYAN, true, {
       fontSize: 64, lineHeight: 74, maxChars: 22, startYOffset: 60,
@@ -944,10 +975,7 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   </svg>`;
   composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
-  // ── Logo badges above text zone (up to 3 circular badges, centered) ──
-  // IMPORTANT: logos are composited AFTER the text SVG so they render on top of the
-  // gradient overlay. The gradient starts at y=780 (TRIPTYCH_TEXT_TOP - 120) and the
-  // badges sit at y=780 — without this ordering, the gradient paints over the badges.
+  // Logo badges above text zone (composited AFTER text SVG)
   const logos = (input.logoBuffers ?? []).filter(Boolean) as Buffer[];
   const BADGE_SIZE = 100;
   const BADGE_GAP = 16;
@@ -964,7 +992,6 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
         top: Math.max(0, badgeY),
       });
     }
-    console.log(`[CoverTemplate] triangle_triptych: ${numBadges} logo badges placed above text zone`);
   }
 
   return sharp(base).composite(composites).png().toBuffer();
