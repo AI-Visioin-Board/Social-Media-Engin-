@@ -931,7 +931,23 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   </svg>`;
   composites.push({ input: Buffer.from(borderSvg), left: 0, top: 0 });
 
+  // ── Compact text zone (taller image zone = shorter text zone ~450px) ──
+  // Use smaller font + wider lines to prevent headline overlapping "SWIPE FOR MORE"
+  // Standard: 72px/82px/18chars → 5 lines can reach y=1308, overlapping swipe at 1295
+  // Compact:  64px/74px/22chars → 4 lines max reach y=960+3×74=1182, well clear
+  // NOTE: text SVG (with gradient) is composited BEFORE logos so logos render ON TOP
+  // of the gradient overlay. Previously logos were added first and got painted over.
+  const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    ${buildTextZoneSvg(input.headline, TRIPTYCH_TEXT_TOP, WHITE, CYAN, true, {
+      fontSize: 64, lineHeight: 74, maxChars: 22, startYOffset: 60,
+    })}
+  </svg>`;
+  composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
+
   // ── Logo badges above text zone (up to 3 circular badges, centered) ──
+  // IMPORTANT: logos are composited AFTER the text SVG so they render on top of the
+  // gradient overlay. The gradient starts at y=780 (TRIPTYCH_TEXT_TOP - 120) and the
+  // badges sit at y=780 — without this ordering, the gradient paints over the badges.
   const logos = (input.logoBuffers ?? []).filter(Boolean) as Buffer[];
   const BADGE_SIZE = 100;
   const BADGE_GAP = 16;
@@ -950,17 +966,6 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
     }
     console.log(`[CoverTemplate] triangle_triptych: ${numBadges} logo badges placed above text zone`);
   }
-
-  // ── Compact text zone (taller image zone = shorter text zone ~450px) ──
-  // Use smaller font + wider lines to prevent headline overlapping "SWIPE FOR MORE"
-  // Standard: 72px/82px/18chars → 5 lines can reach y=1308, overlapping swipe at 1295
-  // Compact:  64px/74px/22chars → 4 lines max reach y=960+3×74=1182, well clear
-  const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    ${buildTextZoneSvg(input.headline, TRIPTYCH_TEXT_TOP, WHITE, CYAN, true, {
-      fontSize: 64, lineHeight: 74, maxChars: 22, startYOffset: 60,
-    })}
-  </svg>`;
-  composites.push({ input: Buffer.from(textSvg), left: 0, top: 0 });
 
   return sharp(base).composite(composites).png().toBuffer();
 }

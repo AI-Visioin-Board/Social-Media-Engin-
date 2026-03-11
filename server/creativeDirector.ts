@@ -752,8 +752,18 @@ function sanitizeSlides(
       if (s.coverTemplate && VALID_COVER_TEMPLATES.has(s.coverTemplate as CoverTemplate)) {
         coverTemplate = s.coverTemplate as CoverTemplate;
       } else {
-        coverTemplate = strategy === "person_composite" ? "freeform_composition" : "solo_machine";
-        console.warn(`[${callerLabel}] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate}`);
+        // ── Default template selection ──
+        // Weekly roundups (3+ topics) → triangle_triptych (the signature cover)
+        // Person-focused stories → freeform_composition
+        // Everything else → solo_machine
+        if (researched.length >= 3 && strategy === "person_composite") {
+          coverTemplate = "triangle_triptych";
+        } else if (strategy === "person_composite") {
+          coverTemplate = "freeform_composition";
+        } else {
+          coverTemplate = "solo_machine";
+        }
+        console.warn(`[${callerLabel}] Slide 0: missing/invalid coverTemplate "${s.coverTemplate}" — defaulting to ${coverTemplate} (${researched.length} topics)`);
       }
 
       // ── AUTO-UPGRADE: freeform_composition with subjects MUST use person_composite ──
@@ -1594,13 +1604,10 @@ RULES:
         // ── Strategy/composition compatibility check ──
         // If QD changed strategy to something incompatible with coverComposition
         // (e.g., cinematic_scene but composition has people subjects), fix it.
+        // Covers ALL non-person strategies: cinematic_scene, scene_with_badge, kling_video.
         const hasSubjects = original.coverComposition.subjects?.length > 0;
-        if (hasSubjects && slide.strategy === "cinematic_scene") {
-          console.log(`[QualityDirector] ⚠️ Slide ${slide.slideIndex}: QD set strategy=cinematic_scene but coverComposition has ${original.coverComposition.subjects.length} subjects — reverting to person_composite`);
-          slide.strategy = "person_composite";
-        }
-        if (hasSubjects && slide.strategy === "scene_with_badge") {
-          console.log(`[QualityDirector] ⚠️ Slide ${slide.slideIndex}: QD set strategy=scene_with_badge but coverComposition has ${original.coverComposition.subjects.length} subjects — reverting to person_composite`);
+        if (hasSubjects && slide.strategy !== "person_composite") {
+          console.log(`[QualityDirector] ⚠️ Slide ${slide.slideIndex}: QD set strategy=${slide.strategy} but coverComposition has ${original.coverComposition.subjects.length} subjects — reverting to person_composite`);
           slide.strategy = "person_composite";
         }
       }

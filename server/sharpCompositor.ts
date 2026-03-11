@@ -246,8 +246,16 @@ async function downloadToTemp(url: string, ext: string): Promise<string> {
           doGet(res.headers.location, redirects + 1);
           return;
         }
+        // Reject 4xx/5xx — the response body is an error page, not an image.
+        // Without this check, error HTML gets written to disk and Sharp later
+        // throws a cryptic "Input buffer contains unsupported image format".
+        if (res.statusCode && res.statusCode >= 400) {
+          clearTimeout(timer);
+          if (!settled) { settled = true; reject(new Error(`HTTP ${res.statusCode} downloading: ${u.slice(0, 80)}`)); }
+          res.resume(); // drain the response to free the socket
+          return;
+        }
         const file = fs.createWriteStream(tmpPath);
-        res.pipe(file);
         file.on("finish", () => {
           file.close();
           clearTimeout(timer);
