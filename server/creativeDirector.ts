@@ -1045,8 +1045,8 @@ function sanitizeSlides(
       const slide = nonVideoContent[i];
       console.log(`[${callerLabel}] Upgrading slide ${slide.slideIndex} to kling_video (enforcing min 2 videos)`);
       slide.strategy = "kling_video";
-      slide.logoKeys = undefined;
-      slide.personSearchQuery = undefined;
+      // Keep logoKeys and personSearchQuery — they're useful for Nano Banana still → Kling img2vid pipeline.
+      // Previously these were stripped, which destroyed context for person-based video slides.
     }
   } else if (videoSlides.length > 2) {
     const toDowngrade = videoSlides.slice(2);
@@ -1513,22 +1513,33 @@ async function qualityDirectorReview(
   }
 
   // Build a trimmed version of the brief for the revision prompt to stay within token limits.
-  // Strip verbose coverComposition fields — the QD only needs per-slide strategy/prompt info.
-  const trimmedSlides = brief.slides.map(s => ({
-    slideIndex: s.slideIndex,
-    strategy: s.strategy,
-    coverTemplate: s.coverTemplate,
-    reasoning: s.reasoning,
-    scenePrompt: s.scenePrompt,
-    logoKeys: s.logoKeys,
-    personSearchQuery: s.personSearchQuery,
-    personPlacement: s.personPlacement,
-    engagementScore: s.engagementScore,
-    logoStyle: s.logoStyle,
-    logoSize: s.logoSize,
-    videoNarrative: s.videoNarrative,
-    // coverComposition intentionally omitted — too large, QD doesn't need to rewrite it
-  }));
+  // Include a compact coverComposition summary (subject names + count) so QD knows what
+  // people are already composed — prevents strategy changes that mismatch the composition.
+  const trimmedSlides = brief.slides.map(s => {
+    const base: Record<string, unknown> = {
+      slideIndex: s.slideIndex,
+      strategy: s.strategy,
+      coverTemplate: s.coverTemplate,
+      reasoning: s.reasoning,
+      scenePrompt: s.scenePrompt,
+      logoKeys: s.logoKeys,
+      personSearchQuery: s.personSearchQuery,
+      personPlacement: s.personPlacement,
+      engagementScore: s.engagementScore,
+      logoStyle: s.logoStyle,
+      logoSize: s.logoSize,
+      videoNarrative: s.videoNarrative,
+    };
+    // Include compact summary of coverComposition so QD can make informed strategy decisions
+    if (s.coverComposition?.subjects?.length) {
+      base.coverCompositionSummary = {
+        subjectCount: s.coverComposition.subjects.length,
+        subjectNames: s.coverComposition.subjects.map((sub: any) => sub.name).filter(Boolean),
+        compositionMode: s.coverComposition.compositionMode,
+      };
+    }
+    return base;
+  });
   const trimmedBrief = { runId: brief.runId, globalStyleNotes: brief.globalStyleNotes, slides: trimmedSlides };
 
   const revisionPrompt = `You are the Quality Director reviewing a Creative Director's brief. Fix the issues listed below.
@@ -1545,6 +1556,7 @@ RULES:
 - For person_composite: use Nano Banana (Gemini) — it CAN generate named people with recognizable faces
 - BANNED SCENES: no server rooms, data centers, server racks, generic circuits, floating data, holographic UIs
 - Every scene prompt must have: setting, camera/lens, lighting (2+ sources), color grade, mood
+- If a slide has coverCompositionSummary with subjects, do NOT change its strategy away from person_composite — the composition depends on it
 - Return ONLY valid JSON, no explanation`;
 
   try {
@@ -1572,11 +1584,25 @@ RULES:
     // The QD LLM could hallucinate invalid strategies, missing logoKeys, etc.
     const sanitizedSlides = sanitizeSlides(parsed.slides, topicAnalysis, researched, "QualityDirector");
 
-    // Preserve coverComposition from original brief — QD revision doesn't touch it
+    // Preserve coverComposition from original brief — QD revision doesn't touch it.
+    // Then validate that QD's revised strategy is compatible with the composition.
     for (const slide of sanitizedSlides) {
       const original = brief.slides.find(s => s.slideIndex === slide.slideIndex);
       if (original?.coverComposition && !slide.coverComposition) {
         slide.coverComposition = original.coverComposition;
+
+        // ── Strategy/composition compatibility check ──
+        // If QD changed strategy to something incompatible with coverComposition
+        // (e.g., cinematic_scene but composition has people subjects), fix it.
+        const hasSubjects = original.coverComposition.subjects?.length > 0;
+        if (hasSubjects && slide.strategy === "cinematic_scene") {
+          console.log(`[QualityDirector] ⚠️ Slide ${slide.slideIndex}: QD set strategy=cinematic_scene but coverComposition has ${original.coverComposition.subjects.length} subjects — reverting to person_composite`);
+          slide.strategy = "person_composite";
+        }
+        if (hasSubjects && slide.strategy === "scene_with_badge") {
+          console.log(`[QualityDirector] ⚠️ Slide ${slide.slideIndex}: QD set strategy=scene_with_badge but coverComposition has ${original.coverComposition.subjects.length} subjects — reverting to person_composite`);
+          slide.strategy = "person_composite";
+        }
       }
     }
 

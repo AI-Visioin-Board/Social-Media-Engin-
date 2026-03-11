@@ -1663,7 +1663,16 @@ async function _runPipelineStages(
         // Prefer videoNarrative.fullPrompt from Creative Director (story-driven),
         // fall back to scenePrompt, then to marketingBrain re-generation.
         let videoSpecificPrompt = brief?.videoNarrative?.fullPrompt || scenePrompt;
-        const hasCameraMotion = /camera|push[- ]in|dolly|orbit|pan|zoom|parallax|tracking|reveal/i.test(videoSpecificPrompt);
+        // Check ALL videoNarrative segments for camera motion — not just fullPrompt.
+        // The beginning/middle/end fields may contain camera keywords even if fullPrompt doesn't.
+        const cameraMotionRe = /camera|push[- ]in|dolly|orbit|pan|zoom|parallax|tracking|reveal/i;
+        const narrativeSegments = [
+          videoSpecificPrompt,
+          brief?.videoNarrative?.beginning,
+          brief?.videoNarrative?.middle,
+          brief?.videoNarrative?.end,
+        ].filter(Boolean).join(" ");
+        const hasCameraMotion = cameraMotionRe.test(narrativeSegments);
 
         if (!videoSpecificPrompt || videoSpecificPrompt.length < 20 || !hasCameraMotion) {
           try {
