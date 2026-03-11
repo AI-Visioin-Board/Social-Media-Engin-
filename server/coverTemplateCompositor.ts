@@ -227,9 +227,9 @@ async function resizeFit(buf: Buffer, maxW: number, maxH: number): Promise<{ buf
  *  All logos are clipped to a circle, ensuring standardized shape regardless of
  *  source PNG dimensions (no more jarring square logos like Copilot). */
 async function makeCircularBadge(logoBuf: Buffer, size: number, _bgColor: string = "#1a1a2e"): Promise<Buffer> {
-  const GLOW_W = 3;
+  const GLOW_W = 5;
   const INNER = size - GLOW_W * 2;
-  const LOGO_AREA = Math.round(INNER * 0.62);
+  const LOGO_AREA = Math.round(INNER * 0.70);
   const R = size / 2;
   const RI = INNER / 2;
 
@@ -243,11 +243,11 @@ async function makeCircularBadge(logoBuf: Buffer, size: number, _bgColor: string
   const lLeft = Math.round((size - lW) / 2);
   const lTop = Math.round((size - lH) / 2);
 
-  // SVG: white glow ring + dark translucent circle
+  // SVG: bright white glow ring + dark translucent circle
   const circleSvg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <filter id="badgeGlow">
-        <feGaussianBlur stdDeviation="2" result="blur"/>
+        <feGaussianBlur stdDeviation="4" result="blur"/>
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
       <clipPath id="badgeClip">
@@ -255,8 +255,8 @@ async function makeCircularBadge(logoBuf: Buffer, size: number, _bgColor: string
       </clipPath>
     </defs>
     <circle cx="${R}" cy="${R}" r="${R - 1}" fill="none"
-      stroke="rgba(255,255,255,0.60)" stroke-width="${GLOW_W}" filter="url(#badgeGlow)"/>
-    <circle cx="${R}" cy="${R}" r="${RI}" fill="rgba(15, 15, 30, 0.80)"/>
+      stroke="rgba(255,255,255,0.85)" stroke-width="${GLOW_W}" filter="url(#badgeGlow)"/>
+    <circle cx="${R}" cy="${R}" r="${RI}" fill="rgba(25, 25, 55, 0.85)"/>
   </svg>`;
 
   const canvas = await sharp(Buffer.from(circleSvg)).png().toBuffer();
@@ -798,32 +798,47 @@ async function renderFreeformComposition(input: CoverTemplateInput): Promise<Buf
 
 // ─── Template 10: triangle_triptych ────────────────────────────────────────────
 //
-// Three triangular slivers fanning from a central apex point, each containing
-// a separate independently-generated full-scene image. Movie-poster triptych:
-// each panel is its own scene (person in environment), clipped to a triangle shape.
+// Three diagonal slivers side-by-side, each containing a separate independently-
+// generated full-scene image. Movie-poster triptych matching competitor style:
+// each panel is its own scene (person in environment), clipped to a sliver shape.
 //
-// Geometry: taller image zone (~900px) for proper sliver proportions on portrait canvas.
-// Three triangles share apex at bottom-center of image zone.
-// Text zone is compact (~450px) below the triangles.
+// Geometry: three roughly-equal-width vertical strips separated by diagonal lines.
+// The diagonal SLANT (40px) gives visual dynamism without distorting the content.
+// Text zone is compact (~450px) below the slivers.
 
 /** Image zone height for triangle triptych — taller than standard (675) for sliver proportions */
 const TRIPTYCH_IMAGE_H = 900;
 /** Where the text zone begins for triptych */
 const TRIPTYCH_TEXT_TOP = TRIPTYCH_IMAGE_H;
-/** Apex point where all three triangles meet */
-const TRIPTYCH_APEX = { x: W / 2, y: TRIPTYCH_IMAGE_H };
+/** Diagonal slant in pixels — how far the divider leans from top to bottom */
+const SLANT = 40;
 
-const TRIPTYCH_TRIANGLES = [
-  { // Left panel
-    vertices: [{ x: 0, y: 0 }, { x: Math.round(W / 3), y: 0 }, { x: W / 2, y: TRIPTYCH_IMAGE_H }],
+const TRIPTYCH_SLIVERS = [
+  { // Left sliver
+    vertices: [
+      { x: 0, y: 0 },
+      { x: Math.round(W / 3) + SLANT, y: 0 },
+      { x: Math.round(W / 3) - SLANT, y: TRIPTYCH_IMAGE_H },
+      { x: 0, y: TRIPTYCH_IMAGE_H },
+    ],
     label: "left",
   },
-  { // Center panel
-    vertices: [{ x: Math.round(W / 3), y: 0 }, { x: Math.round(2 * W / 3), y: 0 }, { x: W / 2, y: TRIPTYCH_IMAGE_H }],
+  { // Center sliver
+    vertices: [
+      { x: Math.round(W / 3) + SLANT, y: 0 },
+      { x: Math.round(2 * W / 3) + SLANT, y: 0 },
+      { x: Math.round(2 * W / 3) - SLANT, y: TRIPTYCH_IMAGE_H },
+      { x: Math.round(W / 3) - SLANT, y: TRIPTYCH_IMAGE_H },
+    ],
     label: "center",
   },
-  { // Right panel
-    vertices: [{ x: Math.round(2 * W / 3), y: 0 }, { x: W, y: 0 }, { x: W / 2, y: TRIPTYCH_IMAGE_H }],
+  { // Right sliver
+    vertices: [
+      { x: Math.round(2 * W / 3) + SLANT, y: 0 },
+      { x: W, y: 0 },
+      { x: W, y: TRIPTYCH_IMAGE_H },
+      { x: Math.round(2 * W / 3) - SLANT, y: TRIPTYCH_IMAGE_H },
+    ],
     label: "right",
   },
 ];
@@ -844,12 +859,12 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
   const composites: sharp.OverlayOptions[] = [];
 
   for (let i = 0; i < 3; i++) {
-    const tri = TRIPTYCH_TRIANGLES[i];
+    const sliver = TRIPTYCH_SLIVERS[i];
     const imgBuf = images[i];
 
-    // Calculate bounding box of this triangle
-    const xs = tri.vertices.map(v => v.x);
-    const ys = tri.vertices.map(v => v.y);
+    // Calculate bounding box of this sliver (polygon)
+    const xs = sliver.vertices.map(v => v.x);
+    const ys = sliver.vertices.map(v => v.y);
     const bboxLeft = Math.min(...xs);
     const bboxTop = Math.min(...ys);
     const bboxW = Math.max(...xs) - bboxLeft;
@@ -859,31 +874,33 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
       // ── Fallback: dark gradient fill for missing image ──
       const fallbackSvg = `<svg width="${bboxW}" height="${bboxH}" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <clipPath id="triClipFallback${i}">
-            <polygon points="${tri.vertices.map(v => `${v.x - bboxLeft},${v.y - bboxTop}`).join(" ")}"/>
+          <clipPath id="sliverClipFallback${i}">
+            <polygon points="${sliver.vertices.map(v => `${v.x - bboxLeft},${v.y - bboxTop}`).join(" ")}"/>
           </clipPath>
-          <linearGradient id="triFallbackGrad${i}" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="sliverFallbackGrad${i}" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="#1a1a2e"/>
             <stop offset="100%" stop-color="#0a0a14"/>
           </linearGradient>
         </defs>
-        <rect width="${bboxW}" height="${bboxH}" fill="url(#triFallbackGrad${i})" clip-path="url(#triClipFallback${i})"/>
+        <rect width="${bboxW}" height="${bboxH}" fill="url(#sliverFallbackGrad${i})" clip-path="url(#sliverClipFallback${i})"/>
       </svg>`;
       composites.push({ input: Buffer.from(fallbackSvg), left: bboxLeft, top: bboxTop });
-      console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${tri.label}) — no image, using dark gradient fallback`);
+      console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${sliver.label}) — no image, using dark gradient fallback`);
       continue;
     }
 
-    // ── Resize image to COVER the bounding box (subject centered) ──
+    // ── Resize image to COVER the bounding box, focusing on faces/subjects ──
+    // attention strategy ensures the most prominent feature (face, person) stays centered
+    // in the crop, rather than centering on the geometric middle of the bounding box.
     const resized = await sharp(imgBuf)
-      .resize(bboxW, bboxH, { fit: "cover", position: "centre" })
+      .resize(bboxW, bboxH, { fit: "cover", position: sharp.strategy.attention })
       .ensureAlpha()
       .png()
       .toBuffer();
 
     // ── Create SVG alpha mask: white polygon on transparent background ──
-    // Triangle vertices offset to bounding box origin
-    const offsetPoints = tri.vertices
+    // Sliver vertices offset to bounding box origin
+    const offsetPoints = sliver.vertices
       .map(v => `${v.x - bboxLeft},${v.y - bboxTop}`)
       .join(" ");
     const maskSvg = `<svg width="${bboxW}" height="${bboxH}" xmlns="http://www.w3.org/2000/svg">
@@ -894,25 +911,45 @@ async function renderTriangleTriptych(input: CoverTemplateInput): Promise<Buffer
       .png()
       .toBuffer();
 
-    // ── Apply mask: clip image to triangle shape ──
+    // ── Apply mask: clip image to sliver shape ──
     const clipped = await sharp(resized)
       .composite([{ input: mask, blend: "dest-in" }])
       .png()
       .toBuffer();
 
     composites.push({ input: clipped, left: bboxLeft, top: bboxTop });
-    console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${tri.label}) placed at [${bboxLeft},${bboxTop}] ${bboxW}×${bboxH}px`);
+    console.log(`[CoverTemplate] triangle_triptych: panel ${i} (${sliver.label}) placed at [${bboxLeft},${bboxTop}] ${bboxW}×${bboxH}px`);
   }
 
-  // ── White border lines between triangles (4px) ──
+  // ── White border lines between slivers (4px diagonal) ──
   const BORDER_W = 4;
   const thirdW = Math.round(W / 3);
   const twoThirdW = Math.round(2 * W / 3);
   const borderSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <line x1="${thirdW}" y1="0" x2="${TRIPTYCH_APEX.x}" y2="${TRIPTYCH_APEX.y}" stroke="white" stroke-width="${BORDER_W}" stroke-linecap="round"/>
-    <line x1="${twoThirdW}" y1="0" x2="${TRIPTYCH_APEX.x}" y2="${TRIPTYCH_APEX.y}" stroke="white" stroke-width="${BORDER_W}" stroke-linecap="round"/>
+    <line x1="${thirdW + SLANT}" y1="0" x2="${thirdW - SLANT}" y2="${TRIPTYCH_IMAGE_H}" stroke="white" stroke-width="${BORDER_W}" stroke-linecap="round"/>
+    <line x1="${twoThirdW + SLANT}" y1="0" x2="${twoThirdW - SLANT}" y2="${TRIPTYCH_IMAGE_H}" stroke="white" stroke-width="${BORDER_W}" stroke-linecap="round"/>
   </svg>`;
   composites.push({ input: Buffer.from(borderSvg), left: 0, top: 0 });
+
+  // ── Logo badges above text zone (up to 3 circular badges, centered) ──
+  const logos = (input.logoBuffers ?? []).filter(Boolean) as Buffer[];
+  const BADGE_SIZE = 100;
+  const BADGE_GAP = 16;
+  const numBadges = Math.min(logos.length, 3);
+  if (numBadges > 0) {
+    const totalBadgeW = numBadges * BADGE_SIZE + (numBadges - 1) * BADGE_GAP;
+    const badgeStartX = Math.round((W - totalBadgeW) / 2);
+    const badgeY = TRIPTYCH_TEXT_TOP - BADGE_SIZE - 20;
+    for (let j = 0; j < numBadges; j++) {
+      const badge = await makeCircularBadge(logos[j], BADGE_SIZE);
+      composites.push({
+        input: badge,
+        left: badgeStartX + j * (BADGE_SIZE + BADGE_GAP),
+        top: Math.max(0, badgeY),
+      });
+    }
+    console.log(`[CoverTemplate] triangle_triptych: ${numBadges} logo badges placed above text zone`);
+  }
 
   // ── Compact text zone (taller image zone = shorter text zone ~450px) ──
   // Use smaller font + wider lines to prevent headline overlapping "SWIPE FOR MORE"

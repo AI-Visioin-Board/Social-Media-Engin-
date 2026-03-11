@@ -96,9 +96,9 @@ async function renderCircularLogo(
 ): Promise<Buffer | null> {
   try {
     const OUTER = size;                        // full diameter of the final circle
-    const GLOW_WIDTH = 3;                      // white glow ring thickness
+    const GLOW_WIDTH = 5;                      // white glow ring thickness (was 3 — too faint on dark bgs)
     const INNER = OUTER - GLOW_WIDTH * 2;      // inner circle diameter
-    const LOGO_PAD = style === "full_color" ? 0.15 : 0.20; // padding inside circle (% of inner)
+    const LOGO_PAD = style === "full_color" ? 0.10 : 0.15; // padding inside circle — tighter for bigger logos
     const LOGO_AREA = Math.round(INNER * (1 - LOGO_PAD * 2)); // logo fits within this box
     const R = OUTER / 2;                       // outer radius
     const RI = INNER / 2;                      // inner radius
@@ -113,14 +113,15 @@ async function renderCircularLogo(
     const lH = meta.height ?? LOGO_AREA;
 
     // 2. Build SVG with: outer glow ring + semi-transparent dark fill + circular clip for logo
+    // Brighter fill + stronger glow ensures badges are visible on ANY background (dark or light)
     const bgFill = style === "full_color"
-      ? "rgba(15, 15, 30, 0.80)"    // dark translucent background
-      : "rgba(10, 10, 30, 0.85)";   // slightly darker for badge mode
+      ? "rgba(25, 25, 55, 0.85)"    // dark blue translucent — brighter than before for contrast
+      : "rgba(20, 20, 45, 0.88)";   // slightly darker for badge mode
 
     const svgCanvas = `<svg width="${OUTER}" height="${OUTER}" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <filter id="glow">
-          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feGaussianBlur stdDeviation="4" result="blur"/>
           <feMerge>
             <feMergeNode in="blur"/>
             <feMergeNode in="SourceGraphic"/>
@@ -130,9 +131,9 @@ async function renderCircularLogo(
           <circle cx="${R}" cy="${R}" r="${RI - 1}"/>
         </clipPath>
       </defs>
-      <!-- White glow ring -->
+      <!-- White glow ring — brighter + thicker for visibility on dark backgrounds -->
       <circle cx="${R}" cy="${R}" r="${R - 1}" fill="none"
-        stroke="rgba(255,255,255,0.60)" stroke-width="${GLOW_WIDTH}" filter="url(#glow)"/>
+        stroke="rgba(255,255,255,0.85)" stroke-width="${GLOW_WIDTH}" filter="url(#glow)"/>
       <!-- Dark circular background -->
       <circle cx="${R}" cy="${R}" r="${RI}" fill="${bgFill}"/>
     </svg>`;
@@ -689,9 +690,25 @@ export async function assembleSlideWithSharp(
     let pipeline: sharp.Sharp;
 
     if (bgImageBuffer) {
-      // Resize background to exactly 1080×1350 (cover crop, center focus)
-      pipeline = sharp(bgImageBuffer)
-        .resize(SLIDE_W, SLIDE_H, { fit: "cover", position: "center" });
+      if (!isCover) {
+        // ── Content slides: center image in the VISIBLE top zone (675px) ──
+        // Without this, the image fills the full 1350px canvas and the subject
+        // ends up at y≈675 — right where the gradient starts, half-hidden.
+        // Resize to 1080×675 with attention-based crop (focuses on faces/subjects),
+        // then place on a full-height black canvas.
+        const IMAGE_ZONE_H = 675;
+        const topZone = await sharp(bgImageBuffer)
+          .resize(SLIDE_W, IMAGE_ZONE_H, { fit: "cover", position: sharp.strategy.attention })
+          .png()
+          .toBuffer();
+        pipeline = sharp({
+          create: { width: SLIDE_W, height: SLIDE_H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+        }).composite([{ input: topZone, left: 0, top: 0 }]);
+      } else {
+        // Cover slides (fallback from template): full canvas, center crop
+        pipeline = sharp(bgImageBuffer)
+          .resize(SLIDE_W, SLIDE_H, { fit: "cover", position: "center" });
+      }
     } else {
       // Fallback: deep cinematic dark background
       const fallbackSvg = `<svg width="${SLIDE_W}" height="${SLIDE_H}" xmlns="http://www.w3.org/2000/svg">
