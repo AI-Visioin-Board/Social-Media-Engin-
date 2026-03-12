@@ -47,17 +47,19 @@ export function getCoverHtml(bgBase64: string, headline: string): string {
       </style>
     </head>
     <body>
-      <div class="relative w-full h-full flex flex-col justify-end">
-        <!-- Background Image -->
-        <div class="absolute inset-0 z-0">
-          <img src="${bgBase64}" class="w-full h-full object-cover" />
+      <div class="relative w-full h-full flex flex-col">
+        <!-- Top 70% Image Zone — object-position top so subjects stay visible -->
+        <div class="absolute top-0 left-0 w-full h-[70%] z-0">
+          <img src="${bgBase64}" class="w-full h-full object-cover" style="object-position: center 25%;" />
+          <!-- Smooth gradient blending into the black bottom -->
+          <div class="absolute bottom-0 left-0 w-full h-48 bg-gradient-to-t from-black to-transparent"></div>
         </div>
 
-        <!-- Gradient Protection -->
-        <div class="absolute inset-0 z-20 bg-gradient-to-t from-black via-black/80 to-transparent h-[60%] mt-auto"></div>
+        <!-- Bottom 30% Solid Black Text Zone -->
+        <div class="absolute bottom-0 left-0 w-full h-[30%] bg-black z-10"></div>
 
-        <!-- Text Content -->
-        <div class="relative z-30 px-16 pb-16 pt-24 flex flex-col items-center text-center w-full">
+        <!-- Text Content (overlays the boundary) -->
+        <div class="absolute bottom-0 left-0 w-full z-30 px-16 pb-16 pt-8 flex flex-col items-center text-center">
 
           <div class="w-full h-[2px] bg-white/30 mb-10 relative">
              <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-black px-4 text-white/50 text-xl font-inter tracking-widest">Ai</div>
