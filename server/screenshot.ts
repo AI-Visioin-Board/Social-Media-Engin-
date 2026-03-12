@@ -1,7 +1,7 @@
 /**
  * screenshot.ts
  *
- * Headless browser screenshot service using Puppeteer + @sparticuz/chromium.
+ * Headless browser screenshot service using Puppeteer (full package with bundled Chromium).
  * Replaces the Sharp SVG text rendering approach with native HTML/CSS rendering.
  *
  * Why: Sharp is an image processor, not a layout engine. Using SVG strings for
@@ -19,8 +19,7 @@
  * - Gradients, shadows, border-radius (native CSS properties)
  */
 
-import puppeteer, { type Browser, type Page } from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
+import puppeteer, { type Browser, type Page } from "puppeteer";
 
 // ─── Browser Singleton ──────────────────────────────────────────────────────
 // Reuse a single Chromium instance across all slide captures to avoid the
@@ -37,18 +36,15 @@ async function getBrowser(): Promise<Browser> {
 
   _browserLaunchPromise = (async () => {
     console.log("[Screenshot] Launching headless Chromium...");
-    const executablePath = await chromium.executablePath();
 
     const browser = await puppeteer.launch({
       args: [
-        ...chromium.args,
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
         "--disable-gpu",
       ],
       defaultViewport: { width: 1080, height: 1350 },
-      executablePath,
       headless: true,
     });
 

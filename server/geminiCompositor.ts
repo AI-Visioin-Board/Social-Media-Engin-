@@ -4,23 +4,22 @@
  * HTML templates + Puppeteer slide capture + FFmpeg video overlay.
  * Replaces sharpCompositor, htmlCompositor, coverTemplateCompositor, and videoCompositor.
  *
- * All HTML uses inline CSS (no Tailwind CDN) for Railway container reliability.
- * Google Fonts (Anton + Inter) loaded via <link> tags — works in Puppeteer's Chromium.
+ * Uses Tailwind CDN + Google Fonts in HTML templates — exactly matching the
+ * reference Gemini pipeline implementation.
+ *
+ * IMPORTANT: Uses `puppeteer` (full package with bundled Chromium), NOT
+ * `puppeteer-core` + `@sparticuz/chromium` which only works on AWS Lambda.
  */
 
+import puppeteer from "puppeteer";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import fs from "fs";
 import path from "path";
-import { captureHtmlToImage } from "./screenshot";
 
 ffmpeg.setFfmpegPath(ffmpegStatic!);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 function splitHeadline(headline: string): { prefix: string; highlight: string } {
   const words = headline.split(" ");
@@ -30,68 +29,62 @@ function splitHeadline(headline: string): { prefix: string; highlight: string } 
   return { prefix, highlight };
 }
 
-// ─── Shared Styles ──────────────────────────────────────────────────────────
-
-const SHARED_HEAD = `
-  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { width: 1080px; height: 1350px; overflow: hidden; font-family: 'Inter', sans-serif; }
-    .font-anton { font-family: 'Anton', sans-serif; }
-  </style>
-`;
-
 // ─── Cover Template ─────────────────────────────────────────────────────────
 
 export function getCoverHtml(bgBase64: string, headline: string): string {
   const { prefix, highlight } = splitHeadline(headline);
 
-  return `<!DOCTYPE html>
-<html>
-<head>${SHARED_HEAD}
-<style>
-  body { background: #050505; }
-</style>
-</head>
-<body>
-  <div style="position:relative; width:100%; height:100%; display:flex; flex-direction:column; justify-content:flex-end;">
-    <!-- Background Image -->
-    <div style="position:absolute; inset:0; z-index:0;">
-      <img src="${bgBase64}" style="width:100%; height:100%; object-fit:cover;" />
-    </div>
-
-    <!-- Gradient Protection -->
-    <div style="position:absolute; bottom:0; left:0; right:0; z-index:20; height:60%; background:linear-gradient(to top, black 0%, rgba(0,0,0,0.8) 50%, transparent 100%);"></div>
-
-    <!-- Text Content -->
-    <div style="position:relative; z-index:30; padding:96px 64px 64px 64px; display:flex; flex-direction:column; align-items:center; text-align:center; width:100%;">
-
-      <!-- Divider -->
-      <div style="width:100%; height:2px; background:rgba(255,255,255,0.3); margin-bottom:40px; position:relative;">
-        <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); background:black; padding:0 16px; color:rgba(255,255,255,0.5); font-size:20px; letter-spacing:0.15em;">Ai</div>
-      </div>
-
-      <!-- Headline -->
-      <h1 class="font-anton" style="color:white; font-size:90px; line-height:1.05; letter-spacing:-0.01em; text-transform:uppercase; width:100%; filter:drop-shadow(0 4px 8px rgba(0,0,0,0.5));">
-        ${escapeHtml(prefix)} <span style="color:#00E5FF;">${escapeHtml(highlight)}</span>
-      </h1>
-
-      <!-- Footer -->
-      <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-top:48px;">
-        <div style="display:flex; align-items:center;">
-          <span style="color:rgba(255,255,255,0.9); font-size:28px; font-weight:700; letter-spacing:0.05em;">SuggestedByGPT.com</span>
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>
+        body { margin: 0; padding: 0; width: 1080px; height: 1350px; overflow: hidden; background: #050505; }
+        .font-anton { font-family: 'Anton', sans-serif; }
+        .font-inter { font-family: 'Inter', sans-serif; }
+      </style>
+    </head>
+    <body>
+      <div class="relative w-full h-full flex flex-col justify-end">
+        <!-- Background Image -->
+        <div class="absolute inset-0 z-0">
+          <img src="${bgBase64}" class="w-full h-full object-cover" />
         </div>
-        <div style="display:flex; align-items:center; gap:12px; background:rgba(0,0,0,0.4); backdrop-filter:blur(12px); border-radius:9999px; padding:8px 8px 8px 24px; border:1px solid rgba(255,255,255,0.1);">
-          <span style="color:white; font-size:20px; font-weight:700; text-transform:uppercase; letter-spacing:0.1em;">Swipe For More</span>
-          <div style="width:48px; height:48px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+
+        <!-- Gradient Protection -->
+        <div class="absolute inset-0 z-20 bg-gradient-to-t from-black via-black/80 to-transparent h-[60%] mt-auto"></div>
+
+        <!-- Text Content -->
+        <div class="relative z-30 px-16 pb-16 pt-24 flex flex-col items-center text-center w-full">
+
+          <div class="w-full h-[2px] bg-white/30 mb-10 relative">
+             <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-black px-4 text-white/50 text-xl font-inter tracking-widest">Ai</div>
+          </div>
+
+          <h1 class="text-white text-[90px] leading-[1.05] tracking-tight uppercase w-full font-anton drop-shadow-2xl">
+            ${prefix} <span class="text-[#00E5FF]">${highlight}</span>
+          </h1>
+
+          <div class="w-full flex justify-between items-center mt-12">
+            <div class="flex items-center">
+               <span class="text-white/90 text-[28px] font-inter font-bold tracking-wide">SuggestedByGPT.com</span>
+            </div>
+            <div class="flex items-center gap-3 bg-black/40 backdrop-blur-md rounded-full pl-6 pr-2 py-2 border border-white/10">
+              <span class="text-white text-xl font-bold uppercase tracking-wider font-inter">Swipe For More</span>
+              <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center">
+                <svg class="w-6 h-6 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
-</body>
-</html>`;
+    </body>
+    </html>
+  `;
 }
 
 // ─── Content Slide Template ─────────────────────────────────────────────────
@@ -99,51 +92,55 @@ export function getCoverHtml(bgBase64: string, headline: string): string {
 export function getContentHtml(bgBase64: string, headline: string, summary: string): string {
   const { prefix, highlight } = splitHeadline(headline);
 
-  return `<!DOCTYPE html>
-<html>
-<head>${SHARED_HEAD}
-<style>
-  body { background: black; }
-</style>
-</head>
-<body>
-  <div style="position:relative; width:100%; height:100%; display:flex; flex-direction:column;">
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>
+        body { margin: 0; padding: 0; width: 1080px; height: 1350px; overflow: hidden; background: black; }
+        .font-anton { font-family: 'Anton', sans-serif; }
+        .font-inter { font-family: 'Inter', sans-serif; }
+      </style>
+    </head>
+    <body>
+      <div class="relative w-full h-full flex flex-col">
 
-    <!-- Top 55% Image Zone -->
-    <div style="position:absolute; top:0; left:0; width:100%; height:55%; z-index:0;">
-      <img src="${bgBase64}" style="width:100%; height:100%; object-fit:cover;" />
-      <!-- Gradient fade into black bottom -->
-      <div style="position:absolute; bottom:0; left:0; right:0; height:160px; background:linear-gradient(to top, black, transparent);"></div>
-    </div>
+        <!-- Top 55% Image Zone -->
+        <div class="absolute top-0 left-0 w-full h-[55%] z-0">
+          <img src="${bgBase64}" class="w-full h-full object-cover" />
+          <!-- Gradient fading into the black bottom -->
+          <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent h-40 mt-auto"></div>
+        </div>
 
-    <!-- Bottom 45% Text Zone -->
-    <div style="position:absolute; bottom:0; left:0; width:100%; height:45%; background:black; z-index:10; display:flex; flex-direction:column; align-items:center; padding:32px 64px 64px 64px; text-align:center;">
+        <!-- Bottom 45% Text Zone -->
+        <div class="absolute bottom-0 left-0 w-full h-[45%] bg-black z-10 flex flex-col items-center px-16 pb-16 pt-8 text-center">
 
-      <!-- Divider -->
-      <div style="width:100%; height:1px; background:rgba(255,255,255,0.2); margin-bottom:32px;"></div>
+          <!-- Divider -->
+          <div class="w-full h-[1px] bg-white/20 mb-8"></div>
 
-      <!-- Headline -->
-      <h1 class="font-anton" style="color:white; font-size:75px; line-height:1.05; letter-spacing:-0.01em; text-transform:uppercase; width:100%; margin-bottom:24px;">
-        ${escapeHtml(prefix)} <span style="color:#00E5FF;">${escapeHtml(highlight)}</span>
-      </h1>
+          <h1 class="text-white text-[75px] leading-[1.05] tracking-tight uppercase w-full font-anton mb-6">
+            ${prefix} <span class="text-[#00E5FF]">${highlight}</span>
+          </h1>
 
-      <!-- Summary -->
-      <p style="color:rgba(255,255,255,0.8); font-size:32px; line-height:1.4; font-weight:500; max-width:90%;">
-        ${escapeHtml(summary)}
-      </p>
+          <p class="text-white/80 text-[32px] leading-snug font-inter font-medium max-w-[90%]">
+            ${summary}
+          </p>
 
-      <!-- Footer -->
-      <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-top:auto;">
-        <span style="color:rgba(255,255,255,0.9); font-size:28px; font-weight:700; letter-spacing:0.05em;">SuggestedByGPT.com</span>
-        <span style="color:rgba(255,255,255,0.8); font-size:24px; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; display:flex; align-items:center; gap:8px;">
-          Swipe <span style="font-size:30px;">›</span>
-        </span>
+          <!-- Footer -->
+          <div class="w-full flex justify-between items-center mt-auto">
+            <span class="text-white/90 text-[28px] font-inter font-bold tracking-wide">SuggestedByGPT.com</span>
+            <span class="text-white/80 text-2xl font-inter font-bold tracking-widest uppercase flex items-center gap-2">
+              Swipe <span class="text-3xl">›</span>
+            </span>
+          </div>
+
+        </div>
       </div>
-
-    </div>
-  </div>
-</body>
-</html>`;
+    </body>
+    </html>
+  `;
 }
 
 // ─── Video Overlay Template (Transparent Top) ───────────────────────────────
@@ -151,65 +148,93 @@ export function getContentHtml(bgBase64: string, headline: string, summary: stri
 export function getVideoOverlayHtml(headline: string, summary: string): string {
   const { prefix, highlight } = splitHeadline(headline);
 
-  return `<!DOCTYPE html>
-<html>
-<head>${SHARED_HEAD}
-<style>
-  body { background: transparent; }
-</style>
-</head>
-<body>
-  <div style="position:relative; width:100%; height:100%; display:flex; flex-direction:column;">
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>
+        body { margin: 0; padding: 0; width: 1080px; height: 1350px; overflow: hidden; background: transparent; }
+        .font-anton { font-family: 'Anton', sans-serif; }
+        .font-inter { font-family: 'Inter', sans-serif; }
+      </style>
+    </head>
+    <body>
+      <div class="relative w-full h-full flex flex-col">
 
-    <!-- Top 55% Transparent Zone -->
-    <div style="position:absolute; top:0; left:0; width:100%; height:55%; z-index:0;">
-      <!-- Gradient fading into the black bottom -->
-      <div style="position:absolute; bottom:0; left:0; right:0; height:160px; background:linear-gradient(to top, black, transparent);"></div>
-    </div>
+        <!-- Top 55% Transparent Zone -->
+        <div class="absolute top-0 left-0 w-full h-[55%] z-0">
+          <!-- Gradient fading into the black bottom -->
+          <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent h-40 mt-auto"></div>
+        </div>
 
-    <!-- Bottom 45% Text Zone -->
-    <div style="position:absolute; bottom:0; left:0; width:100%; height:45%; background:black; z-index:10; display:flex; flex-direction:column; align-items:center; padding:32px 64px 64px 64px; text-align:center;">
+        <!-- Bottom 45% Text Zone -->
+        <div class="absolute bottom-0 left-0 w-full h-[45%] bg-black z-10 flex flex-col items-center px-16 pb-16 pt-8 text-center">
 
-      <!-- Divider -->
-      <div style="width:100%; height:1px; background:rgba(255,255,255,0.2); margin-bottom:32px;"></div>
+          <!-- Divider -->
+          <div class="w-full h-[1px] bg-white/20 mb-8"></div>
 
-      <!-- Headline -->
-      <h1 class="font-anton" style="color:white; font-size:75px; line-height:1.05; letter-spacing:-0.01em; text-transform:uppercase; width:100%; margin-bottom:24px;">
-        ${escapeHtml(prefix)} <span style="color:#00E5FF;">${escapeHtml(highlight)}</span>
-      </h1>
+          <h1 class="text-white text-[75px] leading-[1.05] tracking-tight uppercase w-full font-anton mb-6">
+            ${prefix} <span class="text-[#00E5FF]">${highlight}</span>
+          </h1>
 
-      <!-- Summary -->
-      <p style="color:rgba(255,255,255,0.8); font-size:32px; line-height:1.4; font-weight:500; max-width:90%;">
-        ${escapeHtml(summary)}
-      </p>
+          <p class="text-white/80 text-[32px] leading-snug font-inter font-medium max-w-[90%]">
+            ${summary}
+          </p>
 
-      <!-- Footer -->
-      <div style="width:100%; display:flex; justify-content:space-between; align-items:center; margin-top:auto;">
-        <span style="color:rgba(255,255,255,0.9); font-size:28px; font-weight:700; letter-spacing:0.05em;">SuggestedByGPT.com</span>
-        <span style="color:rgba(255,255,255,0.8); font-size:24px; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; display:flex; align-items:center; gap:8px;">
-          Swipe <span style="font-size:30px;">›</span>
-        </span>
+          <!-- Footer -->
+          <div class="w-full flex justify-between items-center mt-auto">
+            <span class="text-white/90 text-[28px] font-inter font-bold tracking-wide">SuggestedByGPT.com</span>
+            <span class="text-white/80 text-2xl font-inter font-bold tracking-widest uppercase flex items-center gap-2">
+              Swipe <span class="text-3xl">›</span>
+            </span>
+          </div>
+
+        </div>
       </div>
-
-    </div>
-  </div>
-</body>
-</html>`;
+    </body>
+    </html>
+  `;
 }
 
 // ─── Slide Compositor (Puppeteer) ───────────────────────────────────────────
 
 /**
- * Render an HTML slide template to a PNG base64 data URI using the
- * existing Puppeteer singleton from screenshot.ts.
+ * Takes a raw HTML string (with Tailwind CDN), loads it in a headless browser,
+ * and takes a 1080x1350 screenshot. Returns the image as a base64 data URI.
+ *
+ * Matches the reference Gemini pipeline: uses full `puppeteer` package
+ * (bundles Chromium), launches per call, JPEG output, networkidle2.
  */
 export async function compositeGeminiSlide(html: string): Promise<string> {
-  const buffer = await captureHtmlToImage(html, {
-    width: 1080,
-    height: 1350,
-    transparent: false,
+  const browser = await puppeteer.launch({
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+    ],
+    headless: true,
   });
-  return `data:image/png;base64,${buffer.toString("base64")}`;
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 1 });
+    await page.setContent(html, {
+      waitUntil: "networkidle2",
+      timeout: 30_000,
+    });
+
+    const buffer = await page.screenshot({
+      type: "jpeg",
+      quality: 90,
+    });
+
+    return `data:image/jpeg;base64,${Buffer.from(buffer).toString("base64")}`;
+  } finally {
+    await browser.close();
+  }
 }
 
 // ─── Video Compositor (FFmpeg) ──────────────────────────────────────────────
@@ -233,18 +258,30 @@ export async function compositeGeminiVideo(
   const overlayPath = path.join(tempDir, `overlay_${ts}.png`);
   const outputPath = path.join(tempDir, `output_${ts}.mp4`);
 
-  // Write video to temp file
   fs.writeFileSync(videoPath, videoBuffer);
 
-  // Render transparent overlay PNG via Puppeteer
-  const overlayBuffer = await captureHtmlToImage(overlayHtml, {
-    width: 1080,
-    height: 1350,
-    transparent: true,
+  // 1. Generate transparent overlay PNG via Puppeteer
+  const browser = await puppeteer.launch({
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+    headless: true,
   });
-  fs.writeFileSync(overlayPath, overlayBuffer);
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 1 });
+    await page.setContent(overlayHtml, {
+      waitUntil: "networkidle2",
+      timeout: 30_000,
+    });
+    await page.screenshot({
+      path: overlayPath,
+      type: "png",
+      omitBackground: true,
+    });
+  } finally {
+    await browser.close();
+  }
 
-  // Composite with FFmpeg
+  // 2. Composite with FFmpeg
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error("FFmpeg processing timed out after 60 seconds"));
@@ -253,9 +290,7 @@ export async function compositeGeminiVideo(
     ffmpeg(videoPath)
       .input(overlayPath)
       .complexFilter([
-        // Scale and crop video to 1080x1350
         "[0:v]scale=1080:1350:force_original_aspect_ratio=increase,crop=1080:1350[bg]",
-        // Overlay the PNG
         "[bg][1:v]overlay=0:0[outv]",
       ])
       .outputOptions([
@@ -271,7 +306,6 @@ export async function compositeGeminiVideo(
       .on("end", () => {
         clearTimeout(timeout);
         const outBuffer = fs.readFileSync(outputPath);
-        // Clean up temp files
         try {
           fs.unlinkSync(videoPath);
           fs.unlinkSync(overlayPath);
@@ -284,7 +318,6 @@ export async function compositeGeminiVideo(
       .on("error", (err) => {
         clearTimeout(timeout);
         console.error("[GeminiCompositor] FFmpeg error:", err);
-        // Clean up on error too
         try {
           if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
           if (fs.existsSync(overlayPath)) fs.unlinkSync(overlayPath);
