@@ -261,10 +261,38 @@ export async function geminiGenerateVideo(
     log("Gemini Video: 10s video generated successfully.");
     return { type: "video", buffer: Buffer.from(arrayBuffer) };
   } catch (err: any) {
-    console.error("[GeminiEngine] Video generation failed, falling back to image:", err?.message);
-    log(`Gemini Video: Failed (${err?.message}), falling back to image generation...`);
+    console.error("[GeminiEngine] Veo video generation failed:", err?.message);
+    log(`Gemini Video: Veo failed (${err?.message}), trying Kling fallback...`);
 
-    // Fallback: generate an image instead
+    // Fallback 1: Try Kling 2.5 Turbo
+    try {
+      const { generateKlingVideo } = await import("./contentPipeline");
+      const klingAccessKey = ENV.klingAccessKey;
+      const klingSecretKey = ENV.klingSecretKey;
+
+      if (klingAccessKey && klingSecretKey) {
+        log("Gemini Video: Attempting Kling 2.5 Turbo fallback...");
+        const klingUrl = await generateKlingVideo(prompt, klingAccessKey, klingSecretKey);
+
+        if (klingUrl) {
+          log("Gemini Video: Kling video generated, downloading...");
+          const response = await fetch(klingUrl, { signal: AbortSignal.timeout(30_000) });
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            log("Gemini Video: Kling fallback successful.");
+            return { type: "video", buffer: Buffer.from(arrayBuffer) };
+          }
+        }
+        log("Gemini Video: Kling returned no video, falling back to image...");
+      } else {
+        log("Gemini Video: No Kling API keys configured, falling back to image...");
+      }
+    } catch (klingErr: any) {
+      console.error("[GeminiEngine] Kling fallback also failed:", klingErr?.message);
+      log(`Gemini Video: Kling fallback failed (${klingErr?.message}), falling back to image...`);
+    }
+
+    // Fallback 2: Still image as last resort
     const imageBase64 = await geminiGenerateImage(prompt, log);
     const base64Data = imageBase64.split(",")[1];
     return { type: "image", buffer: Buffer.from(base64Data, "base64") };
