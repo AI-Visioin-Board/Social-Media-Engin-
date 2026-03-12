@@ -31,7 +31,9 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function installFonts() {
-  // Install Anton and Oswald fonts so Sharp/librsvg can find them via fontconfig.
+  // Install Anton and Oswald fonts for the SVG fallback rendering path.
+  // Primary rendering: HTML/CSS via headless Chromium (loads Google Fonts via CDN).
+  // Fallback rendering: Sharp SVG overlays using librsvg (needs fontconfig).
   // librsvg does NOT support @font-face with local file paths — fonts must be discoverable via fontconfig.
   //
   // Railway (and most Docker containers) don't have sudo, so we use USER-SPACE font directories
@@ -146,7 +148,10 @@ async function startServer() {
   // ── Create database tables if they don't exist ──
   await migrateDatabase();
 
-  // ── Install fonts for Sharp/librsvg text rendering ──
+  // ── Install fonts for SVG fallback path (Sharp/librsvg text rendering) ──
+  // Primary rendering uses HTML/CSS via headless Chromium + Google Fonts CDN.
+  // This fontconfig setup is still needed when Chromium is unavailable and we
+  // fall back to SVG text overlays rendered by Sharp's librsvg.
   await installFonts();
 
   // ── Ghost-run recovery: fail any runs left in-flight from a previous server crash ──

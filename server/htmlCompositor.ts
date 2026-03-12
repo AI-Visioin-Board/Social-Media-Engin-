@@ -83,13 +83,13 @@ function bufferToDataUri(buffer: Buffer, mimeType = "image/png"): string {
 }
 
 /**
- * Common HTML head with Google Fonts + Tailwind CSS via CDN.
- * The Tailwind CDN script is used for server-side rendering —
- * no build step needed, and it covers all utility classes.
+ * Common HTML head with Google Fonts.
+ * No Tailwind CDN — all styling is inline. This avoids a network dependency
+ * that could timeout in containerized environments (Railway, Docker).
+ * Only Google Fonts is loaded via CDN (needed for Anton + Inter typography).
  */
 function htmlHead(): string {
   return `
-    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">

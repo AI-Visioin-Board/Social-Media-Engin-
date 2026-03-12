@@ -7,8 +7,8 @@
  * 2. No-Repeat Filter — exclude topics published in last 14 days
  * 3. GPT Scoring      — score candidates on 5 virality criteria, pick best 4
  * 4. Deep Research    — GPT-4o web search (OpenAI Responses API) per topic
- * 5. Media Generation — Kling 2.5 Turbo video / DALL-E 3 image per topic
- * 6. Slide Assembly   — Sharp/FFmpeg compositor (separate modules)
+ * 5. Media Generation — Gemini Nano Banana images + Veo 3.1 video
+ * 6. Slide Assembly   — HTML/CSS compositor (Puppeteer) + FFmpeg video overlay
  * 7. Instagram Post   — Make.com webhook trigger
  */
 
@@ -23,7 +23,6 @@ import {
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
-import { generateImage, generateImageWithPeople, generateImageWithNanoBanana } from "./_core/imageGeneration";
 
 import { ENV } from "./_core/env";
 import { SignJWT } from "jose";
@@ -1108,16 +1107,22 @@ export async function generateSlideImage(
   prompt: string
 ): Promise<string | null> {
   try {
-    console.log(`[ContentPipeline] Generating DALL-E image for prompt: "${prompt.slice(0, 80)}..."`);
-    const { url } = await generateImage({ prompt });
-    if (!url) throw new Error("No URL returned from image generation");
-    console.log(`[ContentPipeline] DALL-E image generated → ${url}`);
+    console.log(`[ContentPipeline] Generating Gemini image for prompt: "${prompt.slice(0, 80)}..."`);
+    const { geminiGenerateImage } = await import("./geminiEngine");
+    const log = (msg: string) => console.log(`[ContentPipeline] ${msg}`);
+    const base64Uri = await geminiGenerateImage(prompt, log);
+    // Convert base64 data URI to stored URL
+    const base64Data = base64Uri.split(",")[1];
+    const buf = Buffer.from(base64Data, "base64");
+    const { url } = await storagePut(`slides/regen/img_${Date.now()}.png`, buf, "image/png");
+    console.log(`[ContentPipeline] Gemini image generated → ${url}`);
     return url;
   } catch (err) {
-    console.error("[ContentPipeline] DALL-E 3 image generation failed:", err);
+    console.error("[ContentPipeline] Gemini image generation failed:", err);
     return null;
   }
 }
+
 
 
 // ─── Stage 7: Make.com Instagram Webhook ──────────────────────────────────────
@@ -1439,764 +1444,214 @@ async function _runPipelineStages(
       throw new Error(`Only ${researched.length} topics passed verification (need at least 3)`);
     }
 
-    // ── Stage 4.5: Creative Director — decides visual strategy per slide ──
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Stage 4.5 + 5 + 6: Gemini Creative Director → Media Generation → Assembly
+    // Uses Google Gemini API for all media generation (replaces OpenAI CD + Kling + DALL-E)
+    // ═══════════════════════════════════════════════════════════════════════════
     checkAbort();
-    await updateProgress(runId, "Creative Director analyzing visual strategies...");
-    // The Creative Director analyzes each story and decides the best visual approach:
-    // cinematic_scene, scene_with_badge, person_composite, or kling_video.
-    // This replaces the old hardcoded videoSlideIndices = new Set([1, 3]).
-    // Wrapped in try/catch: if the Creative Director fails, we fall back to
-    // all-cinematic_scene (pure AI generation) rather than killing the pipeline.
-    let creativeBrief: Awaited<ReturnType<typeof import("./creativeDirector").creativeDirectorAgent>>;
+    await updateProgress(runId, "Gemini Creative Director analyzing stories...");
+
+    // Import Gemini engine and compositor
+    const {
+      geminiCreativeDirector: runGeminiCD,
+      geminiGenerateImage,
+      geminiGenerateVideo,
+    } = await import("./geminiEngine");
+    const {
+      getCoverHtml,
+      getContentHtml,
+      getVideoOverlayHtml,
+      compositeGeminiSlide,
+      compositeGeminiVideo,
+    } = await import("./geminiCompositor");
+
+    // ── Stage 4.5: Gemini Creative Director ──
+    const logWithProgress = (msg: string, data?: any) => {
+      console.log(`[ContentPipeline] ${msg}`);
+      updateProgress(runId, msg).catch(() => {});
+    };
+
+    let creativeBrief: Awaited<ReturnType<typeof runGeminiCD>>;
     try {
-      const { creativeDirectorAgent } = await import("./creativeDirector");
-      creativeBrief = await creativeDirectorAgent(researched, runId);
+      creativeBrief = await runGeminiCD(researched, logWithProgress, checkAbort);
     } catch (cdErr: any) {
-      console.error(`[ContentPipeline] ⚠️ Creative Director failed: ${cdErr?.message} — using all-cinematic_scene fallback`);
-      // Build a minimal fallback brief: cover + one video + rest cinematic
-      creativeBrief = {
-        runId,
-        globalStyleNotes: "Fallback: Creative Director unavailable. Using cinematic scenes.",
-        slides: [
-          { slideIndex: 0, strategy: "cinematic_scene", reasoning: "CD fallback", scenePrompt: "", engagementScore: 5 },
-          ...researched.map((_, i) => ({
-            slideIndex: i + 1,
-            strategy: (i === 0 ? "kling_video" : "cinematic_scene") as import("./creativeDirector").VisualStrategy,
-            reasoning: "CD fallback",
-            scenePrompt: "",
-            engagementScore: 5,
-          })),
-        ],
-      };
+      console.error(`[ContentPipeline] Gemini CD failed: ${cdErr?.message}`);
+      throw cdErr; // No fallback — Gemini CD is the only path now
     }
 
-    // ── Persist the FINAL brief (post-QD review) to DB for diagnosis ──
-    // This runs AFTER the Quality Director has reviewed and potentially revised the brief,
-    // so the persisted JSON matches what actually gets sent to Stage 5.
+    // Persist the creative brief to DB for diagnosis
     try {
       await db.update(contentRuns)
         .set({ creativeBrief: JSON.stringify(creativeBrief) })
         .where(eq(contentRuns.id, runId));
-      console.log(`[ContentPipeline] ✅ Creative brief persisted to DB (run #${runId})`);
+      console.log(`[ContentPipeline] Creative brief persisted to DB (run #${runId})`);
     } catch (briefErr: any) {
-      console.warn(`[ContentPipeline] ⚠️ Failed to persist brief: ${briefErr?.message}`);
+      console.warn(`[ContentPipeline] Failed to persist brief: ${briefErr?.message}`);
     }
 
-    // Build a map of slide index → creative brief for Stage 5
-    const briefBySlide = new Map(creativeBrief.slides.map(s => [s.slideIndex, s]));
-
-    // Create slide records using the creative brief
-    // Cover slide (index 0) — edgy, eye-catching cover image with provocative headline
-    // ── PARALLEL: cover image prompt + cover headline + runSlot query run concurrently ──
-    const coverBrief = briefBySlide.get(0);
-    const headlineList = researched.map((t) => t.headline);
-    const [coverImagePrompt, coverHeadline] = await Promise.all([
-      coverBrief?.scenePrompt
-        ? Promise.resolve(coverBrief.scenePrompt)
-        : generateCoverImagePrompt(headlineList),
-      (async () => {
-        const [runRecord] = await db.select({ runSlot: contentRuns.runSlot }).from(contentRuns).where(eq(contentRuns.id, runId));
-        const runSlot = runRecord?.runSlot ?? "monday";
-        return generateCoverHeadline(headlineList, runSlot);
-      })(),
-    ]);
-    // Validate cover headline — NEVER insert null/empty (causes blank slides)
-    const validCoverHeadline = (coverHeadline && coverHeadline.trim().length > 0)
-      ? coverHeadline
+    // Create slide records from Gemini brief
+    const validCoverHeadline = (creativeBrief.coverHeadline && creativeBrief.coverHeadline.trim().length > 0)
+      ? creativeBrief.coverHeadline
       : "THE BIGGEST AI STORIES THIS WEEK";
-    if (validCoverHeadline !== coverHeadline) {
-      console.warn(`[ContentPipeline] ⚠️ Cover headline was empty — using fallback`);
-    }
+
+    // Cover slide (index 0)
     await db.insert(generatedSlides).values({
       runId,
       slideIndex: 0,
       headline: validCoverHeadline,
-      summary: researched.map((t) => t.headline).join(" • "),
-      videoPrompt: coverImagePrompt,
-      isVideoSlide: coverBrief?.strategy === "kling_video" ? 1 : 0,
+      summary: creativeBrief.slides.map(s => s.headline).join(" • "),
+      videoPrompt: creativeBrief.coverImagePrompt,
+      isVideoSlide: 0,
       status: "pending",
     });
 
-    // Content slides (index 1-4)
-    // Video/image assignment now comes from Creative Director (not hardcoded)
-    for (let i = 0; i < researched.length; i++) {
-      const topic = researched[i];
+    // Pick one random content slide to be a video
+    const videoSlideIndex = Math.floor(Math.random() * creativeBrief.slides.length);
+
+    // Content slides (index 1-N)
+    for (let i = 0; i < creativeBrief.slides.length; i++) {
+      const slide = creativeBrief.slides[i];
       const slideIndex = i + 1;
-      const slideBrief = briefBySlide.get(slideIndex);
-      const isVideo = slideBrief?.strategy === "kling_video" ? 1 : 0;
-      // Use Creative Director's scenePrompt if available, otherwise fall back to research prompt
-      const prompt = slideBrief?.scenePrompt || topic.videoPrompt;
-      // Validate headline — NEVER insert null/empty (causes blank slides in assembly)
-      const validHeadline = (topic.headline && topic.headline.trim().length > 0)
-        ? topic.headline
-        : topic.title || `AI NEWS STORY ${slideIndex}`;
-      if (validHeadline !== topic.headline) {
-        console.warn(`[ContentPipeline] ⚠️ Slide ${slideIndex} headline was empty — using fallback: "${validHeadline}"`);
-      }
+      const validHeadline = (slide.headline && slide.headline.trim().length > 0)
+        ? slide.headline
+        : `AI NEWS STORY ${slideIndex}`;
+
       await db.insert(generatedSlides).values({
         runId,
         slideIndex,
         headline: validHeadline,
-        summary: topic.summary,
-        insightLine: topic.insightLine ?? null,
-        citations: JSON.stringify(topic.citations),
-        videoPrompt: prompt,
-        isVideoSlide: isVideo,
+        summary: slide.summary,
+        videoPrompt: slide.imagePrompt,
+        isVideoSlide: i === videoSlideIndex ? 1 : 0,
         status: "pending",
       });
     }
 
-    // Stage 5: Video / Image Generation (Kling primary, DALL-E 3 fallback)
+    // ── Stage 5: Gemini Media Generation ──
     checkAbort();
-    // ═══════════════════════════════════════════════════════════════════════════
-    // DECISION LOG: Track every decision per slide for debugging
-    // ═══════════════════════════════════════════════════════════════════════════
-    await db.update(contentRuns).set({ status: "generating", statusDetail: "Starting media generation..." }).where(eq(contentRuns.id, runId));
-    const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+    await db.update(contentRuns).set({ status: "generating", statusDetail: "Starting Gemini media generation..." }).where(eq(contentRuns.id, runId));
     const stageStart = Date.now();
-    const decisionLog: Array<{
-      slideIndex: number;
-      headline: string;
-      wantsVideo: boolean;
-      logoFound: string | null;
-      logoDownloaded: boolean;
-      searchBgFound: boolean;
-      klingAttempted: boolean;
-      klingSucceeded: boolean;
-      strategy: string;
-      timeMs: number;
-      mediaUrl: string | null;
-    }> = [];
 
-    // ── Cover template assets: person buffers + logo buffers per slide (for Stage 6) ──
-    // Populated during Stage 5 for cover slide (index 0) when a cover template is set.
-    const coverAssets = new Map<number, {
-      personBuffer: Buffer | null;
-      additionalPersonBuffers: Array<Buffer | null>;
-      logoBuffers: Array<Buffer | null>;
-      screenshotBuffer?: Buffer | null;
-      /** Background buffer for multi-layer composition (DALL-E 3 no-people scene) */
-      backgroundBuffer?: Buffer | null;
-      /** Freeform composition manifest passed through to coverTemplateCompositor */
-      coverComposition?: import('./creativeDirector').SlideCreativeBrief["coverComposition"];
-    }>();
+    console.log(`[ContentPipeline] ═══ Stage 5: Gemini Media Generation ═══`);
+    console.log(`[ContentPipeline] Cover image + ${creativeBrief.slides.length} content slides (1 video at index ${videoSlideIndex})`);
 
-    // ── Kling credential check (ONCE — fail fast, don't waste 8 min on timeouts) ──
-    let klingAK = options.klingAccessKey || ENV.klingAccessKey;
-    let klingSK = options.klingSecretKey || ENV.klingSecretKey;
-    if (!klingAK || !klingSK) {
-      try {
-        const { appSettings } = await import("../drizzle/schema");
-        const [ak] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_access_key"));
-        const [sk] = await db.select().from(appSettings).where(eq(appSettings.key, "kling_secret_key"));
-        if (ak?.value) klingAK = ak.value;
-        if (sk?.value) klingSK = sk.value;
-        if (klingAK && klingSK) console.log("[ContentPipeline] ✅ Kling credentials loaded from DB");
-      } catch (e) {
-        console.warn("[ContentPipeline] Could not load Kling credentials from DB:", e);
+    // Generate cover image
+    logWithProgress("Stage 5: Generating cover image...");
+    const coverBase64 = await geminiGenerateImage(creativeBrief.coverImagePrompt, logWithProgress);
+
+    // Generate content media (images + 1 video)
+    const generatedMedia: Array<{ type: "image" | "video"; data: string | Buffer }> = [];
+    generatedMedia.push({ type: "image", data: coverBase64 });
+
+    for (let i = 0; i < creativeBrief.slides.length; i++) {
+      checkAbort();
+      const slide = creativeBrief.slides[i];
+
+      if (i === videoSlideIndex) {
+        logWithProgress(`Stage 5: Generating video for slide ${i + 1} (this takes a moment)...`);
+        const videoResult = await geminiGenerateVideo(slide.imagePrompt, logWithProgress, checkAbort);
+        if (videoResult.type === "video") {
+          generatedMedia.push({ type: "video", data: videoResult.buffer });
+        } else {
+          // Fallback returned an image buffer
+          const base64Data = `data:image/png;base64,${videoResult.buffer.toString("base64")}`;
+          generatedMedia.push({ type: "image", data: base64Data });
+          // Update DB — this slide is no longer video
+          const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+          const matchSlide = slides.find(s => s.slideIndex === i + 1);
+          if (matchSlide) {
+            await db.update(generatedSlides).set({ isVideoSlide: 0 }).where(eq(generatedSlides.id, matchSlide.id));
+          }
+        }
+      } else {
+        logWithProgress(`Stage 5: Generating image for slide ${i + 1}...`);
+        const slideBase64 = await geminiGenerateImage(slide.imagePrompt, logWithProgress);
+        generatedMedia.push({ type: "image", data: slideBase64 });
       }
     }
-    const hasKling = !!(klingAK && klingSK);
-    // ── CREDIT SAFEGUARD: Cap Kling attempts per run ──
-    // Each Kling video costs credits and takes ~3 min. Cap at 4 attempts max per run
-    // to prevent runaway costs if retries/fallbacks loop unexpectedly.
-    // Each Kling slide may try img2vid then text2vid (2 API calls per slide).
-    // This cap limits the number of SLIDES that attempt Kling, not individual API calls.
-    const MAX_KLING_SLIDES = 4;
-    let klingSlidesAttempted = 0;
-    console.log(`[ContentPipeline] ═══ Stage 5: Media Generation ═══`);
-    console.log(`[ContentPipeline] Kling video: ${hasKling ? `✅ ENABLED (primary, max ${MAX_KLING_SLIDES} attempts)` : "❌ DISABLED (no credentials)"}`);
-    console.log(`[ContentPipeline] Slides to generate: ${slides.length}`);
 
-    // Import asset library + compositing functions
-    const {
-      findLogoForText, findAllLogosForText, downloadImage, downloadLogo,
-      compositeAssetOnBackground, compositePersonOnBackground,
-      uploadAsset, searchImage, LOGO_LIBRARY,
-    } = await import("./assetLibrary");
-
-    // ── Strategy-based media generation (driven by Creative Director brief) ──
-    let mediaGenCompleted = 0;
-    const mediaGenTotal = slides.length;
-
-    const generateSlideMedia = async (slide: typeof slides[0]): Promise<void> => {
-      const slideStart = Date.now();
-      if (!slide.videoPrompt) return;
-
-      const brief = briefBySlide.get(slide.slideIndex);
-      let strategy = brief?.strategy ?? (slide.isVideoSlide === 1 ? "kling_video" : "cinematic_scene");
-      await updateProgress(runId, `Generating slide ${slide.slideIndex + 1}/${mediaGenTotal}: ${strategy} — "${(slide.headline ?? "").slice(0, 40)}..."`);
-
-      const log: typeof decisionLog[0] = {
-        slideIndex: slide.slideIndex,
-        headline: slide.headline ?? "",
-        wantsVideo: strategy === "kling_video",
-        logoFound: null,
-        logoDownloaded: false,
-        searchBgFound: false,
-        klingAttempted: false,
-        klingSucceeded: false,
-        strategy,
-        timeMs: 0,
-        mediaUrl: null,
-      };
-
-      await db.update(generatedSlides)
-        .set({ status: "generating_video" })
-        .where(eq(generatedSlides.id, slide.id));
-
-      let mediaUrl: string | null = null;
-      let scenePrompt = brief?.scenePrompt || slide.videoPrompt;
-
-      // NOTE: For person_composite, we now use Nano Banana (Gemini) which generates
-      // named public figures reliably. GPT Image 1 refuses to render real people.
-      // For video slides, the workflow is: Nano Banana still → Kling image-to-video.
-
-      console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 Strategy: ${strategy} | "${(slide.headline ?? "").slice(0, 50)}..."`);
-
-      // ════════════════════════════════════════════════════════════════════════
-      // STRATEGY DISPATCH — each strategy has its own execution path + fallback
-      // ════════════════════════════════════════════════════════════════════════
-
-      if (strategy === "kling_video") {
-        // ── VIDEO GENERATION: Kling (primary) ──
-        // Prefer videoNarrative.fullPrompt from Creative Director (story-driven),
-        // fall back to scenePrompt, then to marketingBrain re-generation.
-        let videoSpecificPrompt = brief?.videoNarrative?.fullPrompt || scenePrompt;
-        // Check ALL videoNarrative segments for camera motion — not just fullPrompt.
-        // The beginning/middle/end fields may contain camera keywords even if fullPrompt doesn't.
-        const cameraMotionRe = /camera|push[- ]in|dolly|orbit|pan|zoom|parallax|tracking|reveal/i;
-        const narrativeSegments = [
-          videoSpecificPrompt,
-          brief?.videoNarrative?.beginning,
-          brief?.videoNarrative?.middle,
-          brief?.videoNarrative?.end,
-        ].filter(Boolean).join(" ");
-        const hasCameraMotion = cameraMotionRe.test(narrativeSegments);
-
-        if (!videoSpecificPrompt || videoSpecificPrompt.length < 20 || !hasCameraMotion) {
-          try {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 CD prompt lacks detail — generating video-specific prompt...`);
-            videoSpecificPrompt = await marketingBrainPrompt({
-              headline: slide.headline ?? "",
-              summary: slide.summary ?? "",
-              research: slide.summary ?? "",
-              isVideo: true,
-            });
-          } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video prompt re-gen failed, using scene prompt: ${err?.message}`);
-          }
-        } else {
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Using Creative Director's video prompt`);
-        }
-
-        // ── Step 1: If scene involves people, generate Nano Banana still first ──
-        // Then use image-to-video to add motion (Kling img2vid).
-        // If no people, use text-to-video directly.
-        const involvesPeople = brief?.personSearchQuery
-          || /person|people|ceo|founder|figure|leader|executive/i.test(videoSpecificPrompt);
-        let startingImageUrl: string | null = null;
-
-        if (involvesPeople) {
-          try {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Video involves people — generating Nano Banana still first...`);
-            const stillResult = await generateImageWithNanoBanana({ prompt: scenePrompt });
-            if (stillResult.url) {
-              startingImageUrl = stillResult.url;
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Nano Banana still for video generated`);
-            }
-          } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Nano Banana still failed: ${err?.message} — trying text-to-video`);
-          }
-        }
-
-        // ── Step 2: Kling video — img2vid if we have a still, text2vid otherwise ──
-        if (!mediaUrl && hasKling && klingSlidesAttempted < MAX_KLING_SLIDES) {
-          klingSlidesAttempted++;
-          log.klingAttempted = true;
-
-          if (startingImageUrl) {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling img2vid (attempt ${klingSlidesAttempted}/${MAX_KLING_SLIDES})...`);
-            mediaUrl = await generateKlingImageToVideo(videoSpecificPrompt, startingImageUrl, klingAK, klingSK);
-            if (mediaUrl) {
-              log.strategy = "kling_img2vid";
-              log.klingSucceeded = true;
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling img2vid generated`);
-            }
-          }
-
-          if (!mediaUrl) {
-            console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎬 Kling text2vid (attempt ${klingSlidesAttempted}/${MAX_KLING_SLIDES})...`);
-            mediaUrl = await generateKlingVideo(videoSpecificPrompt, klingAK, klingSK);
-            log.klingSucceeded = !!mediaUrl;
-            if (mediaUrl) {
-              log.strategy = "kling_video";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Kling text2vid generated`);
-            } else {
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling failed — falling back to still`);
-            }
-          }
-        }
-
-        // ── Step 3: If Kling failed but we have a Nano Banana still, use that ──
-        if (!mediaUrl && startingImageUrl) {
-          mediaUrl = startingImageUrl;
-          log.strategy = "nano_banana_still_fallback";
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 📸 Using Nano Banana still as fallback (no video providers succeeded)`);
-        }
-
-        if (!mediaUrl && hasKling && klingSlidesAttempted >= MAX_KLING_SLIDES) {
-          console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Kling attempt limit reached (${MAX_KLING_SLIDES})`);
-        }
-      }
-
-      // ── PIPELINE SAFETY NET: freeform_composition covers with subjects must route to person_composite ──
-      // Even if sanitizeSlides() missed it, force the correct path here at execution time.
-      const coverSubjectCount = brief?.coverComposition?.subjects?.length ?? 0;
-      if (!mediaUrl && slide.slideIndex === 0
-          && (brief?.coverTemplate === "freeform_composition" || brief?.coverTemplate === "triangle_triptych")
-          && coverSubjectCount > 0
-          && strategy !== "person_composite") {
-        console.warn(`[ContentPipeline] Slide 0: ⚠️ PIPELINE OVERRIDE: freeform cover has ${coverSubjectCount} subjects but strategy="${strategy}" — forcing person_composite path`);
-        strategy = "person_composite";
-      }
-
-      if (!mediaUrl && strategy === "person_composite") {
-        // ── PERSON COMPOSITE: AI-generated scene with named public figures ──
-        // ★ Uses Nano Banana (Gemini) — the ONLY model that reliably generates
-        //   recognizable public figures. GPT Image 1 refuses to do so.
-        //   Falls back to GPT Image 1 if GEMINI_API_KEY not set.
-
-        const isFreeformCover = slide.slideIndex === 0
-          && (brief?.coverTemplate === "freeform_composition" || brief?.coverTemplate === "triangle_triptych")
-          && brief?.coverComposition;
-        const isMultiLayer = isFreeformCover
-          && brief?.coverComposition?.compositionMode === "multi_layer"
-          && (brief?.coverComposition?.subjects?.length ?? 0) > 0;
-        const isTriangleTriptych = brief?.coverTemplate === "triangle_triptych";
-
-        if (isMultiLayer && brief?.coverComposition) {
-          // ── MULTI-LAYER COVER: generate each subject separately ──
-          // For freeform_composition: background (DALL-E 3) + person cutouts (Nano Banana, bg-removed)
-          // For triangle_triptych: NO background, NO bg-removal — each triangle gets its own FULL scene
-          const composition = brief.coverComposition;
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🎨 ${isTriangleTriptych ? "Triangle triptych" : "Multi-layer freeform"} cover — ${composition.subjects.length} subjects (Nano Banana)`);
-
-          try {
-            // Generate background (skip for triangle_triptych) + all persons in PARALLEL
-            const [bgResult, ...personResults] = await Promise.all([
-              isTriangleTriptych
-                ? Promise.resolve({ url: null } as { url: string | null })
-                : generateImage({ prompt: composition.backgroundPrompt }),
-              ...composition.subjects.map(s =>
-                generateImageWithNanoBanana({ prompt: s.promptFragment ?? scenePrompt })
-              ),
-            ]);
-            console.log(`[ContentPipeline] Cover: background + ${personResults.length} person scene(s) generated in parallel`);
-
-            // Download all generated images as buffers
-            const bgBuffer = bgResult.url ? await downloadImage(bgResult.url) : null;
-            const personBuffers: Array<Buffer | null> = [];
-
-            // Download each person image (skip bg-removal for triangle_triptych — full scenes, not cutouts)
-            for (let i = 0; i < personResults.length; i++) {
-              const pUrl = personResults[i].url;
-              if (!pUrl) { personBuffers.push(null); continue; }
-
-              let pBuf = await downloadImage(pUrl);
-              if (pBuf && !isTriangleTriptych) {
-                // AI background removal for clean cutout (freeform_composition only)
-                try {
-                  const BG_REMOVAL_TIMEOUT_MS = 45_000;
-                  const { removeBackground } = await import("@imgly/background-removal-node");
-                  const blob = new Blob([pBuf as unknown as ArrayBuffer], { type: "image/png" });
-                  const resultBlob = await Promise.race([
-                    removeBackground(blob, { model: "medium" }),
-                    new Promise<never>((_, reject) => {
-                      const t = setTimeout(() => reject(new Error("BG removal timeout")), BG_REMOVAL_TIMEOUT_MS);
-                      if (t && typeof t === "object" && "unref" in t) (t as NodeJS.Timeout).unref();
-                    }),
-                  ]);
-                  const arrayBuf = await resultBlob.arrayBuffer();
-                  pBuf = Buffer.from(arrayBuf);
-                  console.log(`[ContentPipeline] Cover: bg-removed subject ${i} "${composition.subjects[i]?.name}"`);
-                } catch (bgErr: any) {
-                  console.warn(`[ContentPipeline] Cover: bg-removal failed for subject ${i}: ${bgErr?.message} — using original`);
-                }
-              } else if (pBuf && isTriangleTriptych) {
-                console.log(`[ContentPipeline] Cover: triangle_triptych — keeping full scene for subject ${i} "${composition.subjects[i]?.name}" (no bg-removal)`);
-              }
-              personBuffers.push(pBuf);
-            }
-
-            // Fetch logo buffers
-            const logoBuffers: Array<Buffer | null> = [];
-            const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
-            if (allLogoKeys.length > 0) {
-              const logoResults = await Promise.all(
-                allLogoKeys.map(key => downloadLogo(key).catch(() => null))
-              );
-              logoBuffers.push(...logoResults);
-              console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
-            }
-
-            // Use the first person image or background as the media URL for this slide
-            mediaUrl = personResults[0]?.url || bgResult.url || null;
-            log.strategy = "person_composite_multi_layer";
-
-            // Store all assets for Stage 6 compositor
-            coverAssets.set(0, {
-              personBuffer: personBuffers[0] ?? null,
-              additionalPersonBuffers: personBuffers.slice(1),
-              logoBuffers,
-              backgroundBuffer: bgBuffer,
-              coverComposition: composition,
-            });
-            console.log(`[ContentPipeline] Cover: multi-layer assets stored (${personBuffers.filter(Boolean).length} persons, ${logoBuffers.filter(Boolean).length} logos)`);
-          } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Multi-layer cover failed: ${err?.message} — falling back to single-shot`);
-            // Fall through to single-shot below
-          }
-        }
-
-        if (!mediaUrl) {
-          // ── SINGLE-SHOT: Generate person IN scene via Nano Banana (Gemini) ──
-          console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 👤 Person composite (single-shot) via Nano Banana...`);
-          try {
-            const personSceneResult = await generateImageWithNanoBanana({ prompt: scenePrompt });
-
-            if (personSceneResult.url) {
-              mediaUrl = personSceneResult.url;
-              log.strategy = "person_composite_nano_banana";
-              console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Nano Banana person scene generated`);
-
-              // ── Cover: collect assets for Stage 6 ──
-              if (slide.slideIndex === 0 && brief?.coverTemplate) {
-                console.log(`[ContentPipeline] Cover slide: collecting assets for template "${brief.coverTemplate}"...`);
-                const personBuffer = await downloadImage(personSceneResult.url);
-
-                const logoBuffers: Array<Buffer | null> = [];
-                const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
-                if (allLogoKeys.length > 0) {
-                  const logoResults = await Promise.all(
-                    allLogoKeys.map(key => downloadLogo(key).catch(() => null))
-                  );
-                  logoBuffers.push(...logoResults);
-                  console.log(`[ContentPipeline] Cover: fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos`);
-                }
-
-                if (personBuffer) {
-                  coverAssets.set(0, {
-                    personBuffer,
-                    additionalPersonBuffers: [],
-                    logoBuffers,
-                    coverComposition: brief?.coverComposition ?? undefined,
-                  });
-                  console.log(`[ContentPipeline] Cover assets saved for template "${brief.coverTemplate}"`);
-                }
-              }
-            } else {
-              console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Nano Banana returned no URL — falling back to DALL-E scene`);
-            }
-          } catch (err: any) {
-            console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Nano Banana person scene failed: ${err?.message} — falling back to DALL-E scene`);
-          }
-        }
-      }
-
-      if (!mediaUrl && (strategy === "scene_with_badge" || strategy === "cinematic_scene" || strategy === "kling_video" || strategy === "person_composite")) {
-        // ── SCENE WITH BADGE or CINEMATIC SCENE (also Kling/person fallback) ──
-        // Generate AI background image, optionally add logo badge(s)
-        console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🖼️ Generating AI image (DALL-E 3)...`);
-        const aiImageUrl = await generateSlideImage(scenePrompt);
-
-        if (aiImageUrl && strategy === "scene_with_badge" && brief?.logoKeys && brief.logoKeys.length > 0) {
-          // Download logo(s) from curated library (with S3 caching to avoid Wikimedia 429s)
-          const logoKey = brief.logoKeys[0];
-          const logoEntry = LOGO_LIBRARY[logoKey];
-          if (logoEntry) {
-            const logoBuffer = await downloadLogo(logoKey);
-            if (logoBuffer) {
-              log.logoFound = brief.logoKeys.join(" + ");
-              log.logoDownloaded = true;
-
-              try {
-                const aiImageBuffer = await downloadImage(aiImageUrl);
-                if (aiImageBuffer) {
-                  // Check for dual logo
-                  let secondLogoBuffer: Buffer | null = null;
-                  let secondBgColor: string | undefined;
-                  if (brief.logoKeys.length > 1) {
-                    const secondKey = brief.logoKeys[1];
-                    const secondEntry = LOGO_LIBRARY[secondKey];
-                    if (secondEntry) {
-                      secondLogoBuffer = await downloadLogo(secondKey);
-                      secondBgColor = secondEntry.bgColor;
-                    }
-                  }
-
-                  const isDual = !!secondLogoBuffer;
-                  console.log(`[ContentPipeline] Slide ${slide.slideIndex}: 🔀 Compositing ${isDual ? "dual" : "single"} logo badge(s)...`);
-                  const composed = await compositeAssetOnBackground(
-                    logoBuffer,
-                    logoEntry.bgColor ?? "#0a0a1a",
-                    aiImageBuffer,
-                    isDual ? { layout: "dual", secondLogoBuffer: secondLogoBuffer!, secondBgColor: secondBgColor ?? "#1a1a2e" } : undefined,
-                  );
-                  mediaUrl = await uploadAsset(composed, runId, slide.slideIndex);
-                  log.strategy = isDual ? "scene_with_dual_badge" : "scene_with_badge";
-                  console.log(`[ContentPipeline] Slide ${slide.slideIndex}: ✅ Logo badge(s) composited`);
-                } else {
-                  mediaUrl = aiImageUrl;
-                  log.strategy = "cinematic_scene_badge_dl_fail";
-                }
-              } catch (err: any) {
-                console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Badge compositing failed: ${err?.message}`);
-                mediaUrl = aiImageUrl;
-                log.strategy = "cinematic_scene_badge_fail";
-              }
-            } else {
-              // Logo download failed — just use AI image
-              mediaUrl = aiImageUrl;
-              log.strategy = "cinematic_scene_logo_dl_fail";
-            }
-          } else {
-            mediaUrl = aiImageUrl;
-            log.strategy = "cinematic_scene_no_logo_entry";
-          }
-        } else if (aiImageUrl) {
-          // Pure cinematic scene (or badge strategy with no logos) — just the AI image
-          mediaUrl = aiImageUrl;
-          log.strategy = strategy === "kling_video" ? "cinematic_scene_kling_fallback" : "cinematic_scene";
-        } else {
-          log.strategy = "all_failed";
-          console.error(`[ContentPipeline] Slide ${slide.slideIndex}: ❌ ALL media generation failed`);
-        }
-      }
-
-      // ── Cover template logo collection (for non-person templates) ────────────────────────
-      // Templates like backs_to_the_storm, solo_machine, left_column_logos, screenshot_overlay
-      // only need logos (no person). Collect them here if not already set by person_composite.
-      if (slide.slideIndex === 0 && brief?.coverTemplate && !coverAssets.has(0)) {
-        const logoBuffers: Array<Buffer | null> = [];
-        const allLogoKeys = [...(brief.logoKeys ?? []), ...(brief.additionalLogoKeys ?? [])];
-        if (allLogoKeys.length > 0) {
-          const logoResults = await Promise.all(
-            allLogoKeys.map(key => downloadLogo(key).catch(() => null))
-          );
-          logoBuffers.push(...logoResults);
-          console.log(`[ContentPipeline] Cover (logo-only): fetched ${logoBuffers.filter(Boolean).length}/${allLogoKeys.length} logos for template "${brief.coverTemplate}"`);
-        }
-        coverAssets.set(0, { personBuffer: null, additionalPersonBuffers: [], logoBuffers });
-      }
-
-      log.timeMs = Date.now() - slideStart;
-      log.mediaUrl = mediaUrl;
-      decisionLog.push(log);
-
-      // If this was a video slide but Kling failed (fell back to still image),
-      // clear the isVideoSlide flag so assembly doesn't get confused.
-      const isStillFallback = slide.isVideoSlide === 1
-        && mediaUrl
-        && /\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/i.test(mediaUrl);
-      if (isStillFallback) {
-        console.warn(`[ContentPipeline] Slide ${slide.slideIndex}: ⚠️ Video slide fell back to still image — clearing isVideoSlide flag`);
-      }
-
-      await db.update(generatedSlides)
-        .set({
-          videoUrl: mediaUrl ?? null,
-          status: mediaUrl ? "assembling" : "ready",
-          ...(isStillFallback ? { isVideoSlide: 0 } : {}),
-        })
-        .where(eq(generatedSlides.id, slide.id));
-
-      mediaGenCompleted++;
-      await updateProgress(runId, `Media generated ${mediaGenCompleted}/${mediaGenTotal}: slide ${slide.slideIndex + 1} (${log.strategy}) in ${(log.timeMs / 1000).toFixed(1)}s`);
-      console.log(`[ContentPipeline] Slide ${slide.slideIndex}: Done in ${(log.timeMs / 1000).toFixed(1)}s — strategy: ${log.strategy}`);
-    };
-
-    // ── Parallel generation: image slides concurrent, video slides sequential (rate limits) ──
-    const hasAnyVideoProvider = hasKling;
-    const videoSlides = slides.filter(s => s.isVideoSlide === 1 && hasAnyVideoProvider && s.videoPrompt);
-    const imageSlides = slides.filter(s => !(s.isVideoSlide === 1 && hasAnyVideoProvider) && s.videoPrompt);
-
-    // ── Per-slide timeout: wrap each call in a race with proper cleanup ──
-    // If a single slide hangs (e.g. Kling poll stuck), it won't block the entire run.
-    // Timer is cleared when the slide completes to avoid lingering handles.
-    const generateSlideWithTimeout = async (slide: typeof slides[0]): Promise<void> => {
-      const slideLabel = `Slide ${slide.slideIndex}`;
-      let slideTimer: ReturnType<typeof setTimeout> | null = null;
-      try {
-        await Promise.race([
-          generateSlideMedia(slide),
-          new Promise<never>((_, reject) => {
-            slideTimer = setTimeout(() => reject(new Error(`${slideLabel} timed out after ${SLIDE_TIMEOUT_MS / 60000} min`)), SLIDE_TIMEOUT_MS);
-          }),
-        ]);
-      } catch (err: any) {
-        const errMsg = err?.message ?? "timeout";
-        console.error(`[ContentPipeline] ⏱️ ${slideLabel}: ${errMsg} — marking as failed`);
-        mediaGenCompleted++;
-        await updateProgress(runId, `⚠️ ${slideLabel} failed: ${errMsg.slice(0, 60)} — continuing with remaining slides`);
-        await db.update(generatedSlides)
-          .set({ status: "ready", videoUrl: null })
-          .where(eq(generatedSlides.id, slide.id));
-      } finally {
-        if (slideTimer) clearTimeout(slideTimer);
-      }
-    };
-
-    console.log(`[ContentPipeline] Generating ${imageSlides.length} image slides in parallel + ${videoSlides.length} video slides sequentially...`);
-    await Promise.all([
-      Promise.all(imageSlides.map(s => generateSlideWithTimeout(s))),
-      (async () => {
-        for (const s of videoSlides) {
-          checkAbort();
-          await generateSlideWithTimeout(s);
-        }
-      })(),
-    ]);
-
-    // ── Log summary ──
     const stageElapsed = ((Date.now() - stageStart) / 1000).toFixed(1);
-    console.log(`\n[ContentPipeline] ═══ Stage 5 Summary (${stageElapsed}s total) ═══`);
-    for (const entry of decisionLog) {
-      console.log(`[ContentPipeline]   Slide ${entry.slideIndex}: ${entry.strategy} | logo=${entry.logoFound ?? "none"} | ${(entry.timeMs / 1000).toFixed(1)}s | ${entry.mediaUrl ? "✅" : "❌"}`);
-    }
-    console.log(`[ContentPipeline] ═══════════════════════════════════════\n`);
+    console.log(`[ContentPipeline] ═══ Stage 5 Complete (${stageElapsed}s) ═══`);
+    console.log(`[ContentPipeline] Generated: ${generatedMedia.filter(m => m.type === "image").length} images, ${generatedMedia.filter(m => m.type === "video").length} videos`);
 
-    // Store decision log in run metadata for UI access
-    // BUG 4 FIX: topicsRaw is a JSON ARRAY "[{...},{...}]" — we must NOT spread it
-    // into an object (that would destroy it into {"0":{...},"1":{...}}).
-    // Instead, store the decision log as a separate field or wrap properly.
-    try {
-      const [currentRun] = await db.select({ topicsRaw: contentRuns.topicsRaw }).from(contentRuns).where(eq(contentRuns.id, runId));
-      const existingRaw = currentRun?.topicsRaw ?? "[]";
-      let parsed: any;
-      try { parsed = JSON.parse(existingRaw); } catch { parsed = []; }
-
-      // If topicsRaw is an array (the normal case), wrap it in an object to add the log
-      // If it's already an object (from a previous run), just add the log key
-      // Include both the creative brief and the execution decision log
-      const creativeBriefSummary = creativeBrief.slides.map(s => ({
-        slideIndex: s.slideIndex,
-        strategy: s.strategy,
-        reasoning: s.reasoning,
-        engagementScore: s.engagementScore,
-        logoKeys: s.logoKeys,
-        personSearchQuery: s.personSearchQuery ? s.personSearchQuery.slice(0, 60) : undefined,
-      }));
-
-      const wrapped = Array.isArray(parsed)
-        ? { topics: parsed, creativeBrief: creativeBriefSummary, mediaDecisionLog: decisionLog }
-        : { ...parsed, creativeBrief: creativeBriefSummary, mediaDecisionLog: decisionLog };
-
-      await db.update(contentRuns)
-        .set({ topicsRaw: JSON.stringify(wrapped) })
-        .where(eq(contentRuns.id, runId));
-    } catch { /* don't fail pipeline over logging */ }
-
-    // Stage 6: Assembly — Sharp compositor (@evolving.ai style, fast, no external API)
+    // ── Stage 6: HTML/CSS Compositing (Puppeteer + FFmpeg) ──
     checkAbort();
     await db.update(contentRuns).set({ status: "assembling", statusDetail: "Starting slide assembly..." }).where(eq(contentRuns.id, runId));
+    console.log(`[ContentPipeline] ═══ Stage 6: Slide Assembly ═══`);
+
     const slidesForAssembly = await db.select().from(generatedSlides)
       .where(eq(generatedSlides.runId, runId))
       .orderBy(generatedSlides.slideIndex as any);
 
-    console.log(`[ContentPipeline] Stage 6: Sharp assembly for run #${runId} (${slidesForAssembly.length} slides)...`);
-    try {
-      const { assembleAllSlides } = await import("./sharpCompositor");
+    let assemblySuccessCount = 0;
 
-      // Get the cover slide's creative brief for template routing
-      const coverBriefForAssembly = briefBySlide.get(0);
+    for (let i = 0; i < slidesForAssembly.length; i++) {
+      checkAbort();
+      const slideRecord = slidesForAssembly[i];
+      const media = generatedMedia[i];
 
-      // Fetch logos for content slides (not just cover) in parallel
-      const { downloadLogo: dlLogo } = await import("./assetLibrary");
-      const contentSlideLogos = new Map<number, Array<Buffer | null>>();
-      const contentLogoFetches = slidesForAssembly
-        .filter(s => s.slideIndex !== 0)
-        .map(async (s) => {
-          const brief = briefBySlide.get(s.slideIndex);
-          const logoKeys = brief?.logoKeys ?? [];
-          if (logoKeys.length > 0) {
-            const buffers = await Promise.all(
-              logoKeys.slice(0, 2).map(key => dlLogo(key).catch(() => null))
-            );
-            contentSlideLogos.set(s.slideIndex, buffers);
-            console.log(`[ContentPipeline] Content slide ${s.slideIndex}: fetched ${buffers.filter(Boolean).length}/${logoKeys.length} logos`);
-          }
-        });
-      await Promise.all(contentLogoFetches);
-
-      // ── Diagnostic: log video slide status before assembly ──
-      const videoSlidesSummary = slidesForAssembly
-        .filter(s => s.isVideoSlide === 1)
-        .map(s => {
-          const url = s.videoUrl ?? "null";
-          const isImageFallback = /\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/i.test(url);
-          return `  Slide ${s.slideIndex}: videoUrl=${url.slice(0, 80)}… isImageFallback=${isImageFallback}`;
-        });
-      if (videoSlidesSummary.length > 0) {
-        console.log(`[ContentPipeline] ═══ Video Slides Diagnostic ═══\n${videoSlidesSummary.join("\n")}`);
-      } else {
-        console.warn(`[ContentPipeline] ⚠️ No video slides (isVideoSlide=1) found in assembly batch!`);
+      if (!media) {
+        console.warn(`[ContentPipeline] No media for slide ${slideRecord.slideIndex} — skipping assembly`);
+        await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
+        continue;
       }
 
-      const assembled = await assembleAllSlides(
-        slidesForAssembly.map((s) => {
-          const isCover = s.slideIndex === 0;
-          const coverSlideAssets = isCover ? coverAssets.get(0) : undefined;
-          const contentLogos = !isCover ? contentSlideLogos.get(s.slideIndex) : undefined;
-          const slideBrief = briefBySlide.get(s.slideIndex);
-          return {
-            runId,
-            slideIndex: s.slideIndex,
-            headline: s.headline ?? "",
-            summary: s.summary ?? undefined,
-            insightLine: s.insightLine ?? undefined,
-            mediaUrl: s.videoUrl ?? null,
-            // A slide is video if: (a) isVideoSlide flag is set AND (b) it has a media URL that's NOT a known still-image format.
-            // When Kling fails, fallback stores a Nano Banana still (.png/.jpg/.webp) — those are NOT video.
-            // Kling CDN URLs typically contain .mp4 or /video/ but we also accept any non-image URL.
-            isVideo: s.isVideoSlide === 1 && !!(s.videoUrl && !(/\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/i.test(s.videoUrl))),
-            isCover,
-            // ── Cover template fields ──
-            coverTemplate: isCover ? coverBriefForAssembly?.coverTemplate : undefined,
-            personBuffer: coverSlideAssets?.personBuffer ?? undefined,
-            additionalPersonBuffers: coverSlideAssets?.additionalPersonBuffers ?? [],
-            logoBuffers: coverSlideAssets?.logoBuffers ?? contentLogos ?? [],
-            screenshotBuffer: coverSlideAssets?.screenshotBuffer ?? undefined,
-            // ── 2.0 fields ──
-            coverComposition: coverSlideAssets?.coverComposition ?? undefined,
-            dedicatedBackgroundBuffer: coverSlideAssets?.backgroundBuffer ?? undefined,
-            logoStyle: slideBrief?.logoStyle ?? undefined,
-            logoSize: slideBrief?.logoSize ?? undefined,
-          };
-        })
-      );
-      let successCount = 0;
-      for (const result of assembled) {
-        const matchingSlide = slidesForAssembly.find((s) => s.slideIndex === result.slideIndex);
-        if (matchingSlide && result.url) {
-          await db.update(generatedSlides)
-            .set({ assembledUrl: result.url, status: "ready" })
-            .where(eq(generatedSlides.id, matchingSlide.id));
-          successCount++;
-        } else if (matchingSlide) {
-          // Mark as ready even if assembly failed so pipeline can continue
-          await db.update(generatedSlides)
-            .set({ status: "ready" })
-            .where(eq(generatedSlides.id, matchingSlide.id));
+      try {
+        let finalBase64: string;
+
+        if (slideRecord.slideIndex === 0) {
+          // Cover slide
+          logWithProgress(`Stage 6: Compositing cover slide...`);
+          const coverHtml = getCoverHtml(media.data as string, slideRecord.headline ?? validCoverHeadline);
+          finalBase64 = await compositeGeminiSlide(coverHtml);
+        } else if (media.type === "video") {
+          // Video content slide
+          logWithProgress(`Stage 6: Compositing video overlay for slide ${slideRecord.slideIndex}...`);
+          const overlayHtml = getVideoOverlayHtml(
+            slideRecord.headline ?? "",
+            slideRecord.summary ?? "",
+          );
+          finalBase64 = await compositeGeminiVideo(media.data as Buffer, overlayHtml);
+        } else {
+          // Image content slide
+          logWithProgress(`Stage 6: Compositing image slide ${slideRecord.slideIndex}...`);
+          const slideHtml = getContentHtml(
+            media.data as string,
+            slideRecord.headline ?? "",
+            slideRecord.summary ?? "",
+          );
+          finalBase64 = await compositeGeminiSlide(slideHtml);
         }
+
+        // Upload to storage (S3 bridge: base64 → public URL)
+        const mimeType = media.type === "video" ? "video/mp4" : "image/png";
+        const ext = media.type === "video" ? "mp4" : "png";
+        const base64Data = finalBase64.split(",")[1];
+        const buf = Buffer.from(base64Data, "base64");
+        const { url } = await storagePut(`slides/${runId}/slide_${slideRecord.slideIndex}.${ext}`, buf, mimeType);
+
+        // Update DB record
+        if (media.type === "video") {
+          await db.update(generatedSlides)
+            .set({ videoUrl: url, assembledUrl: url, status: "ready" })
+            .where(eq(generatedSlides.id, slideRecord.id));
+        } else {
+          await db.update(generatedSlides)
+            .set({ assembledUrl: url, status: "ready" })
+            .where(eq(generatedSlides.id, slideRecord.id));
+        }
+        assemblySuccessCount++;
+        console.log(`[ContentPipeline] Slide ${slideRecord.slideIndex}: assembled → ${url.slice(0, 80)}...`);
+      } catch (err: any) {
+        console.error(`[ContentPipeline] Assembly failed for slide ${slideRecord.slideIndex}: ${err?.message}`);
+        await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
       }
-      await updateProgress(runId, `Assembly complete: ${successCount}/${slidesForAssembly.length} slides composed`);
-      console.log(`[ContentPipeline] Sharp assembly: ${successCount}/${slidesForAssembly.length} slides assembled`);
-    } catch (sharpErr: any) {
-      console.warn(`[ContentPipeline] Sharp assembly failed: ${sharpErr?.message}`);
-      // Mark all slides ready so pipeline can continue to caption/approval
-      await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.runId, runId));
     }
+
+    await updateProgress(runId, `Assembly complete: ${assemblySuccessCount}/${slidesForAssembly.length} slides composed`);
+    console.log(`[ContentPipeline] ═══ Stage 6 Complete: ${assemblySuccessCount}/${slidesForAssembly.length} slides ═══`);
+
 
     // Stage 7: Generate caption and wait for admin approval before posting
     checkAbort();
