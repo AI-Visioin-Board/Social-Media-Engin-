@@ -55,8 +55,8 @@ export function getCoverHtml(bgBase64: string, headline: string): string {
           <div class="absolute bottom-0 left-0 w-full h-48 bg-gradient-to-t from-black to-transparent"></div>
         </div>
 
-        <!-- Bottom 30% Solid Black Text Zone -->
-        <div class="absolute bottom-0 left-0 w-full h-[30%] bg-black z-10"></div>
+        <!-- Bottom 40% Solid Black Text Zone (overlaps image slightly for blended look) -->
+        <div class="absolute bottom-0 left-0 w-full h-[40%] bg-black z-10"></div>
 
         <!-- Text Content (overlays the boundary) -->
         <div class="absolute bottom-0 left-0 w-full z-30 px-16 pb-16 pt-8 flex flex-col items-center text-center">
