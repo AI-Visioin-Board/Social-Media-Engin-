@@ -101,6 +101,7 @@ interface GeneratedSlide {
   videoUrl: string | null;
   assembledUrl: string | null;
   videoPrompt: string | null;
+  isVideoSlide: number;
   status: string;
 }
 
@@ -328,6 +329,48 @@ function SwapTopicDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── CTA Slide Toggle (shown in pending_post section) ─────────────────────────
+
+function CtaSlideToggle({ runId, slides, onUpdate }: { runId: number; slides: GeneratedSlide[]; onUpdate: () => void }) {
+  const { data: ctaData } = trpc.contentStudio.getCtaSlide.useQuery();
+  const appendCta = trpc.contentStudio.appendCtaSlide.useMutation({
+    onSuccess: () => { toast.success("CTA slide added to carousel!"); onUpdate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const removeCta = trpc.contentStudio.removeCtaSlide.useMutation({
+    onSuccess: () => { toast.success("CTA slide removed"); onUpdate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const hasCta = slides.some(s => s.headline === "CTA_SLIDE");
+  const ctaUrl = ctaData?.url;
+
+  if (!ctaUrl) return null;
+
+  return (
+    <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg mb-2">
+      {ctaUrl && (
+        <img src={ctaUrl} alt="CTA slide" className="w-12 h-15 object-cover rounded border border-amber-300" />
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-amber-800">Sales / CTA Slide</p>
+        <p className="text-xs text-amber-600">{hasCta ? "Added as last slide" : "Add your promo slide to the end"}</p>
+      </div>
+      <Button
+        size="sm"
+        variant={hasCta ? "destructive" : "outline"}
+        className="text-xs"
+        disabled={appendCta.isPending || removeCta.isPending}
+        onClick={() => hasCta ? removeCta.mutate({ runId }) : appendCta.mutate({ runId })}
+      >
+        {(appendCta.isPending || removeCta.isPending) ? (
+          <Loader2 className="w-3 h-3 animate-spin" />
+        ) : hasCta ? "Remove" : "Add to Carousel"}
+      </Button>
+    </div>
   );
 }
 
@@ -873,6 +916,9 @@ function RunDetailDialog({
                     )}
                   </div>
 
+                  {/* CTA Slide Toggle */}
+                  <CtaSlideToggle runId={run.id} slides={slides} onUpdate={refetch} />
+
                   {/* Fix text overlays button */}
                   <Button
                     variant="outline"
@@ -929,43 +975,58 @@ function RunDetailDialog({
                       )}
                     </Button>
                   </div>
-                  <div className="space-y-2">
-                    {slides.map((slide) => (
-                      <div key={slide.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                        <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                  {/* Slide thumbnail grid */}
+                  <div className="grid grid-cols-5 gap-2 mb-3">
+                    {slides.filter(s => s.assembledUrl).map((slide) => (
+                      <div key={slide.id} className="relative group cursor-pointer rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-[4/5]"
+                        onClick={() => slide.assembledUrl && window.open(slide.assembledUrl, "_blank")}
+                      >
+                        <img
+                          src={slide.assembledUrl!}
+                          alt={slide.headline ?? `Slide ${slide.slideIndex}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        />
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center">
                           {slide.slideIndex === 0 ? "C" : slide.slideIndex}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-700 truncate">{slide.headline}</p>
-                          {slide.summary && <p className="text-xs text-slate-500 truncate">{slide.summary}</p>}
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {slide.videoUrl && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <a href={slide.videoUrl} target="_blank" rel="noopener noreferrer">
-                                  <Video className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600" />
-                                </a>
-                              </TooltipTrigger>
-                              <TooltipContent>View B-roll video</TooltipContent>
-                            </Tooltip>
-                          )}
-                          {slide.assembledUrl && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <a href={slide.assembledUrl} target="_blank" rel="noopener noreferrer">
-                                  <Download className="w-3.5 h-3.5 text-slate-400 hover:text-green-600" />
-                                </a>
-                              </TooltipTrigger>
-                              <TooltipContent>Download assembled slide</TooltipContent>
-                            </Tooltip>
-                          )}
-                          <Badge variant="outline" className={`text-xs ${slide.status === "ready" ? "border-green-200 text-green-700" : "border-slate-200"}`}>
-                            {slide.status}
-                          </Badge>
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                          <a
+                            href={slide.assembledUrl!}
+                            download={`slide-${slide.slideIndex}.${slide.assembledUrl!.includes(".mp4") ? "mp4" : "png"}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-white rounded-full p-1.5 shadow-lg"
+                          >
+                            <Download className="w-3.5 h-3.5 text-slate-700" />
+                          </a>
                         </div>
+                        {slide.isVideoSlide === 1 && (
+                          <div className="absolute top-1 right-1 bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                            VIDEO
+                          </div>
+                        )}
                       </div>
                     ))}
+                  </div>
+                  {/* Download all button */}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      onClick={() => {
+                        slides.filter(s => s.assembledUrl).forEach((slide, i) => {
+                          setTimeout(() => {
+                            const a = document.createElement("a");
+                            a.href = slide.assembledUrl!;
+                            a.download = `run-${run.id}-slide-${slide.slideIndex}.${slide.assembledUrl!.includes(".mp4") ? "mp4" : "png"}`;
+                            a.click();
+                          }, i * 300);
+                        });
+                      }}
+                    >
+                      <Download className="w-3 h-3 mr-1" /> Download All Slides
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1240,6 +1301,78 @@ function GoogleCseCredentialsCard() {
 
         <p className="text-xs text-slate-400 border-t pt-3">
           <strong>Fallback:</strong> When Google CSE is unavailable, Nano Banana (Google Imagen) generates a cinematic image for each slide — free and built-in.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── CTA / Sales Slide Settings ─────────────────────────────────────────────
+
+function CtaSlideSettings() {
+  const [ctaUrl, setCtaUrl] = useState("");
+  const utils = trpc.useUtils();
+  const { data: ctaData } = trpc.contentStudio.getCtaSlide.useQuery();
+  const saveCta = trpc.contentStudio.saveCtaSlide.useMutation({
+    onSuccess: () => {
+      toast.success("CTA slide saved! It will appear as an option before posting.");
+      setCtaUrl("");
+      utils.contentStudio.getCtaSlide.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const currentUrl = ctaData?.url;
+
+  return (
+    <Card className="border-slate-200">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-amber-500" />
+          CTA / Sales Slide
+          {currentUrl && (
+            <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+              ✓ Saved
+            </span>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Upload a promo/sales image that gets appended as the last slide in your carousel. You can toggle it on/off per run before posting.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {currentUrl && (
+          <div className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <img src={currentUrl} alt="Current CTA" className="w-16 h-20 object-cover rounded border" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-slate-700">Current CTA Slide</p>
+              <p className="text-xs text-slate-500 truncate">{currentUrl}</p>
+            </div>
+          </div>
+        )}
+        <div className="space-y-1.5">
+          <Label htmlFor="cta-url" className="text-xs font-medium text-slate-700">
+            {currentUrl ? "Replace with new image URL" : "Image URL (public, direct link to PNG/JPG)"}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="cta-url"
+              placeholder="https://example.com/your-cta-slide.png"
+              value={ctaUrl}
+              onChange={(e) => setCtaUrl(e.target.value)}
+              className="text-sm"
+            />
+            <Button
+              size="sm"
+              disabled={!ctaUrl.trim() || saveCta.isPending}
+              onClick={() => saveCta.mutate({ imageUrl: ctaUrl.trim() })}
+            >
+              {saveCta.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">
+          Paste the public URL of your sales slide image. This gets added as the final carousel slide when you toggle it on before approving a post.
         </p>
       </CardContent>
     </Card>
@@ -1706,6 +1839,9 @@ export default function ContentStudio() {
 
             {/* Google CSE Image Search Credentials */}
             <GoogleCseCredentialsCard />
+
+            {/* CTA / Sales Slide */}
+            <CtaSlideSettings />
 
             {/* Pipeline Overview */}
             <Card className="border-slate-200">

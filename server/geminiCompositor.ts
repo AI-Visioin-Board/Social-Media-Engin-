@@ -4,8 +4,8 @@
  * HTML templates + Puppeteer slide capture + FFmpeg video overlay.
  * Replaces sharpCompositor, htmlCompositor, coverTemplateCompositor, and videoCompositor.
  *
- * Uses Tailwind CDN + Google Fonts in HTML templates — exactly matching the
- * reference Gemini pipeline implementation.
+ * Uses pure inline CSS + Google Fonts in HTML templates — no external CDN dependencies.
+ * This ensures reliable rendering in Railway's headless Chromium environment.
  *
  * IMPORTANT: Uses `puppeteer` (full package with bundled Chromium), NOT
  * `puppeteer-core` + `@sparticuz/chromium` which only works on AWS Lambda.
@@ -38,47 +38,43 @@ export function getCoverHtml(bgBase64: string, headline: string): string {
     <!DOCTYPE html>
     <html>
     <head>
-      <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
       <style>
-        body { margin: 0; padding: 0; width: 1080px; height: 1350px; overflow: hidden; background: #050505; }
-        .font-anton { font-family: 'Anton', sans-serif; }
-        .font-inter { font-family: 'Inter', sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { width: 1080px; height: 1350px; overflow: hidden; background: #050505; font-family: 'Inter', sans-serif; }
       </style>
     </head>
     <body>
-      <div class="relative w-full h-full flex flex-col">
-        <!-- Top 70% Image Zone — object-position top so subjects stay visible -->
-        <div class="absolute top-0 left-0 w-full h-[70%] z-0">
-          <img src="${bgBase64}" class="w-full h-full object-cover" style="object-position: center 25%;" />
-          <!-- Smooth gradient blending into the black bottom -->
-          <div class="absolute bottom-0 left-0 w-full h-48 bg-gradient-to-t from-black to-transparent"></div>
+      <div style="position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;">
+        <!-- Top 70% Image Zone -->
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 70%; z-index: 0;">
+          <img src="${bgBase64}" style="width: 100%; height: 100%; object-fit: cover; object-position: center 25%;" />
+          <!-- Gradient blending into black bottom -->
+          <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 192px; background: linear-gradient(to top, black, transparent);"></div>
         </div>
 
-        <!-- Bottom 40% Solid Black Text Zone (overlaps image slightly for blended look) -->
-        <div class="absolute bottom-0 left-0 w-full h-[40%] bg-black z-10"></div>
+        <!-- Bottom 40% Solid Black Zone -->
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 40%; background: black; z-index: 10;"></div>
 
-        <!-- Text Content (overlays the boundary) -->
-        <div class="absolute bottom-0 left-0 w-full z-30 px-16 pb-16 pt-8 flex flex-col items-center text-center">
+        <!-- Text Content -->
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; z-index: 30; padding: 32px 64px 64px; display: flex; flex-direction: column; align-items: center; text-align: center;">
 
-          <div class="w-full h-[2px] bg-white/30 mb-10 relative">
-             <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-black px-4 text-white/50 text-xl font-inter tracking-widest">Ai</div>
+          <div style="width: 100%; height: 2px; background: rgba(255,255,255,0.3); margin-bottom: 40px; position: relative;">
+             <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: black; padding: 0 16px; color: rgba(255,255,255,0.5); font-size: 20px; font-family: 'Inter', sans-serif; letter-spacing: 0.15em;">Ai</div>
           </div>
 
-          <h1 class="text-white text-[90px] leading-[1.05] tracking-tight uppercase w-full font-anton drop-shadow-2xl">
-            ${prefix} <span class="text-[#00E5FF]">${highlight}</span>
+          <h1 style="color: white; font-size: 90px; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+            ${prefix} <span style="color: #00E5FF;">${highlight}</span>
           </h1>
 
-          <div class="w-full flex justify-between items-center mt-12">
-            <div class="flex items-center">
-               <span class="text-white/90 text-[28px] font-inter font-bold tracking-wide">SuggestedByGPT.com</span>
+          <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 48px;">
+            <div style="display: flex; align-items: center;">
+               <span style="color: rgba(255,255,255,0.9); font-size: 28px; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: 0.05em;">SuggestedByGPT.com</span>
             </div>
-            <div class="flex items-center gap-3 bg-black/40 backdrop-blur-md rounded-full pl-6 pr-2 py-2 border border-white/10">
-              <span class="text-white text-xl font-bold uppercase tracking-wider font-inter">Swipe For More</span>
-              <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center">
-                <svg class="w-6 h-6 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
+            <div style="display: flex; align-items: center; gap: 12px; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); border-radius: 9999px; padding: 8px 8px 8px 24px; border: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: white; font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-family: 'Inter', sans-serif;">Swipe For More</span>
+              <div style="width: 48px; height: 48px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
               </div>
             </div>
           </div>
@@ -98,43 +94,41 @@ export function getContentHtml(bgBase64: string, headline: string, summary: stri
     <!DOCTYPE html>
     <html>
     <head>
-      <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
       <style>
-        body { margin: 0; padding: 0; width: 1080px; height: 1350px; overflow: hidden; background: black; }
-        .font-anton { font-family: 'Anton', sans-serif; }
-        .font-inter { font-family: 'Inter', sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { width: 1080px; height: 1350px; overflow: hidden; background: black; font-family: 'Inter', sans-serif; }
       </style>
     </head>
     <body>
-      <div class="relative w-full h-full flex flex-col">
+      <div style="position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;">
 
         <!-- Top 55% Image Zone -->
-        <div class="absolute top-0 left-0 w-full h-[55%] z-0">
-          <img src="${bgBase64}" class="w-full h-full object-cover" />
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 55%; z-index: 0;">
+          <img src="${bgBase64}" style="width: 100%; height: 100%; object-fit: cover;" />
           <!-- Gradient fading into the black bottom -->
-          <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent h-40 mt-auto"></div>
+          <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 160px; background: linear-gradient(to top, black, transparent);"></div>
         </div>
 
         <!-- Bottom 45% Text Zone -->
-        <div class="absolute bottom-0 left-0 w-full h-[45%] bg-black z-10 flex flex-col items-center px-16 pb-16 pt-8 text-center">
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 45%; background: black; z-index: 10; display: flex; flex-direction: column; align-items: center; padding: 32px 64px 64px; text-align: center;">
 
           <!-- Divider -->
-          <div class="w-full h-[1px] bg-white/20 mb-8"></div>
+          <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.2); margin-bottom: 32px;"></div>
 
-          <h1 class="text-white text-[75px] leading-[1.05] tracking-tight uppercase w-full font-anton mb-6">
-            ${prefix} <span class="text-[#00E5FF]">${highlight}</span>
+          <h1 style="color: white; font-size: 75px; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; margin-bottom: 24px;">
+            ${prefix} <span style="color: #00E5FF;">${highlight}</span>
           </h1>
 
-          <p class="text-white/80 text-[32px] leading-snug font-inter font-medium max-w-[90%]">
+          <p style="color: rgba(255,255,255,0.8); font-size: 32px; line-height: 1.4; font-family: 'Inter', sans-serif; font-weight: 500; max-width: 90%;">
             ${summary}
           </p>
 
           <!-- Footer -->
-          <div class="w-full flex justify-between items-center mt-auto">
-            <span class="text-white/90 text-[28px] font-inter font-bold tracking-wide">SuggestedByGPT.com</span>
-            <span class="text-white/80 text-2xl font-inter font-bold tracking-widest uppercase flex items-center gap-2">
-              Swipe <span class="text-3xl">›</span>
+          <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+            <span style="color: rgba(255,255,255,0.9); font-size: 28px; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: 0.05em;">SuggestedByGPT.com</span>
+            <span style="color: rgba(255,255,255,0.8); font-size: 24px; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+              Swipe <span style="font-size: 30px;">&#8250;</span>
             </span>
           </div>
 
@@ -154,42 +148,40 @@ export function getVideoOverlayHtml(headline: string, summary: string): string {
     <!DOCTYPE html>
     <html>
     <head>
-      <script src="https://cdn.tailwindcss.com"></script>
       <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
       <style>
-        body { margin: 0; padding: 0; width: 1080px; height: 1350px; overflow: hidden; background: transparent; }
-        .font-anton { font-family: 'Anton', sans-serif; }
-        .font-inter { font-family: 'Inter', sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { width: 1080px; height: 1350px; overflow: hidden; background: transparent; font-family: 'Inter', sans-serif; }
       </style>
     </head>
     <body>
-      <div class="relative w-full h-full flex flex-col">
+      <div style="position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;">
 
         <!-- Top 55% Transparent Zone -->
-        <div class="absolute top-0 left-0 w-full h-[55%] z-0">
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 55%; z-index: 0;">
           <!-- Gradient fading into the black bottom -->
-          <div class="absolute inset-0 bg-gradient-to-t from-black to-transparent h-40 mt-auto"></div>
+          <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 160px; background: linear-gradient(to top, black, transparent);"></div>
         </div>
 
         <!-- Bottom 45% Text Zone -->
-        <div class="absolute bottom-0 left-0 w-full h-[45%] bg-black z-10 flex flex-col items-center px-16 pb-16 pt-8 text-center">
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 45%; background: black; z-index: 10; display: flex; flex-direction: column; align-items: center; padding: 32px 64px 64px; text-align: center;">
 
           <!-- Divider -->
-          <div class="w-full h-[1px] bg-white/20 mb-8"></div>
+          <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.2); margin-bottom: 32px;"></div>
 
-          <h1 class="text-white text-[75px] leading-[1.05] tracking-tight uppercase w-full font-anton mb-6">
-            ${prefix} <span class="text-[#00E5FF]">${highlight}</span>
+          <h1 style="color: white; font-size: 75px; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; margin-bottom: 24px;">
+            ${prefix} <span style="color: #00E5FF;">${highlight}</span>
           </h1>
 
-          <p class="text-white/80 text-[32px] leading-snug font-inter font-medium max-w-[90%]">
+          <p style="color: rgba(255,255,255,0.8); font-size: 32px; line-height: 1.4; font-family: 'Inter', sans-serif; font-weight: 500; max-width: 90%;">
             ${summary}
           </p>
 
           <!-- Footer -->
-          <div class="w-full flex justify-between items-center mt-auto">
-            <span class="text-white/90 text-[28px] font-inter font-bold tracking-wide">SuggestedByGPT.com</span>
-            <span class="text-white/80 text-2xl font-inter font-bold tracking-widest uppercase flex items-center gap-2">
-              Swipe <span class="text-3xl">›</span>
+          <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+            <span style="color: rgba(255,255,255,0.9); font-size: 28px; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: 0.05em;">SuggestedByGPT.com</span>
+            <span style="color: rgba(255,255,255,0.8); font-size: 24px; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+              Swipe <span style="font-size: 30px;">&#8250;</span>
             </span>
           </div>
 
@@ -203,11 +195,8 @@ export function getVideoOverlayHtml(headline: string, summary: string): string {
 // ─── Slide Compositor (Puppeteer) ───────────────────────────────────────────
 
 /**
- * Takes a raw HTML string (with Tailwind CDN), loads it in a headless browser,
+ * Takes a raw HTML string, loads it in a headless browser,
  * and takes a 1080x1350 screenshot. Returns the image as a base64 data URI.
- *
- * Matches the reference Gemini pipeline: uses full `puppeteer` package
- * (bundles Chromium), launches per call, JPEG output, networkidle2.
  */
 export async function compositeGeminiSlide(html: string): Promise<string> {
   const browser = await puppeteer.launch({

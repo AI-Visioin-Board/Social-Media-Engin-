@@ -1074,6 +1074,87 @@ export const appRouter = router({
           throw new Error(`Webhook ping failed: ${err.message}`);
         }
       }),
+
+    // ─── CTA / Sales Slide ───────────────────────────────────────────────────
+
+    // Save CTA slide image URL (uploaded via the dashboard)
+    saveCtaSlide: adminProcedure
+      .input(z.object({ imageUrl: z.string() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.insert(appSettings)
+          .values({ key: "cta_slide_url", value: input.imageUrl.trim() })
+          .onConflictDoUpdate({ target: appSettings.key, set: { value: input.imageUrl.trim() } });
+        return { success: true };
+      }),
+
+    // Get saved CTA slide URL
+    getCtaSlide: adminProcedure
+      .query(async () => {
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return { url: null };
+        const [row] = await db.select().from(appSettings).where(eq(appSettings.key, "cta_slide_url"));
+        return { url: row?.value ?? null };
+      }),
+
+    // Append CTA slide to an existing run's slides (before webhook fires)
+    appendCtaSlide: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { appSettings, generatedSlides } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        // Get the CTA slide URL
+        const [ctaRow] = await db.select().from(appSettings).where(eq(appSettings.key, "cta_slide_url"));
+        if (!ctaRow?.value) throw new Error("No CTA slide saved — upload one in Settings first");
+
+        // Get existing slides to determine next index
+        const slides = await db.select().from(generatedSlides)
+          .where(eq(generatedSlides.runId, input.runId))
+          .orderBy(generatedSlides.slideIndex as any);
+
+        const nextIndex = (slides[slides.length - 1]?.slideIndex ?? 0) + 1;
+
+        // Check if CTA slide already appended
+        const hasCta = slides.some(s => s.headline === "CTA_SLIDE");
+        if (hasCta) throw new Error("CTA slide already added to this run");
+
+        // Insert CTA slide
+        await db.insert(generatedSlides).values({
+          runId: input.runId,
+          slideIndex: nextIndex,
+          headline: "CTA_SLIDE",
+          summary: "",
+          assembledUrl: ctaRow.value,
+          isVideoSlide: 0,
+          status: "ready",
+        });
+
+        return { success: true, slideIndex: nextIndex };
+      }),
+
+    // Remove CTA slide from a run
+    removeCtaSlide: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { generatedSlides } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.delete(generatedSlides)
+          .where(and(eq(generatedSlides.runId, input.runId), eq(generatedSlides.headline, "CTA_SLIDE")));
+        return { success: true };
+      }),
   }),
 
   // Re-run Stage 6 (Sharp assembly) on an existing run — fixes slides assembled without proper fonts
