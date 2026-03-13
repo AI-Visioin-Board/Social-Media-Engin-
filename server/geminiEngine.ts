@@ -154,27 +154,43 @@ ${JSON.stringify(topicSummary, null, 2)}`,
 export async function geminiGenerateImage(
   prompt: string,
   log: (msg: string, data?: any) => void,
+  maxRetries = 2,
 ): Promise<string> {
   const ai = getGeminiClient();
 
-  const res = await ai.models.generateContent({
-    model: "gemini-3.1-flash-image-preview",
-    contents: {
-      parts: [{ text: prompt }],
-    },
-    config: {
-      imageConfig: { aspectRatio: "3:4" },
-    },
-  });
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const res = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: {
+        parts: [{ text: prompt }],
+      },
+      config: {
+        imageConfig: { aspectRatio: "3:4" },
+      },
+    });
 
-  // Find the image part in the response
-  for (const part of res.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    // Find the image part in the response
+    const parts = res.candidates?.[0]?.content?.parts || [];
+    for (const part of parts) {
+      if (part.inlineData) {
+        if (attempt > 1) log(`[Nano Banana] Succeeded on retry ${attempt}/${maxRetries}`);
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      }
+    }
+
+    // Log why Gemini refused
+    const finishReason = res.candidates?.[0]?.finishReason ?? "unknown";
+    const textParts = parts.filter((p) => p.text).map((p) => p.text).join(" ");
+    const safetyRatings = JSON.stringify(res.candidates?.[0]?.safetyRatings ?? []);
+    log(`[Nano Banana] Attempt ${attempt}/${maxRetries} — no image. finishReason=${finishReason}, text="${textParts.slice(0, 200)}", safety=${safetyRatings}`);
+
+    if (attempt < maxRetries) {
+      log(`[Nano Banana] Retrying in 3s...`);
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 
-  throw new Error("No image returned from Gemini flash-image-preview");
+  throw new Error(`No image returned from Gemini flash-image-preview after ${maxRetries} attempts`);
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────
