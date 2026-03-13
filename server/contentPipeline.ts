@@ -1193,6 +1193,8 @@ export async function triggerInstagramPost(
         run_id: runId,
         caption,
         slides: slidePayload,
+        // Flat array of image URLs for Make.com — avoids map() function issues
+        image_urls: slidePayload.map((s) => s.image_url),
         slide_count: slides.length,
         has_video: slides.some((s) => s.isVideo),
         posted_at: new Date().toISOString(),
