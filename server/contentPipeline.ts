@@ -1193,8 +1193,8 @@ export async function triggerInstagramPost(
         run_id: runId,
         caption,
         slides: slidePayload,
-        // Array of objects for Make.com Instagram carousel — Files parameter expects [{url:...}]
-        image_urls: slidePayload.map((s) => ({ url: s.image_url })),
+        // Array of objects for Make.com Instagram carousel — Files parameter expects [{image_url, media_type}]
+        image_urls: slidePayload.map((s) => ({ image_url: s.image_url, media_type: s.media_type })),
         slide_count: slides.length,
         has_video: slides.some((s) => s.isVideo),
         posted_at: new Date().toISOString(),
