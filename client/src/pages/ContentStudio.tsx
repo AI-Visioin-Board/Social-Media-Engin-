@@ -381,6 +381,18 @@ function RunDetailDialog({
     onError: (e) => toast.error(e.message),
   });
 
+  const resendWebhook = trpc.contentStudio.resendWebhook.useMutation({
+    onSuccess: (data) => {
+      if (data.posted) {
+        toast.success("Webhook resent to Instagram! 🎉");
+      } else {
+        toast.error("Webhook failed — check your Make.com scenario is active");
+      }
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const approveTopics = trpc.contentStudio.approveTopics.useMutation({
     onSuccess: () => {
       toast.success("Topics approved! Deep research starting now...");
@@ -903,6 +915,19 @@ function RunDetailDialog({
                         <Instagram className="w-3 h-3 mr-1" /> Posted
                       </Badge>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={`${run.instagramPostId ? "" : "ml-auto "}text-xs`}
+                      disabled={resendWebhook.isPending}
+                      onClick={() => resendWebhook.mutate({ runId: run.id })}
+                    >
+                      {resendWebhook.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Sending...</>
+                      ) : (
+                        <><Send className="w-3 h-3 mr-1" /> Resend to Instagram</>
+                      )}
+                    </Button>
                   </div>
                   <div className="space-y-2">
                     {slides.map((slide) => (

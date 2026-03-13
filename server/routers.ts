@@ -684,6 +684,48 @@ export const appRouter = router({
         return { success: true, posted };
       }),
 
+    // Resend webhook for a completed (or failed-post) run — retry Make.com without re-running the pipeline
+    resendWebhook: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns, generatedSlides } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        if (!run) throw new Error("Run not found");
+        if (run.status !== "completed" && run.status !== "pending_post") {
+          throw new Error(`Run must be completed or pending_post to resend (status: ${run.status})`);
+        }
+
+        const caption = run.instagramCaption;
+        if (!caption) throw new Error("Run has no caption — was it approved?");
+
+        const slides = await db.select().from(generatedSlides)
+          .where(eq(generatedSlides.runId, input.runId))
+          .orderBy(generatedSlides.slideIndex as any);
+
+        const readySlides = slides.filter((s) => s.assembledUrl).map((s) => ({
+          assembledUrl: s.assembledUrl!,
+          headline: s.headline ?? "",
+          isVideo: s.isVideoSlide === 1 && !!(s.assembledUrl && (s.assembledUrl.includes(".mp4") || s.assembledUrl.includes("video"))),
+        }));
+
+        if (readySlides.length === 0) throw new Error("No assembled slides found for this run");
+
+        const { triggerInstagramPost } = await import("./contentPipeline");
+        const posted = await triggerInstagramPost(
+          input.runId,
+          readySlides,
+          caption,
+          process.env.MAKE_WEBHOOK_URL
+        );
+
+        return { success: true, posted };
+      }),
+
     // Get Kling API status
     getKlingStatus: adminProcedure
       .query(async () => {
