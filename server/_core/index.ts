@@ -148,6 +148,21 @@ async function startServer() {
   // ── Create database tables if they don't exist ──
   await migrateDatabase();
 
+  // ── Seed static assets into uploads volume ──
+  try {
+    const fs = await import("fs");
+    const uploadsDir = process.env.UPLOADS_DIR || "./public/uploads";
+    const ctaDest = path.resolve(uploadsDir, "cta/sales-slide.png");
+    if (!fs.existsSync(ctaDest)) {
+      const ctaSrc = path.resolve("./public/uploads/cta/sales-slide.png");
+      if (fs.existsSync(ctaSrc)) {
+        fs.mkdirSync(path.dirname(ctaDest), { recursive: true });
+        fs.copyFileSync(ctaSrc, ctaDest);
+        console.log("[Startup] Seeded CTA slide to uploads volume");
+      }
+    }
+  } catch (e) { console.warn("[Startup] CTA seed skipped:", e); }
+
   // ── Install fonts for SVG fallback path (Sharp/librsvg text rendering) ──
   // Primary rendering uses HTML/CSS via headless Chromium + Google Fonts CDN.
   // This fontconfig setup is still needed when Chromium is unavailable and we
