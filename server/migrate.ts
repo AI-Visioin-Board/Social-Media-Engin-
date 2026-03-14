@@ -231,6 +231,13 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    // ── Seed CTA slide URL if not set ──────────
+    await sql.unsafe(`
+      INSERT INTO "appSettings" (key, value, "updatedAt")
+      VALUES ('cta_slide_url', '/uploads/cta/sales-slide.png', NOW())
+      ON CONFLICT (key) DO NOTHING;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);
