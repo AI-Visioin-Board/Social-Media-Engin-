@@ -9,8 +9,8 @@
  * Models:
  *   - gemini-3.1-pro-preview: Creative Director (structured JSON output)
  *   - gemini-3.1-flash-image-preview: Image generation (Nano Banana)
- *   - veo-3.1-fast-generate-preview: Video generation (5s clip)
- *   - veo-3.1-generate-preview: Video extension (5s → 10s)
+ *   - veo-3.1-fast-generate-001: Video generation (5s clip, GA)
+ *   - veo-3.1-generate-001: Video extension (5s → 10s, GA)
  */
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -210,14 +210,14 @@ export async function geminiGenerateVideo(
   const apiKey = ENV.geminiApiKey;
 
   try {
-    // Step 1: Generate initial 5s clip
-    log("Gemini Video: Generating initial 5s clip (Veo 3.1 Fast)...");
+    // Step 1: Generate initial 5s clip (use GA model, not deprecated preview)
+    log("Gemini Video: Generating initial 5s clip (Veo 3.1 Fast GA)...");
     let operation = await ai.models.generateVideos({
-      model: "veo-3.1-fast-generate-preview",
+      model: "veo-3.1-fast-generate-001",
       prompt,
       config: {
         numberOfVideos: 1,
-        resolution: "720p",
+        durationSeconds: 5,
         aspectRatio: "9:16",
       },
     });
@@ -233,20 +233,30 @@ export async function geminiGenerateVideo(
       throw new Error(`Video generation failed: ${operation.error.message || JSON.stringify(operation.error)}`);
     }
 
-    const firstVideo = operation.response?.generatedVideos?.[0]?.video;
+    // Diagnostic: log what Veo actually returned
+    const generatedVideos = operation.response?.generatedVideos ?? [];
+    log(`[Veo] Operation complete. generatedVideos count: ${generatedVideos.length}`);
+    if (generatedVideos.length > 0) {
+      const first = generatedVideos[0];
+      log(`[Veo] First entry — hasVideo: ${!!first?.video}, uri: ${first?.video?.uri?.slice(0, 80) ?? "none"}`);
+    } else {
+      log(`[Veo] Full operation.response keys: ${JSON.stringify(Object.keys(operation.response ?? {}))}`);
+      log(`[Veo] Full operation metadata: ${JSON.stringify(operation.metadata ?? {})}`);
+    }
+
+    const firstVideo = generatedVideos[0]?.video;
     if (!firstVideo) {
       throw new Error("No video returned from Veo API");
     }
 
-    // Step 2: Extend to 10s
-    log("Gemini Video: Extending video to 10s (Veo 3.1)...");
+    // Step 2: Extend to 10s (use GA model, not deprecated preview)
+    log("Gemini Video: Extending video to 10s (Veo 3.1 GA)...");
     let extendOp = await ai.models.generateVideos({
-      model: "veo-3.1-generate-preview",
+      model: "veo-3.1-generate-001",
       prompt,
       video: firstVideo,
       config: {
         numberOfVideos: 1,
-        resolution: "720p",
         aspectRatio: "9:16",
       },
     });
