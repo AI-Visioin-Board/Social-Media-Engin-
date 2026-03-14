@@ -1594,9 +1594,22 @@ async function _runPipelineStages(
       const media = generatedMedia[i];
 
       if (!media) {
-        console.warn(`[ContentPipeline] No media for slide ${slideRecord.slideIndex} — skipping assembly`);
-        await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
-        continue;
+        // Render text-only slide with dark gradient background instead of skipping
+        logWithProgress(`Stage 6: Rendering text-only fallback for slide ${slideRecord.slideIndex} (no image)...`);
+        try {
+          const { getContentHtml, compositeGeminiSlide } = await import("./geminiCompositor");
+          // Use a 1x1 transparent pixel as placeholder image
+          const placeholderBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg==";
+          const fallbackHtml = getContentHtml(placeholderBase64, slideRecord.headline ?? "", slideRecord.summary ?? "");
+          const fallbackBase64 = await compositeGeminiSlide(fallbackHtml);
+          const { url: fallbackUrl } = await storagePut(`gemini-slides/run-${runId}-slide-${slideRecord.slideIndex}-fallback.png`, fallbackBase64, "image/png");
+          await db.update(generatedSlides).set({ assembledUrl: fallbackUrl, status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
+          continue;
+        } catch (fallbackErr) {
+          console.warn(`[ContentPipeline] Text-only fallback failed for slide ${slideRecord.slideIndex}:`, fallbackErr);
+          await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
+          continue;
+        }
       }
 
       try {

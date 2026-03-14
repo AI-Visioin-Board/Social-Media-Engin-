@@ -109,7 +109,7 @@ This week's stories:
 {TOPICS}
 
 REQUIREMENTS:
-1. 100-175 words (concise captions outperform long ones on Instagram)
+1. 75-120 words MAXIMUM (short punchy captions outperform long ones on Instagram — be ruthlessly concise)
 2. First line MUST create a curiosity gap (this is the only line visible before "more" tap)
 3. Include a natural share prompt (DM shares = strongest algorithm signal)
 4. Include a save prompt (saves = second strongest signal)
