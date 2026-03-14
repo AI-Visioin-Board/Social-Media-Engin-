@@ -26,6 +26,7 @@ import {
   LogOut,
   PanelLeft,
   Sparkles,
+  Video,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -33,7 +34,8 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: Instagram, label: "Content Studio", path: "/" },
+  { icon: Instagram, label: "Carousel", path: "/" },
+  { icon: Video, label: "Avatar Reels", path: "/avatar-reels" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

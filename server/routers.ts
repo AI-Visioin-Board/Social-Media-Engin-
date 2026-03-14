@@ -1195,5 +1195,141 @@ export const appRouter = router({
       }
       return { updated, total: slides.length };
     }),
+
+  // ─── Avatar Reels ─────────────────────────────────────────
+  avatarReels: router({
+    // Trigger a new avatar reel pipeline
+    triggerRun: adminProcedure
+      .input(z.object({
+        contentBucket: z.string().optional(),
+        dayNumber: z.number().optional(),
+      }).optional())
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { avatarRuns } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [row] = await db.insert(avatarRuns).values({
+          status: "pending",
+          contentBucket: input?.contentBucket ?? null,
+          dayNumber: input?.dayNumber ?? null,
+        }).returning({ id: avatarRuns.id });
+        // Fire pipeline async (don't await)
+        import("./avatarPipeline").then(m => m.runAvatarPipeline(row.id)).catch(console.error);
+        return { runId: row.id };
+      }),
+
+    // Get all avatar runs
+    getRuns: adminProcedure
+      .input(z.object({ limit: z.number().default(20) }).optional())
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { avatarRuns } = await import("../drizzle/schema");
+        const { desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return db.select().from(avatarRuns).orderBy(desc(avatarRuns.createdAt)).limit(input?.limit ?? 20);
+      }),
+
+    // Get single run with full detail
+    getRun: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { avatarRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+        const [run] = await db.select().from(avatarRuns).where(eq(avatarRuns.id, input.runId));
+        return run ?? null;
+      }),
+
+    // Approve selected topic, continue pipeline
+    approveTopic: adminProcedure
+      .input(z.object({ runId: z.number(), topicIndex: z.number() }))
+      .mutation(async ({ input }) => {
+        const { continueAfterTopicApproval } = await import("./avatarPipeline");
+        // Fire async
+        continueAfterTopicApproval(input.runId, input.topicIndex).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Reject all topics, re-discover
+    reselectTopics: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { runAvatarPipeline } = await import("./avatarPipeline");
+        runAvatarPipeline(input.runId).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Approve video + caption, post to Instagram
+    approvePost: adminProcedure
+      .input(z.object({ runId: z.number(), caption: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const { continueAfterVideoApproval } = await import("./avatarPipeline");
+        await continueAfterVideoApproval(input.runId, input.caption);
+        return { ok: true };
+      }),
+
+    // Submit feedback (text or STT transcript), trigger revision
+    submitFeedback: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        feedback: z.string(),
+        fromStt: z.boolean().default(false),
+      }))
+      .mutation(async ({ input }) => {
+        const { handleFeedback } = await import("./avatarPipeline");
+        handleFeedback(input.runId, input.feedback, input.fromStt).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Surgical B-roll swap
+    swapBroll: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        beatIndex: z.number(),
+        newPrompt: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { swapBroll } = await import("./avatarPipeline");
+        swapBroll(input.runId, input.beatIndex, input.newPrompt).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Edit narration text for a specific beat
+    editNarration: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        beatIndex: z.number(),
+        newText: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const { editNarration } = await import("./avatarPipeline");
+        editNarration(input.runId, input.beatIndex, input.newText).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Cancel running pipeline
+    cancelRun: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { cancelPipeline } = await import("./avatarPipeline");
+        const { getDb } = await import("./db");
+        const { avatarRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const cancelled = cancelPipeline(input.runId);
+        if (!cancelled) {
+          const db = await getDb();
+          if (db) {
+            await db.update(avatarRuns)
+              .set({ status: "cancelled", statusDetail: "Cancelled by user", updatedAt: new Date() })
+              .where(eq(avatarRuns.id, input.runId));
+          }
+        }
+        return { ok: true };
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;

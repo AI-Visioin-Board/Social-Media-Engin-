@@ -7,8 +7,9 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import DashboardLayout from "./components/DashboardLayout";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import ContentStudio from "./pages/ContentStudio";
+import AvatarReels from "./pages/AvatarReels";
 
-// Content Studio is the main interface — all routes lead here
+// Content Studio (Carousel) + Avatar Reels — dashboard routes
 function Router() {
   return (
     <Switch>
@@ -21,6 +22,7 @@ function Router() {
           <Switch>
             <Route path="/" component={ContentStudio} />
             <Route path="/content-studio" component={ContentStudio} />
+            <Route path="/avatar-reels" component={AvatarReels} />
             <Route path="/404" component={NotFound} />
             <Route component={NotFound} />
           </Switch>

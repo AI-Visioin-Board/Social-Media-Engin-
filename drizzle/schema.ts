@@ -20,6 +20,12 @@ export const contentRunStatusEnum = pgEnum("content_run_status", [
 export const slideStatusEnum = pgEnum("slide_status", [
   "pending", "researching", "generating_video", "assembling", "ready", "failed",
 ]);
+export const avatarRunStatusEnum = pgEnum("avatar_run_status", [
+  "pending", "topic_discovery", "topic_review",
+  "scripting", "generating_assets", "generating_avatar",
+  "assembling", "video_review", "revision",
+  "posting", "completed", "failed", "cancelled",
+]);
 
 // ─────────────────────────────────────────────
 // CORE — Auth & CRM
@@ -306,3 +312,68 @@ export const appSettings = pgTable("appSettings", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 export type AppSetting = typeof appSettings.$inferSelect;
+
+// ─────────────────────────────────────────────
+// AVATAR REELS — AI Avatar Video Pipeline
+// ─────────────────────────────────────────────
+
+/**
+ * Avatar reel run — one run = one Quinn avatar reel video
+ * Stores all intermediate pipeline state for surgical editing (B-roll swap, narration edit)
+ */
+export const avatarRuns = pgTable("avatar_runs", {
+  id: serial("id").primaryKey(),
+  /** Pipeline status state machine */
+  status: avatarRunStatusEnum("status").default("pending").notNull(),
+  /** Granular progress detail (e.g. "Generating asset 3/15...") */
+  statusDetail: text("statusDetail"),
+  /** Approved topic headline */
+  topic: text("topic"),
+  /** JSON array of 3 scored topic candidates for user selection */
+  topicCandidates: text("topicCandidates"),
+  /** JSON array of verified source articles {url, domain, title, publishedAt, bodyExcerpt, credibilityTier} */
+  sourceArticles: text("sourceArticles"),
+  /** JSON array of extracted facts {fact, sourceUrl, sourceIndex} */
+  extractedFacts: text("extractedFacts"),
+  /** Verification status: verified_3plus | insufficient_sources | unverified */
+  verificationStatus: varchar("verificationStatus", { length: 32 }),
+  /** Weighted virality score from topic selection */
+  viralityScore: integer("viralityScore"),
+  /** Full VideoScript JSON from Stage 1 — persisted for narration editing */
+  scriptJson: text("scriptJson"),
+  /** JSON AssetMap from Stage 3 — persisted for surgical B-roll editing */
+  assetMap: text("assetMap"),
+  /** Full Shotstack Edit JSON — persisted for re-assembly */
+  shotstackEditJson: text("shotstackEditJson"),
+  /** HeyGen avatar video URL */
+  avatarVideoUrl: varchar("avatarVideoUrl", { length: 1000 }),
+  /** Avatar video duration in seconds */
+  avatarDurationSec: integer("avatarDurationSec"),
+  /** Shotstack render output URL */
+  assembledVideoUrl: varchar("assembledVideoUrl", { length: 1000 }),
+  /** Post-processed final URL */
+  finalVideoUrl: varchar("finalVideoUrl", { length: 1000 }),
+  /** Instagram caption + hashtags */
+  instagramCaption: text("instagramCaption"),
+  /** JSON array of feedback entries {feedback, timestamp, fromStt} */
+  feedbackHistory: text("feedbackHistory"),
+  /** Number of revision cycles */
+  revisionCount: integer("revisionCount").default(0).notNull(),
+  /** Day number in 30-day series (null if not in series) */
+  dayNumber: integer("dayNumber"),
+  /** Content bucket: tool_drop, big_move, proof_drop, reality_check, future_drop, ai_fail */
+  contentBucket: varchar("contentBucket", { length: 32 }),
+  /** HeyGen outfit/look ID used for this video */
+  outfitId: varchar("outfitId", { length: 128 }),
+  /** Make.com webhook response / Instagram post ID */
+  instagramPostId: varchar("instagramPostId", { length: 255 }),
+  /** Error message if status = failed */
+  errorMessage: text("errorMessage"),
+  /** HeyGen API credits consumed by this run */
+  heygenCreditsUsed: integer("heygenCreditsUsed").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type AvatarRun = typeof avatarRuns.$inferSelect;
+export type InsertAvatarRun = typeof avatarRuns.$inferInsert;

@@ -238,6 +238,50 @@ export async function migrateDatabase(): Promise<void> {
       ON CONFLICT (key) DO NOTHING;
     `);
 
+    // ── Avatar Reels pipeline ──────────────────
+    await sql.unsafe(`
+      DO $$ BEGIN
+        CREATE TYPE avatar_run_status AS ENUM (
+          'pending', 'topic_discovery', 'topic_review',
+          'scripting', 'generating_assets', 'generating_avatar',
+          'assembling', 'video_review', 'revision',
+          'posting', 'completed', 'failed', 'cancelled'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
+
+    await sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS avatar_runs (
+        id SERIAL PRIMARY KEY,
+        status avatar_run_status NOT NULL DEFAULT 'pending',
+        "statusDetail" TEXT,
+        topic TEXT,
+        "topicCandidates" TEXT,
+        "sourceArticles" TEXT,
+        "extractedFacts" TEXT,
+        "verificationStatus" VARCHAR(32),
+        "viralityScore" INTEGER,
+        "scriptJson" TEXT,
+        "assetMap" TEXT,
+        "shotstackEditJson" TEXT,
+        "avatarVideoUrl" VARCHAR(1000),
+        "avatarDurationSec" INTEGER,
+        "assembledVideoUrl" VARCHAR(1000),
+        "finalVideoUrl" VARCHAR(1000),
+        "instagramCaption" TEXT,
+        "feedbackHistory" TEXT,
+        "revisionCount" INTEGER NOT NULL DEFAULT 0,
+        "dayNumber" INTEGER,
+        "contentBucket" VARCHAR(32),
+        "outfitId" VARCHAR(128),
+        "instagramPostId" VARCHAR(255),
+        "errorMessage" TEXT,
+        "heygenCreditsUsed" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);
