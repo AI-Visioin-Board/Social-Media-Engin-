@@ -282,6 +282,31 @@ export async function migrateDatabase(): Promise<void> {
       );
     `);
 
+    // ── Suggested Topics bank ──────────────────
+    await sql.unsafe(`
+      DO $$ BEGIN
+        CREATE TYPE suggested_topic_status AS ENUM ('pending', 'running', 'used', 'skipped');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
+
+    await sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS suggested_topics (
+        id SERIAL PRIMARY KEY,
+        topic TEXT NOT NULL,
+        notes TEXT,
+        status suggested_topic_status NOT NULL DEFAULT 'pending',
+        avatar_run_id INTEGER,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Add suggested_topic_id column to avatar_runs (idempotent)
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN suggested_topic_id INTEGER;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);

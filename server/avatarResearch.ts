@@ -512,9 +512,20 @@ export interface ResearchResult {
   totalAfterDedup: number;
 }
 
-export async function runFullResearch(): Promise<ResearchResult> {
-  // Step 1: Discover
+export async function runFullResearch(suggestedTopic?: string): Promise<ResearchResult> {
+  // Step 1: Discover (inject suggested topic if provided)
   const rawTopics = await discoverTopics();
+
+  // If user suggested a topic, inject it as a high-priority raw topic
+  if (suggestedTopic) {
+    console.log(`[AvatarResearch] Injecting user-suggested topic: "${suggestedTopic}"`);
+    rawTopics.unshift({
+      title: suggestedTopic,
+      source: "gpt_search" as const,
+      url: "",
+    });
+  }
+
   const totalDiscovered = rawTopics.length;
 
   if (rawTopics.length === 0) {

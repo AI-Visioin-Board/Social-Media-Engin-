@@ -12,6 +12,7 @@ import {
   Video, Mic, MicOff, RefreshCw, Send, ExternalLink,
   ChevronDown, ChevronUp, Shield, Zap, Eye, X,
   Pencil, Image as ImageIcon, RotateCcw,
+  Plus, Trash2, SkipForward, Lightbulb, Rocket,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -75,6 +76,15 @@ interface Beat {
   visualType: string;
   visualPrompt: string;
   captionEmphasis?: string[];
+}
+
+interface SuggestedTopic {
+  id: number;
+  topic: string;
+  notes: string | null;
+  status: "pending" | "running" | "used" | "skipped";
+  avatarRunId: number | null;
+  createdAt: string | Date;
 }
 
 // ─── Status Helpers ─────────────────────────────────────────
@@ -192,6 +202,12 @@ export default function AvatarReels() {
         <StatsCard title="Completed" value={completed} icon={<CheckCircle2 className="w-4 h-4" />} color="text-green-500" />
       </div>
 
+      {/* Suggested Topics Bank */}
+      <TopicBank
+        onRunTopic={(id) => triggerMut.mutate({ suggestedTopicId: id })}
+        isRunning={triggerMut.isPending}
+      />
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -240,6 +256,206 @@ function StatsCard({ title, value, icon, color }: { title: string; value: number
         </div>
         <div className="text-muted-foreground">{icon}</div>
       </CardContent>
+    </Card>
+  );
+}
+
+// ─── Topic Bank ─────────────────────────────────────────────
+
+function TopicBank({ onRunTopic, isRunning: parentRunning }: { onRunTopic: (id: number) => void; isRunning: boolean }) {
+  const [newTopic, setNewTopic] = useState("");
+  const [newNotes, setNewNotes] = useState("");
+  const [showNotes, setShowNotes] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+
+  const topicsQuery = trpc.avatarReels.getSuggestedTopics.useQuery(undefined, {
+    refetchInterval: 10000,
+  });
+
+  const addMut = trpc.avatarReels.addSuggestedTopic.useMutation({
+    onSuccess: () => {
+      toast.success("Topic added to bank");
+      setNewTopic("");
+      setNewNotes("");
+      setShowNotes(false);
+      topicsQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const skipMut = trpc.avatarReels.skipSuggestedTopic.useMutation({
+    onSuccess: () => topicsQuery.refetch(),
+  });
+
+  const deleteMut = trpc.avatarReels.deleteSuggestedTopic.useMutation({
+    onSuccess: () => topicsQuery.refetch(),
+  });
+
+  const topics = (topicsQuery.data ?? []) as unknown as SuggestedTopic[];
+  const pendingTopics = topics.filter(t => t.status === "pending");
+  const otherTopics = topics.filter(t => t.status !== "pending");
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Lightbulb className="w-4 h-4 text-yellow-500" />
+            Topic Suggestions
+            {pendingTopics.length > 0 && (
+              <Badge variant="secondary" className="text-xs">{pendingTopics.length} pending</Badge>
+            )}
+          </CardTitle>
+          <button onClick={() => setExpanded(!expanded)} className="text-muted-foreground hover:text-foreground">
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-3">
+          {/* Add topic input */}
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-2">
+              <Input
+                value={newTopic}
+                onChange={(e) => setNewTopic(e.target.value)}
+                placeholder="Suggest a topic to research... e.g. 'Apple's new AI features in iOS 20'"
+                className="text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newTopic.trim().length >= 3) {
+                    addMut.mutate({ topic: newTopic.trim(), notes: newNotes.trim() || undefined });
+                  }
+                }}
+              />
+              {showNotes && (
+                <Input
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="Optional notes: angle, context, why it matters..."
+                  className="text-sm text-muted-foreground"
+                />
+              )}
+            </div>
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => setShowNotes(!showNotes)}
+                title="Add notes"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                className="h-9"
+                disabled={newTopic.trim().length < 3 || addMut.isPending}
+                onClick={() => addMut.mutate({ topic: newTopic.trim(), notes: newNotes.trim() || undefined })}
+              >
+                {addMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+
+          {/* Pending topics list */}
+          {pendingTopics.length > 0 && (
+            <div className="space-y-1.5">
+              {pendingTopics.map(topic => (
+                <div
+                  key={topic.id}
+                  className="flex items-center gap-2 p-2 rounded-md bg-accent/30 hover:bg-accent/50 transition-colors group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{topic.topic}</p>
+                    {topic.notes && (
+                      <p className="text-xs text-muted-foreground truncate">{topic.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={parentRunning}
+                          onClick={() => onRunTopic(topic.id)}
+                        >
+                          <Rocket className="w-3.5 h-3.5 text-green-600" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Research & run this topic</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => skipMut.mutate({ id: topic.id })}
+                        >
+                          <SkipForward className="w-3.5 h-3.5 text-muted-foreground" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Skip this topic</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => deleteMut.mutate({ id: topic.id })}
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                    {new Date(topic.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Used/skipped topics (collapsed) */}
+          {otherTopics.length > 0 && (
+            <details className="text-xs">
+              <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
+                {otherTopics.length} used/skipped topics
+              </summary>
+              <div className="mt-1 space-y-1">
+                {otherTopics.map(topic => (
+                  <div key={topic.id} className="flex items-center gap-2 p-1.5 rounded opacity-60">
+                    <Badge variant="outline" className="text-[10px] px-1 py-0">
+                      {topic.status}
+                    </Badge>
+                    <span className="truncate">{topic.topic}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 ml-auto"
+                      onClick={() => deleteMut.mutate({ id: topic.id })}
+                    >
+                      <Trash2 className="w-3 h-3 text-red-400" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {pendingTopics.length === 0 && otherTopics.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">
+              No topics yet. Suggest topics you want Quinn to cover — they still go through full research verification.
+            </p>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }

@@ -1198,24 +1198,44 @@ export const appRouter = router({
 
   // ─── Avatar Reels ─────────────────────────────────────────
   avatarReels: router({
-    // Trigger a new avatar reel pipeline
+    // Trigger a new avatar reel pipeline (optionally from a suggested topic)
     triggerRun: adminProcedure
       .input(z.object({
         contentBucket: z.string().optional(),
         dayNumber: z.number().optional(),
+        suggestedTopicId: z.number().optional(),
       }).optional())
       .mutation(async ({ input }) => {
         const { getDb } = await import("./db");
-        const { avatarRuns } = await import("../drizzle/schema");
+        const { avatarRuns, suggestedTopics } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
         const db = await getDb();
         if (!db) throw new Error("DB not available");
+
+        let suggestedTopic: string | undefined;
+
+        // If triggered from a suggested topic, fetch it and mark as running
+        if (input?.suggestedTopicId) {
+          const [st] = await db.select().from(suggestedTopics).where(eq(suggestedTopics.id, input.suggestedTopicId));
+          if (!st) throw new Error("Suggested topic not found");
+          suggestedTopic = st.topic;
+          await db.update(suggestedTopics).set({ status: "running" }).where(eq(suggestedTopics.id, input.suggestedTopicId));
+        }
+
         const [row] = await db.insert(avatarRuns).values({
           status: "pending",
           contentBucket: input?.contentBucket ?? null,
           dayNumber: input?.dayNumber ?? null,
+          suggestedTopicId: input?.suggestedTopicId ?? null,
         }).returning({ id: avatarRuns.id });
+
+        // Link suggestion to the run
+        if (input?.suggestedTopicId) {
+          await db.update(suggestedTopics).set({ avatarRunId: row.id }).where(eq(suggestedTopics.id, input.suggestedTopicId));
+        }
+
         // Fire pipeline async (don't await)
-        import("./avatarPipeline").then(m => m.runAvatarPipeline(row.id)).catch(console.error);
+        import("./avatarPipeline").then(m => m.runAvatarPipeline(row.id, suggestedTopic)).catch(console.error);
         return { runId: row.id };
       }),
 
@@ -1328,6 +1348,62 @@ export const appRouter = router({
               .where(eq(avatarRuns.id, input.runId));
           }
         }
+        return { ok: true };
+      }),
+
+    // ─── Suggested Topics Bank ──────────────────────────────
+    // Add a topic suggestion
+    addSuggestedTopic: adminProcedure
+      .input(z.object({
+        topic: z.string().min(3).max(300),
+        notes: z.string().max(500).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { suggestedTopics } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [row] = await db.insert(suggestedTopics).values({
+          topic: input.topic,
+          notes: input.notes ?? null,
+        }).returning();
+        return row;
+      }),
+
+    // List all suggested topics
+    getSuggestedTopics: adminProcedure
+      .query(async () => {
+        const { getDb } = await import("./db");
+        const { suggestedTopics } = await import("../drizzle/schema");
+        const { desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return db.select().from(suggestedTopics).orderBy(desc(suggestedTopics.createdAt));
+      }),
+
+    // Skip/dismiss a suggested topic
+    skipSuggestedTopic: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { suggestedTopics } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.update(suggestedTopics).set({ status: "skipped" }).where(eq(suggestedTopics.id, input.id));
+        return { ok: true };
+      }),
+
+    // Delete a suggested topic
+    deleteSuggestedTopic: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { suggestedTopics } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.delete(suggestedTopics).where(eq(suggestedTopics.id, input.id));
         return { ok: true };
       }),
   }),

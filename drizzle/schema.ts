@@ -26,6 +26,9 @@ export const avatarRunStatusEnum = pgEnum("avatar_run_status", [
   "assembling", "video_review", "revision",
   "posting", "completed", "failed", "cancelled",
 ]);
+export const suggestedTopicStatusEnum = pgEnum("suggested_topic_status", [
+  "pending", "running", "used", "skipped",
+]);
 
 // ─────────────────────────────────────────────
 // CORE — Auth & CRM
@@ -371,9 +374,30 @@ export const avatarRuns = pgTable("avatar_runs", {
   errorMessage: text("errorMessage"),
   /** HeyGen API credits consumed by this run */
   heygenCreditsUsed: integer("heygenCreditsUsed").default(0).notNull(),
+  /** FK to suggested_topics if this run was seeded by a user suggestion */
+  suggestedTopicId: integer("suggested_topic_id"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type AvatarRun = typeof avatarRuns.$inferSelect;
 export type InsertAvatarRun = typeof avatarRuns.$inferInsert;
+
+/**
+ * Suggested topics bank — user-submitted topics that still go through full research verification
+ */
+export const suggestedTopics = pgTable("suggested_topics", {
+  id: serial("id").primaryKey(),
+  /** The topic/headline the user wants researched */
+  topic: text("topic").notNull(),
+  /** Optional notes about why this topic matters or what angle to take */
+  notes: text("notes"),
+  /** pending = in bank, running = pipeline active, used = reel created, skipped = dismissed */
+  status: suggestedTopicStatusEnum("status").default("pending").notNull(),
+  /** Link to the avatar_runs row that used this topic (null if unused) */
+  avatarRunId: integer("avatar_run_id"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SuggestedTopic = typeof suggestedTopics.$inferSelect;
+export type InsertSuggestedTopic = typeof suggestedTopics.$inferInsert;

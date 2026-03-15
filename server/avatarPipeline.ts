@@ -31,7 +31,7 @@ async function getRun(runId: number) {
 
 // ─── Stage 1: Discovery + Research → pause at topic_review ──
 
-export async function runAvatarPipeline(runId: number): Promise<void> {
+export async function runAvatarPipeline(runId: number, suggestedTopic?: string): Promise<void> {
   const ac = new AbortController();
   runningPipelines.set(runId, ac);
 
@@ -39,11 +39,14 @@ export async function runAvatarPipeline(runId: number): Promise<void> {
     // Update status: topic_discovery
     await updateRun(runId, {
       status: "topic_discovery",
-      statusDetail: "Discovering AI news topics from NewsAPI, Reddit, and GPT web search...",
+      statusDetail: suggestedTopic
+        ? `Researching suggested topic: "${suggestedTopic}"...`
+        : "Discovering AI news topics from NewsAPI, Reddit, and GPT web search...",
     });
 
     // Run full research pipeline (discover → score → verify)
-    const research = await runFullResearch();
+    // If suggestedTopic provided, it gets injected as highest-priority candidate
+    const research = await runFullResearch(suggestedTopic);
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
@@ -284,7 +287,22 @@ export async function continueAfterVideoApproval(runId: number, caption?: string
       statusDetail: `Video approved. Posting error: ${err.message}`,
       errorMessage: err.message,
     });
+  } finally {
+    // Mark suggested topic as "used" if this run was seeded by one
+    await markSuggestedTopicUsed(runId);
   }
+}
+
+async function markSuggestedTopicUsed(runId: number) {
+  try {
+    const run = await getRun(runId);
+    if (!run?.suggestedTopicId) return;
+    const db = await (await import("./db.js")).getDb();
+    if (!db) return;
+    const { suggestedTopics } = await import("../drizzle/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.update(suggestedTopics).set({ status: "used" }).where(eq(suggestedTopics.id, run.suggestedTopicId));
+  } catch { /* non-critical */ }
 }
 
 // ─── Feedback / Revision ────────────────────────────────────
