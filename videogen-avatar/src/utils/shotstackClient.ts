@@ -61,6 +61,8 @@ async function pollRenderStatus(
   signal?: AbortSignal,
 ): Promise<{ videoUrl: string }> {
   const startTime = Date.now();
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 5;
 
   while (Date.now() - startTime < CONFIG.shotstackTimeoutMs) {
     if (signal?.aborted) throw new Error("[Shotstack] Aborted");
@@ -71,10 +73,15 @@ async function pollRenderStatus(
     });
 
     if (!response.ok) {
-      console.warn(`[Shotstack] Poll failed (${response.status}), retrying...`);
+      consecutiveErrors++;
+      console.warn(`[Shotstack] Poll failed (${response.status}), attempt ${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}`);
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        throw new Error(`[Shotstack] Polling failed ${MAX_CONSECUTIVE_ERRORS} times consecutively (last status: ${response.status})`);
+      }
       await sleep(CONFIG.shotstackPollIntervalMs, signal);
       continue;
     }
+    consecutiveErrors = 0;
 
     const data = await response.json();
     const status = data.response?.status;

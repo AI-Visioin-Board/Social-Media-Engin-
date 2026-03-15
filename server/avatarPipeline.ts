@@ -81,6 +81,16 @@ export async function continueAfterTopicApproval(
   runningPipelines.set(runId, ac);
 
   try {
+    // Validate critical API keys upfront — fail fast before wasting time on scripting
+    const { CONFIG, hasKey } = await import("../videogen-avatar/src/config.js");
+    const missingKeys: string[] = [];
+    if (!hasKey("shotstack")) missingKeys.push("SHOTSTACK_API_KEY");
+    if (!hasKey("heygen")) missingKeys.push("HEYGEN_API_KEY");
+    if (!CONFIG.heygenAvatarId && !CONFIG.heygenLookId) missingKeys.push("HEYGEN_AVATAR_ID or HEYGEN_LOOK_ID");
+    if (missingKeys.length > 0) {
+      throw new Error(`Missing required env vars: ${missingKeys.join(", ")}. Set them in Railway before running the pipeline.`);
+    }
+
     const run = await getRun(runId);
     if (!run) throw new Error(`Run ${runId} not found`);
 
@@ -130,7 +140,6 @@ export async function continueAfterTopicApproval(
     const { routeAssets } = await import("../videogen-avatar/src/assetRouter.js");
     const { generateAllAssets } = await import("../videogen-avatar/src/assetGenerator.js");
     const { generateAvatarVideo } = await import("../videogen-avatar/src/utils/heygenClient.js");
-    const { CONFIG } = await import("../videogen-avatar/src/config.js");
 
     // Route beats to asset sources
     const manifest = routeAssets(script);

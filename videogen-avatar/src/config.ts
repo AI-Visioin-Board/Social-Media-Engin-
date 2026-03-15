@@ -26,7 +26,7 @@ export const CONFIG = {
   heygenLookId: process.env.HEYGEN_LOOK_ID ?? "",    // specific look/outfit for the avatar
   heygenVoiceId: process.env.HEYGEN_VOICE_ID ?? "",
   shotstackApiKey: process.env.SHOTSTACK_API_KEY ?? "",
-  shotstackEnv: (process.env.SHOTSTACK_ENV ?? "stage") as "stage" | "v1",
+  shotstackEnv: (process.env.SHOTSTACK_ENV ?? "v1") as "stage" | "v1",
   pexelsApiKey: process.env.PEXELS_API_KEY ?? "",
 
   // --- Pipeline defaults ---
