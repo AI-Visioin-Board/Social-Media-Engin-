@@ -30,6 +30,19 @@ export const ENV = {
   // Replicate (Seedance video gen)
   replicateApiToken: process.env.REPLICATE_API_TOKEN ?? "",
 
+  // HeyGen (Avatar video generation)
+  heygenApiKey: process.env.HEYGEN_API_KEY ?? "",
+  heygenAvatarId: process.env.HEYGEN_AVATAR_ID ?? "",
+  heygenLookId: process.env.HEYGEN_LOOK_ID ?? "",
+  heygenVoiceId: process.env.HEYGEN_VOICE_ID ?? "",
+
+  // Shotstack (Cloud video assembly)
+  shotstackApiKey: process.env.SHOTSTACK_API_KEY ?? "",
+  shotstackEnv: (process.env.SHOTSTACK_ENV ?? "v1") as "stage" | "v1",
+
+  // Pexels (Stock B-roll fallback)
+  pexelsApiKey: process.env.PEXELS_API_KEY ?? "",
+
   // External APIs
   newsApiKey: process.env.NEWS_API_KEY ?? "",
   serpApiKey: process.env.SERP_API_KEY ?? "",
