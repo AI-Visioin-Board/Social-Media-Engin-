@@ -583,67 +583,78 @@ function TopicReviewPanel({ run, onRefresh }: { run: AvatarRun; onRefresh: () =>
   return (
     <div className="space-y-3">
       <h3 className="font-semibold text-sm">Select a Topic</h3>
-      {candidates.map((topic, i) => (
-        <Card
-          key={i}
-          className={`cursor-pointer transition-colors ${selectedIndex === i ? "ring-2 ring-primary" : "hover:bg-accent/30"}`}
-          onClick={() => setSelectedIndex(i)}
-        >
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1">
-                <p className="font-medium text-sm">{topic.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{topic.summary}</p>
-              </div>
-              <div className="flex flex-col items-end gap-1">
-                <Badge variant="secondary" className="text-xs">
-                  <Zap className="w-3 h-3 mr-1" />
-                  {topic.weightedScore?.toFixed(1)}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className={`text-xs ${topic.verificationStatus === "verified_3plus" ? "border-green-500 text-green-600" : "border-yellow-500 text-yellow-600"}`}
-                >
-                  <Shield className="w-3 h-3 mr-1" />
-                  {topic.sources?.length ?? 0} sources
-                </Badge>
-              </div>
-            </div>
-
-            {/* Expandable sources */}
-            <button
-              className="text-xs text-muted-foreground mt-2 flex items-center gap-1 hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); setExpandedSources(expandedSources === i ? null : i); }}
-            >
-              {expandedSources === i ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              {expandedSources === i ? "Hide" : "Show"} sources
-            </button>
-            {expandedSources === i && topic.sources && (
-              <div className="mt-2 space-y-1">
-                {topic.sources.map((src, j) => (
-                  <a
-                    key={j}
-                    href={src.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-blue-500 hover:underline"
-                    onClick={(e) => e.stopPropagation()}
+      <div className="max-h-[50vh] overflow-y-auto space-y-2 pr-1">
+        {candidates.map((topic, i) => (
+          <Card
+            key={i}
+            className={`cursor-pointer transition-colors ${selectedIndex === i ? "ring-2 ring-primary" : "hover:bg-accent/30"}`}
+            onClick={() => {
+              if (selectedIndex === i) {
+                // Clicking the already-selected card collapses sources
+                setExpandedSources(null);
+                setSelectedIndex(-1);
+              } else {
+                setSelectedIndex(i);
+                setExpandedSources(null);
+              }
+            }}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <p className="font-medium text-sm">{topic.title}</p>
+                  <p className="text-xs text-muted-foreground mt-1">{topic.summary}</p>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge variant="secondary" className="text-xs">
+                    <Zap className="w-3 h-3 mr-1" />
+                    {topic.weightedScore?.toFixed(1)}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs ${topic.verificationStatus === "verified_3plus" ? "border-green-500 text-green-600" : "border-yellow-500 text-yellow-600"}`}
                   >
-                    <ExternalLink className="w-3 h-3" />
-                    <Badge variant={src.credibilityTier === "tier1" ? "default" : "outline"} className="text-[10px] px-1 py-0">
-                      {src.credibilityTier === "tier1" ? "Tier 1" : "Other"}
-                    </Badge>
-                    {src.domain}: {src.title?.slice(0, 60)}
-                  </a>
-                ))}
+                    <Shield className="w-3 h-3 mr-1" />
+                    {topic.sources?.length ?? 0} sources
+                  </Badge>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+
+              {/* Expandable sources — toggle on click */}
+              <button
+                className="text-xs text-muted-foreground mt-2 flex items-center gap-1 hover:text-foreground"
+                onClick={(e) => { e.stopPropagation(); setExpandedSources(expandedSources === i ? null : i); }}
+              >
+                {expandedSources === i ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                {expandedSources === i ? "Hide" : "Show"} sources
+              </button>
+              {expandedSources === i && topic.sources && (
+                <div className="mt-2 space-y-1 max-h-[200px] overflow-y-auto">
+                  {topic.sources.map((src, j) => (
+                    <a
+                      key={j}
+                      href={src.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-xs text-blue-500 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <Badge variant={src.credibilityTier === "tier1" ? "default" : "outline"} className="text-[10px] px-1 py-0">
+                        {src.credibilityTier === "tier1" ? "Tier 1" : "Other"}
+                      </Badge>
+                      {src.domain}: {src.title?.slice(0, 60)}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       <div className="flex gap-2">
-        <Button onClick={() => approveMut.mutate({ runId: run.id, topicIndex: selectedIndex })} disabled={approveMut.isPending}>
+        <Button onClick={() => approveMut.mutate({ runId: run.id, topicIndex: selectedIndex })} disabled={approveMut.isPending || selectedIndex < 0}>
           {approveMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
           Approve Topic
         </Button>
