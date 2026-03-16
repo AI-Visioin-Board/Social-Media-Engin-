@@ -300,7 +300,27 @@ export async function migrateDatabase(): Promise<void> {
       );
     `);
 
-    // Add suggested_topic_id column to avatar_runs (idempotent)
+    // Add columns to avatar_runs that may not exist from earlier CREATE TABLE (idempotent)
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN "shotstackEditJson" TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN "avatarVideoUrl" VARCHAR(1000);
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN "avatarDurationSec" INTEGER;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN "outfitId" VARCHAR(128);
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
     await sql.unsafe(`
       DO $$ BEGIN
         ALTER TABLE avatar_runs ADD COLUMN suggested_topic_id INTEGER;

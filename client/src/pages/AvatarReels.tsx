@@ -12,7 +12,7 @@ import {
   Video, Mic, MicOff, RefreshCw, Send, ExternalLink,
   ChevronDown, ChevronUp, Shield, Zap, Eye, X,
   Pencil, Image as ImageIcon, RotateCcw,
-  Plus, Trash2, SkipForward, Lightbulb, Rocket,
+  Plus, Trash2, SkipForward, Lightbulb, Rocket, Bookmark,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -568,6 +568,7 @@ function RunDetailDialog({
 function TopicReviewPanel({ run, onRefresh }: { run: AvatarRun; onRefresh: () => void }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [expandedSources, setExpandedSources] = useState<number | null>(null);
+  const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
 
   const approveMut = trpc.avatarReels.approveTopic.useMutation({
     onSuccess: () => { toast.success("Topic approved! Pipeline continuing..."); onRefresh(); },
@@ -575,6 +576,15 @@ function TopicReviewPanel({ run, onRefresh }: { run: AvatarRun; onRefresh: () =>
   });
   const reselectMut = trpc.avatarReels.reselectTopics.useMutation({
     onSuccess: () => { toast.success("Re-discovering topics..."); onRefresh(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const saveMut = trpc.avatarReels.addSuggestedTopic.useMutation({
+    onSuccess: (_data, vars) => {
+      toast.success("Topic saved to bank!");
+      const topic = vars.topic;
+      const idx = candidates.findIndex(c => c.title === topic);
+      if (idx >= 0) setSavedIndices(prev => new Set(prev).add(idx));
+    },
     onError: (err) => toast.error(err.message),
   });
 
@@ -617,6 +627,24 @@ function TopicReviewPanel({ run, onRefresh }: { run: AvatarRun; onRefresh: () =>
                     <Shield className="w-3 h-3 mr-1" />
                     {topic.sources?.length ?? 0} sources
                   </Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`h-6 px-2 text-[11px] ${savedIndices.has(i) ? "text-green-600" : "text-muted-foreground hover:text-foreground"}`}
+                        disabled={savedIndices.has(i) || saveMut.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          saveMut.mutate({ topic: topic.title, notes: topic.summary?.slice(0, 200) });
+                        }}
+                      >
+                        <Bookmark className="w-3 h-3 mr-1" />
+                        {savedIndices.has(i) ? "Saved" : "Save"}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Save to topic bank for later</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
 
