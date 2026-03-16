@@ -13,6 +13,7 @@ import {
   ChevronDown, ChevronUp, Shield, Zap, Eye, X,
   Pencil, Image as ImageIcon, RotateCcw,
   Plus, Trash2, SkipForward, Lightbulb, Rocket, Bookmark,
+  FlaskConical, Volume2,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -207,6 +208,9 @@ export default function AvatarReels() {
         onRunTopic={(id) => triggerMut.mutate({ suggestedTopicId: id })}
         isRunning={triggerMut.isPending}
       />
+
+      {/* Script Lab — preview scripts + test voice */}
+      <ScriptLab />
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -453,6 +457,239 @@ function TopicBank({ onRunTopic, isRunning: parentRunning }: { onRunTopic: (id: 
             <p className="text-xs text-muted-foreground text-center py-2">
               No topics yet. Suggest topics you want Quinn to cover — they still go through full research verification.
             </p>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ─── Script Lab (Preview Scripts + Test Voice) ─────────────
+
+interface ScriptBeat {
+  id: number;
+  narration: string;
+  visualType: string;
+  visualPrompt: string;
+  durationSec: number;
+}
+
+interface PreviewScript {
+  topic: string;
+  hook: string;
+  totalDurationSec: number;
+  beats: ScriptBeat[];
+  caption: string;
+  cta: string;
+}
+
+function ScriptLab() {
+  const [expanded, setExpanded] = useState(false);
+  const [topicInput, setTopicInput] = useState("");
+  const [script, setScript] = useState<PreviewScript | null>(null);
+  const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
+  const [voiceText, setVoiceText] = useState("");
+  const [selectedBeatIdx, setSelectedBeatIdx] = useState<number | null>(null);
+
+  const scriptMut = trpc.avatarReels.previewScript.useMutation({
+    onSuccess: (data) => {
+      setScript(data as unknown as PreviewScript);
+      toast.success("Script generated!");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const voiceMut = trpc.avatarReels.previewVoice.useMutation({
+    onSuccess: (data) => {
+      setVoiceUrl(data.videoUrl);
+      toast.success("Voice sample ready!");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const handleGenerateScript = () => {
+    if (topicInput.trim().length < 3) return;
+    setScript(null);
+    setVoiceUrl(null);
+    setSelectedBeatIdx(null);
+    scriptMut.mutate({ topic: topicInput.trim() });
+  };
+
+  const handleTestVoice = (text: string) => {
+    if (text.trim().length < 10) {
+      toast.error("Text too short — need at least 10 characters");
+      return;
+    }
+    setVoiceUrl(null);
+    voiceMut.mutate({ text: text.trim() });
+  };
+
+  // Build full narration from all beats
+  const fullNarration = script?.beats.map(b => b.narration).join(" ") ?? "";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <FlaskConical className="w-4 h-4 text-purple-500" />
+            Script Lab
+            <Badge variant="outline" className="text-[10px]">Preview & Test</Badge>
+          </CardTitle>
+          <button onClick={() => setExpanded(!expanded)} className="text-muted-foreground hover:text-foreground">
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-4">
+          {/* Topic input */}
+          <div className="flex gap-2">
+            <Input
+              value={topicInput}
+              onChange={(e) => setTopicInput(e.target.value)}
+              placeholder="Enter a topic to preview the script Quinn would write..."
+              className="text-sm"
+              onKeyDown={(e) => { if (e.key === "Enter") handleGenerateScript(); }}
+            />
+            <Button
+              size="sm"
+              disabled={topicInput.trim().length < 3 || scriptMut.isPending}
+              onClick={handleGenerateScript}
+            >
+              {scriptMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
+              <span className="ml-1.5">Generate</span>
+            </Button>
+          </div>
+
+          {/* Script preview */}
+          {script && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold">{script.topic}</h4>
+                <Badge variant="secondary" className="text-xs">{script.totalDurationSec}s</Badge>
+              </div>
+
+              {/* Beats */}
+              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                {script.beats.map((beat, i) => (
+                  <div
+                    key={beat.id}
+                    className={`p-3 rounded-md border cursor-pointer transition-colors ${
+                      selectedBeatIdx === i
+                        ? "ring-2 ring-purple-500 bg-purple-500/5"
+                        : "hover:bg-accent/30"
+                    }`}
+                    onClick={() => {
+                      setSelectedBeatIdx(selectedBeatIdx === i ? null : i);
+                      setVoiceText(beat.narration);
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="text-[10px] px-1.5">Beat {beat.id}</Badge>
+                      <span className="text-[10px] text-muted-foreground">{beat.durationSec}s · {beat.visualType}</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 ml-auto text-[11px]"
+                            disabled={voiceMut.isPending}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTestVoice(beat.narration);
+                            }}
+                          >
+                            <Volume2 className="w-3 h-3 mr-1" />
+                            Test Voice
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Generate HeyGen voice sample for this beat</TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <p className="text-sm">{beat.narration}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1 italic">Visual: {beat.visualPrompt.slice(0, 100)}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Full narration test */}
+              <div className="flex gap-2 pt-2 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={voiceMut.isPending || !fullNarration}
+                  onClick={() => handleTestVoice(fullNarration)}
+                  className="text-xs"
+                >
+                  {voiceMut.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Volume2 className="w-3.5 h-3.5 mr-1.5" />}
+                  Test Full Script Voice
+                </Button>
+                <span className="text-[10px] text-muted-foreground self-center">
+                  Uses 1 HeyGen credit · takes ~1-2 min
+                </span>
+              </div>
+
+              {/* Custom text voice test */}
+              <div className="flex gap-2">
+                <Input
+                  value={voiceText}
+                  onChange={(e) => setVoiceText(e.target.value)}
+                  placeholder="Or type custom text to test Quinn's voice..."
+                  className="text-xs"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={voiceText.trim().length < 10 || voiceMut.isPending}
+                  onClick={() => handleTestVoice(voiceText)}
+                >
+                  {voiceMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+                </Button>
+              </div>
+
+              {/* Voice playback */}
+              {voiceMut.isPending && (
+                <div className="flex items-center gap-2 p-3 rounded-md bg-purple-500/10 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                  Generating voice sample with HeyGen... this takes about 1-2 minutes
+                </div>
+              )}
+              {voiceUrl && (
+                <div className="rounded-md overflow-hidden border">
+                  <video
+                    src={voiceUrl}
+                    controls
+                    className="w-full max-h-[300px]"
+                    autoPlay
+                  />
+                </div>
+              )}
+
+              {/* Caption preview */}
+              <details className="text-xs">
+                <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
+                  Caption preview
+                </summary>
+                <p className="mt-1 whitespace-pre-wrap text-muted-foreground p-2 bg-accent/20 rounded">
+                  {script.caption}
+                </p>
+              </details>
+            </div>
+          )}
+
+          {!script && !scriptMut.isPending && (
+            <p className="text-xs text-muted-foreground text-center py-2">
+              Test how Quinn writes about any topic before running the full pipeline. Preview the script, then test the voice.
+            </p>
+          )}
+
+          {scriptMut.isPending && (
+            <div className="flex items-center gap-2 p-4 justify-center text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Generating script preview...
+            </div>
           )}
         </CardContent>
       )}

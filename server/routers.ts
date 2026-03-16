@@ -1406,6 +1406,94 @@ export const appRouter = router({
         await db.delete(suggestedTopics).where(eq(suggestedTopics.id, input.id));
         return { ok: true };
       }),
+
+    // ─── Script Preview + Voice Test ────────────────────────
+
+    // Generate a script preview without running the full pipeline
+    previewScript: adminProcedure
+      .input(z.object({
+        topic: z.string().min(3).max(300),
+        contentBucket: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { generateScript } = await import("../videogen-avatar/src/scriptDirector.js");
+        const script = await generateScript({
+          topic: input.topic,
+          targetDurationSec: 45,
+          contentBucket: input.contentBucket as any,
+        });
+        return script;
+      }),
+
+    // Generate a short voice sample using HeyGen (tests voice + avatar)
+    previewVoice: adminProcedure
+      .input(z.object({
+        text: z.string().min(10).max(500),
+      }))
+      .mutation(async ({ input }) => {
+        const { CONFIG } = await import("../videogen-avatar/src/config.js");
+        if (!CONFIG.heygenApiKey) throw new Error("HEYGEN_API_KEY not configured");
+        if (!CONFIG.heygenAvatarId && !CONFIG.heygenLookId) throw new Error("HEYGEN_AVATAR_ID or HEYGEN_LOOK_ID not configured");
+
+        // Create a short avatar video just for voice testing
+        const createRes = await fetch("https://api.heygen.com/v2/video/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Api-Key": CONFIG.heygenApiKey,
+          },
+          body: JSON.stringify({
+            video_inputs: [{
+              character: {
+                type: "avatar",
+                avatar_id: CONFIG.heygenAvatarId,
+                ...(CONFIG.heygenLookId ? { avatar_style: "normal", look_id: CONFIG.heygenLookId } : {}),
+              },
+              voice: {
+                type: "text",
+                input_text: input.text,
+                voice_id: CONFIG.heygenVoiceId,
+                speed: 1.0,
+              },
+            }],
+            dimension: { width: 1080, height: 1920 },
+            aspect_ratio: "9:16",
+          }),
+        });
+
+        if (!createRes.ok) {
+          const err = await createRes.text();
+          throw new Error(`HeyGen create failed (${createRes.status}): ${err}`);
+        }
+
+        const createData = await createRes.json();
+        const videoId = createData.data?.video_id;
+        if (!videoId) throw new Error("HeyGen returned no video_id");
+
+        // Poll for completion (max 3 minutes for a short clip)
+        const maxWait = 180_000;
+        const startTime = Date.now();
+        while (Date.now() - startTime < maxWait) {
+          await new Promise(r => setTimeout(r, 5000));
+          const statusRes = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${videoId}`, {
+            headers: { "X-Api-Key": CONFIG.heygenApiKey },
+          });
+          if (!statusRes.ok) continue;
+          const statusData = await statusRes.json();
+          const status = statusData.data?.status;
+          if (status === "completed") {
+            return {
+              videoUrl: statusData.data.video_url,
+              videoId,
+              durationSec: statusData.data.duration ?? null,
+            };
+          }
+          if (status === "failed") {
+            throw new Error(`HeyGen voice test failed: ${statusData.data?.error ?? "unknown error"}`);
+          }
+        }
+        throw new Error("HeyGen voice test timed out after 3 minutes");
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;
