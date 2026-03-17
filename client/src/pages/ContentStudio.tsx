@@ -13,7 +13,7 @@ import {
   Calendar, BarChart3, Eye, ThumbsUp, Globe, Zap,
   ChevronRight, ChevronLeft, RotateCcw, Instagram, Sparkles, BookOpen,
   TrendingUp, Shield, Video, Layers, Send, Settings, Info,
-  ExternalLink, Download, Maximize2, X, RefreshCw, Music2
+  ExternalLink, Download, Maximize2, X, RefreshCw, Music2, Copy
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
@@ -1008,8 +1008,45 @@ function RunDetailDialog({
                       </div>
                     ))}
                   </div>
+                  {/* Caption display (persists after approval) */}
+                  {run.instagramCaption && (
+                    <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Instagram Caption</h4>
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs h-6 px-2"
+                            onClick={() => {
+                              navigator.clipboard.writeText(run.instagramCaption!);
+                            }}
+                          >
+                            <Copy className="w-3 h-3 mr-1" /> Copy
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs h-6 px-2"
+                            onClick={() => {
+                              const blob = new Blob([run.instagramCaption!], { type: "text/plain" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `run-${run.id}-caption.txt`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }}
+                          >
+                            <Download className="w-3 h-3 mr-1" /> Save
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{run.instagramCaption}</p>
+                    </div>
+                  )}
                   {/* Download all button */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mt-3">
                     <Button
                       size="sm"
                       variant="outline"
