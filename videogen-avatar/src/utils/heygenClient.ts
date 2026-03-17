@@ -48,6 +48,7 @@ export async function generateAvatarVideo(
     type: "avatar",
     avatar_id: effectiveAvatarId,
     avatar_style: "normal",
+    version: "v2",  // Avatar IV
   };
 
   console.log(`[HeyGen] Using avatar_id=${effectiveAvatarId} (base=${avatarId}, look=${lookId || "none"}), voice=${voiceId || "default"}`);

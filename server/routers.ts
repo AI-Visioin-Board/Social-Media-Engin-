@@ -1446,8 +1446,9 @@ export const appRouter = router({
             video_inputs: [{
               character: {
                 type: "avatar",
-                avatar_id: CONFIG.heygenAvatarId,
-                ...(CONFIG.heygenLookId ? { avatar_style: "normal", look_id: CONFIG.heygenLookId } : {}),
+                avatar_id: CONFIG.heygenLookId || CONFIG.heygenAvatarId,
+                avatar_style: "normal",
+                version: "v2",  // Avatar IV
               },
               voice: {
                 type: "text",
