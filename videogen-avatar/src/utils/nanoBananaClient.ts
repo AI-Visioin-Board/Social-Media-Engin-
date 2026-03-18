@@ -36,8 +36,9 @@ export async function generateImage(
       contents: [{
         parts: [{ text: prompt }],
       }],
-      config: {
-        imageConfig: { aspectRatio: "3:4" },  // 3:4 close to 9:16
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"],
+        imageSizeOptions: { aspectRatio: "3:4" },  // 3:4 close to 9:16
       },
     }),
     signal,
