@@ -3,29 +3,46 @@
 // Builds Shotstack Edit JSON from script + assets + avatar
 // Then submits to Shotstack for cloud rendering
 //
-// LAYOUT (PIP — Picture-in-Picture):
-// ┌─────────────────────────────┐
-// │  ┌───────────────────────┐  │
-// │  │                       │  │
-// │  │   B-ROLL (TV frame)   │  │
-// │  │   Rounded corners     │  │
-// │  │                       │  │
-// │  └───────────────────────┘  │
-// │                             │
-// │ ┌──────┐                    │
-// │ │AVATAR│  CAPTIONS          │
-// │ │(PIP) │  (bottom-right)    │
-// │ └──────┘                    │
-// └─────────────────────────────┘
-// Black background, 9:16 (1080x1920)
+// 3 LAYOUT MODES per beat (set by scriptDirector):
 //
-// B-roll switches every 2-3 seconds for fast-paced energy.
-// Avatar has tight crop to eliminate green bleed at edges.
+// "avatar_closeup" — Quinn fills most of the screen, talking to camera
+// ┌─────────────────────────┐
+// │                         │
+// │     ┌───────────┐       │
+// │     │  QUINN    │       │
+// │     │ (large)   │       │
+// │     │           │       │
+// │     └───────────┘       │
+// │       captions          │
+// └─────────────────────────┘
+//
+// "pip" — B-roll top with TV frame, Quinn PIP bottom-left
+// ┌─────────────────────────┐
+// │ ┌─────────────────────┐ │
+// │ │   B-ROLL (TV frame) │ │
+// │ │   rounded corners   │ │
+// │ └─────────────────────┘ │
+// │ ┌──────┐                │
+// │ │QUINN │  captions      │
+// │ │(PIP) │                │
+// │ └──────┘                │
+// └─────────────────────────┘
+//
+// "fullscreen_broll" — Full-screen b-roll, no avatar
+// ┌─────────────────────────┐
+// │                         │
+// │    FULL SCREEN B-ROLL   │
+// │                         │
+// │                         │
+// │       captions          │
+// │    (center-bottom)      │
+// └─────────────────────────┘
 // ============================================================
 
 import type {
   VideoScript,
   Beat,
+  LayoutMode,
   AssetMap,
   AvatarResult,
   ShotstackEdit,
@@ -36,23 +53,12 @@ import type {
 } from "./types.js";
 import { renderVideo } from "./utils/shotstackClient.js";
 
-// Valid Shotstack effect values
-const VALID_EFFECTS = new Set([
-  "zoomIn", "zoomInSlow", "zoomInFast",
-  "zoomOut", "zoomOutSlow", "zoomOutFast",
-  "slideLeft", "slideLeftSlow", "slideLeftFast",
-  "slideRight", "slideRightSlow", "slideRightFast",
-  "slideUp", "slideUpSlow", "slideUpFast",
-  "slideDown", "slideDownSlow", "slideDownFast",
-]);
-
-// Cycle through these effects on sub-clips for visual variety
+// Cycle through these effects on still-image sub-clips
 const SUB_CLIP_EFFECTS = [
   "zoomInSlow", "zoomOutSlow", "slideRightSlow", "slideLeftSlow",
   "zoomInSlow", "slideUpSlow", "zoomOutSlow", "slideDownSlow",
 ];
 
-// Valid Shotstack transition values
 const VALID_TRANSITIONS = new Set([
   "fade", "reveal", "wipeLeft", "wipeRight",
   "slideLeft", "slideRight", "slideUp", "slideDown",
@@ -70,7 +76,6 @@ const CAPTION_STYLES = {
   shadowBlur: 10,
 };
 
-// How long each sub-clip should be (seconds) for fast-paced b-roll
 const SUB_CLIP_DURATION = 2.5;
 
 export async function assembleVideo(
@@ -82,9 +87,9 @@ export async function assembleVideo(
 ): Promise<{ videoUrl: string }> {
   const edit = buildEdit(script, assets, avatar, config);
 
-  const totalSubClips = edit.timeline.tracks[2]?.clips?.length ?? 0;
-  console.log(`[Assembler] Built Shotstack edit: ${script.beats.length} beats → ${totalSubClips} b-roll sub-clips, ${script.totalDurationSec}s`);
-  console.log(`[Assembler] Layout: PIP (avatar bottom-left, b-roll TV frame top, captions bottom-right)`);
+  const layouts = script.beats.map(b => b.layout);
+  console.log(`[Assembler] Built Shotstack edit: ${script.beats.length} beats, ${script.totalDurationSec}s`);
+  console.log(`[Assembler] Layout sequence: ${layouts.join(" → ")}`);
 
   return renderVideo(edit, signal);
 }
@@ -95,17 +100,65 @@ export function buildEdit(
   avatar: AvatarResult,
   config: PipelineConfig,
 ): ShotstackEdit {
-  // Shotstack layers: track 0 = topmost (rendered last/on top)
-  // Order: captions → avatar PIP → b-roll frame border → b-roll clips → black background
-  const captionTrack = buildCaptionTrack(script);
-  const avatarTrack = buildAvatarTrack(avatar, script.totalDurationSec, config);
-  const brollBorderTrack = buildBrollBorderTrack(script.totalDurationSec);
-  const brollTrack = buildBrollTrack(script, assets);
-  const backgroundTrack = buildBackgroundTrack(script.totalDurationSec);
+  // Build per-beat clips for each track layer
+  // Shotstack layers: track 0 = topmost (rendered on top)
+  const captionClips: ShotstackClip[] = [];
+  const avatarBorderClips: ShotstackClip[] = [];
+  const avatarClips: ShotstackClip[] = [];
+  const brollBorderClips: ShotstackClip[] = [];
+  const brollClips: ShotstackClip[] = [];
+
+  const clipLength = Math.max(avatar.durationSec || script.totalDurationSec, 1);
+  let effectIndex = 0;
+
+  for (const beat of script.beats) {
+    if (beat.durationSec <= 0) continue;
+    const layout = beat.layout || "pip";
+
+    // ── Captions (all layouts) ──
+    buildCaptionClips(beat, layout, captionClips);
+
+    // ── Avatar clips (layout-dependent) ──
+    if (layout === "avatar_closeup") {
+      // Large avatar, centered
+      avatarClips.push(buildAvatarClip(avatar, beat, "closeup", config, clipLength));
+      avatarBorderClips.push(buildAvatarBorderClip(beat, "closeup"));
+    } else if (layout === "pip") {
+      // Small avatar PIP bottom-left with border
+      avatarClips.push(buildAvatarClip(avatar, beat, "pip", config, clipLength));
+      avatarBorderClips.push(buildAvatarBorderClip(beat, "pip"));
+      // B-roll in TV frame
+      brollBorderClips.push(buildBrollBorderClip(beat));
+      effectIndex = buildBrollClips(beat, assets, brollClips, effectIndex);
+    } else if (layout === "fullscreen_broll") {
+      // No avatar, full-screen b-roll
+      effectIndex = buildBrollClipsFullscreen(beat, assets, brollClips, effectIndex);
+    }
+  }
+
+  // Background
+  const bgClip: ShotstackClip = {
+    asset: {
+      type: "html",
+      html: '<div style="width:1080px;height:1920px;background:#000000;"></div>',
+      width: 1080,
+      height: 1920,
+    } as ShotstackAsset,
+    start: 0,
+    length: script.totalDurationSec,
+    fit: "none",
+  };
 
   return {
     timeline: {
-      tracks: [captionTrack, avatarTrack, brollBorderTrack, brollTrack, backgroundTrack],
+      tracks: [
+        { clips: captionClips },       // Top: captions
+        { clips: avatarBorderClips },   // Avatar border frame
+        { clips: avatarClips },         // Avatar video
+        { clips: brollBorderClips },    // B-roll TV frame border
+        { clips: brollClips },          // B-roll visuals
+        { clips: [bgClip] },           // Background
+      ],
     },
     output: {
       format: "mp4",
@@ -116,47 +169,256 @@ export function buildEdit(
   };
 }
 
-// ─── Caption Track ──────────────────────────────────────────
-// Phrase-by-phrase captions positioned bottom-right, above Instagram UI zone
-function buildCaptionTrack(script: VideoScript): ShotstackTrack {
-  const clips: ShotstackClip[] = [];
+// ─── Avatar Clip (per beat) ─────────────────────────────────
+function buildAvatarClip(
+  avatar: AvatarResult,
+  beat: Beat,
+  mode: "closeup" | "pip",
+  config: PipelineConfig,
+  totalClipLength: number,
+): ShotstackClip {
+  const avatarAsset: ShotstackAsset = {
+    type: "video",
+    src: avatar.videoUrl,
+    trim: beat.startSec,  // Trim to this beat's portion of the continuous avatar video
+  };
 
-  for (const beat of script.beats) {
-    if (beat.durationSec <= 0) continue;  // Guard: skip zero-duration beats
+  const clip: Record<string, any> = {
+    asset: avatarAsset,
+    start: beat.startSec,
+    length: beat.durationSec,
+    fit: "crop",
+  };
 
-    // Split narration into phrases (roughly 7 words each) for rapid captions
-    const phrases = splitIntoPhrases(beat.narration);
-    const rawDuration = beat.durationSec / phrases.length;
-    // Use the same value for length AND advancement to prevent overlap/drift
-    const phraseDuration = Math.max(rawDuration, 0.5);
-
-    let phraseStart = beat.startSec;
-    for (let pi = 0; pi < phrases.length; pi++) {
-      // Don't let captions exceed the beat boundary
-      const remaining = (beat.startSec + beat.durationSec) - phraseStart;
-      if (remaining <= 0) break;
-      const thisLength = Math.min(phraseDuration, remaining);
-
-      const html = buildCaptionHtml(phrases[pi], beat.captionEmphasis);
-      clips.push({
-        asset: {
-          type: "html",
-          html,
-          width: 580,
-          height: 250,
-        } as ShotstackAsset,
-        start: phraseStart,
-        length: thisLength,
-        position: "bottomRight",
-        offset: { x: -0.02, y: 0.12 },  // Keep above Instagram UI
-        transition: { in: "fade", out: "fade" },
-      });
-      phraseStart += thisLength;
-    }
+  if (mode === "closeup") {
+    // Large avatar — center of screen, ~70% scale
+    clip.scale = 0.7;
+    clip.position = "center";
+    clip.offset = { x: 0, y: -0.05 };  // Slightly above center
+  } else {
+    // PIP — small bottom-left, matching reference image
+    clip.scale = config.avatarScale || 0.35;
+    clip.position = config.avatarPosition || "bottomLeft";
+    clip.offset = { x: 0.03, y: 0.10 };
   }
 
-  return { clips };
+  // ChromaKey on clip level
+  if (!avatar.transparent) {
+    clip.chromaKey = {
+      color: "#00FF00",
+      threshold: 200,
+      halo: 150,
+    };
+  }
+
+  return clip as ShotstackClip;
 }
+
+// ─── Avatar Border Frame (per beat) ─────────────────────────
+// Rounded border around the avatar to match reference image style
+function buildAvatarBorderClip(beat: Beat, mode: "closeup" | "pip"): ShotstackClip {
+  let borderHtml: string;
+  let width: number;
+  let height: number;
+
+  if (mode === "pip") {
+    // Small PIP border — matches the phone-card shape from reference
+    width = 340;
+    height = 420;
+    borderHtml = `<div style="width:${width}px;height:${height}px;border:4px solid #333;border-radius:16px;box-shadow:0 0 20px rgba(0,0,0,0.8);"></div>`;
+  } else {
+    // Closeup border — larger centered frame
+    width = 700;
+    height = 900;
+    borderHtml = `<div style="width:${width}px;height:${height}px;border:3px solid #444;border-radius:20px;box-shadow:0 0 30px rgba(0,0,0,0.6);"></div>`;
+  }
+
+  const clip: ShotstackClip = {
+    asset: {
+      type: "html",
+      html: borderHtml,
+      width,
+      height,
+    } as ShotstackAsset,
+    start: beat.startSec,
+    length: beat.durationSec,
+    fit: "none",
+    position: mode === "pip" ? "bottomLeft" : "center",
+    offset: mode === "pip" ? { x: 0.03, y: 0.10 } : { x: 0, y: -0.05 },
+  };
+
+  return clip;
+}
+
+// ─── B-Roll Border (TV Frame) for PIP layout ────────────────
+function buildBrollBorderClip(beat: Beat): ShotstackClip {
+  // Rounded rectangle border for the b-roll "TV" area in PIP mode
+  const borderHtml = `<div style="width:1020px;height:1050px;border:3px solid #333;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,0.5);"></div>`;
+
+  return {
+    asset: {
+      type: "html",
+      html: borderHtml,
+      width: 1020,
+      height: 1050,
+    } as ShotstackAsset,
+    start: beat.startSec,
+    length: beat.durationSec,
+    fit: "none",
+    position: "top",
+    offset: { y: 0.02 },
+  };
+}
+
+// ─── B-Roll Clips (PIP mode — top portion) ──────────────────
+function buildBrollClips(
+  beat: Beat,
+  assets: AssetMap,
+  clips: ShotstackClip[],
+  effectIndex: number,
+): number {
+  const asset = assets[beat.id];
+
+  if (!asset) {
+    clips.push(buildFallbackClip(beat, "pip"));
+    return effectIndex;
+  }
+
+  const isVideo = asset.mediaType === "video";
+  const numSubClips = Math.max(1, Math.round(beat.durationSec / SUB_CLIP_DURATION));
+  const subClipLength = Math.max(beat.durationSec / numSubClips, 0.5);
+
+  for (let i = 0; i < numSubClips; i++) {
+    const subStart = beat.startSec + (i * subClipLength);
+    const shotstackAsset: ShotstackAsset = isVideo
+      ? { type: "video", src: asset.url, trim: i * subClipLength }
+      : { type: "image", src: asset.url };
+
+    const clip: ShotstackClip = {
+      asset: shotstackAsset,
+      start: subStart,
+      length: subClipLength,
+      fit: "cover",
+      position: "top",
+      offset: { y: 0.02 },
+      scale: 0.95,
+    };
+
+    if (!isVideo) {
+      clip.effect = SUB_CLIP_EFFECTS[effectIndex % SUB_CLIP_EFFECTS.length];
+      effectIndex++;
+    }
+
+    if (i > 0) {
+      clip.transition = { in: "fade" };
+    } else if (beat.transition !== "cut") {
+      const trans = mapTransition(beat.transition);
+      if (VALID_TRANSITIONS.has(trans)) {
+        clip.transition = { in: trans };
+      }
+    }
+
+    clips.push(clip);
+  }
+
+  return effectIndex;
+}
+
+// ─── B-Roll Clips (fullscreen_broll mode) ────────────────────
+function buildBrollClipsFullscreen(
+  beat: Beat,
+  assets: AssetMap,
+  clips: ShotstackClip[],
+  effectIndex: number,
+): number {
+  const asset = assets[beat.id];
+
+  if (!asset) {
+    clips.push(buildFallbackClip(beat, "fullscreen"));
+    return effectIndex;
+  }
+
+  const isVideo = asset.mediaType === "video";
+  const numSubClips = Math.max(1, Math.round(beat.durationSec / SUB_CLIP_DURATION));
+  const subClipLength = Math.max(beat.durationSec / numSubClips, 0.5);
+
+  for (let i = 0; i < numSubClips; i++) {
+    const subStart = beat.startSec + (i * subClipLength);
+    const shotstackAsset: ShotstackAsset = isVideo
+      ? { type: "video", src: asset.url, trim: i * subClipLength }
+      : { type: "image", src: asset.url };
+
+    const clip: ShotstackClip = {
+      asset: shotstackAsset,
+      start: subStart,
+      length: subClipLength,
+      fit: "cover",
+      position: "center",
+      scale: 1.0,  // Full screen
+    };
+
+    if (!isVideo) {
+      clip.effect = SUB_CLIP_EFFECTS[effectIndex % SUB_CLIP_EFFECTS.length];
+      effectIndex++;
+    }
+
+    if (i > 0) {
+      clip.transition = { in: "fade" };
+    }
+
+    clips.push(clip);
+  }
+
+  return effectIndex;
+}
+
+// ─── Caption Clips (layout-aware positioning) ────────────────
+function buildCaptionClips(beat: Beat, layout: LayoutMode, clips: ShotstackClip[]): void {
+  const phrases = splitIntoPhrases(beat.narration);
+  const rawDuration = beat.durationSec / phrases.length;
+  const phraseDuration = Math.max(rawDuration, 0.5);
+
+  // Caption position depends on layout
+  let position: string;
+  let offset: { x?: number; y?: number };
+
+  if (layout === "avatar_closeup") {
+    position = "bottom";
+    offset = { y: 0.08 };  // Below avatar, above IG UI
+  } else if (layout === "pip") {
+    position = "bottomRight";
+    offset = { x: -0.02, y: 0.12 };
+  } else {
+    // fullscreen_broll — centered at bottom
+    position = "bottom";
+    offset = { y: 0.10 };
+  }
+
+  let phraseStart = beat.startSec;
+  for (let pi = 0; pi < phrases.length; pi++) {
+    const remaining = (beat.startSec + beat.durationSec) - phraseStart;
+    if (remaining <= 0) break;
+    const thisLength = Math.min(phraseDuration, remaining);
+
+    const html = buildCaptionHtml(phrases[pi], beat.captionEmphasis);
+    clips.push({
+      asset: {
+        type: "html",
+        html,
+        width: layout === "pip" ? 580 : 900,
+        height: 250,
+      } as ShotstackAsset,
+      start: phraseStart,
+      length: thisLength,
+      position: position as any,
+      offset,
+      transition: { in: "fade", out: "fade" },
+    });
+    phraseStart += thisLength;
+  }
+}
+
+// ─── Helpers ────────────────────────────────────────────────
 
 function splitIntoPhrases(text: string): string[] {
   const words = text.split(/\s+/);
@@ -174,7 +436,6 @@ function splitIntoPhrases(text: string): string[] {
 function buildCaptionHtml(text: string, emphasisWords?: string[]): string {
   let styledText = escapeHtml(text);
 
-  // Highlight emphasis words
   if (emphasisWords && emphasisWords.length > 0) {
     for (const word of emphasisWords) {
       const regex = new RegExp(`\\b(${escapeRegex(word)})\\b`, "gi");
@@ -185,179 +446,21 @@ function buildCaptionHtml(text: string, emphasisWords?: string[]): string {
   return `<div style="font-family:${CAPTION_STYLES.fontFamily},sans-serif;font-size:${CAPTION_STYLES.fontSize}px;color:${CAPTION_STYLES.color};text-shadow:2px 2px ${CAPTION_STYLES.shadowBlur}px ${CAPTION_STYLES.shadowColor}, -1px -1px ${CAPTION_STYLES.shadowBlur}px ${CAPTION_STYLES.shadowColor};text-align:left;line-height:1.4;padding:16px 20px;background:rgba(0,0,0,0.5);border-radius:12px;">${styledText}</div>`;
 }
 
-// ─── Avatar PIP Track ───────────────────────────────────────
-// Quinn in bottom-left corner with green screen keyed out
-// Tight crop to eliminate green bleed at top/bottom edges
-function buildAvatarTrack(
-  avatar: AvatarResult,
-  totalDuration: number,
-  config: PipelineConfig,
-): ShotstackTrack {
-  const avatarAsset: ShotstackAsset = {
-    type: "video",
-    src: avatar.videoUrl,
-    trim: 0,
-  };
-
-  // Use avatar's actual duration if available, fall back to script total
-  const clipLength = Math.max(avatar.durationSec || totalDuration, 1);
-
-  const clip: Record<string, any> = {
-    asset: avatarAsset,
-    start: 0,
-    length: clipLength,
-    fit: "crop",       // Crop to fill — cuts off green edges at top/bottom
-    scale: config.avatarScale || 0.35,
-    position: config.avatarPosition || "bottomLeft",
-    offset: { x: 0.03, y: 0.10 },  // Padding from edges, above IG UI
-  };
-
-  // ChromaKey goes on the CLIP (not asset) — removes green screen background
-  if (!avatar.transparent) {
-    clip.chromaKey = {
-      color: "#00FF00",
-      threshold: 200,   // Higher = more aggressive green removal
-      halo: 150,         // Wider halo to catch green fringing at edges
-    };
-  }
-
-  return { clips: [clip as ShotstackClip] };
-}
-
-// ─── B-Roll Border / Frame Track ────────────────────────────
-// HTML overlay that creates a rounded "TV frame" effect around the b-roll area
-// This sits ON TOP of the b-roll to mask it into a rounded rectangle
-function buildBrollBorderTrack(totalDuration: number): ShotstackTrack {
-  // Create a frame: black with a transparent rounded-rect cutout
-  // The b-roll shows through the cutout, black hides the edges = rounded corners effect
-  const frameHtml = `
-    <div style="width:1080px;height:1920px;position:relative;">
-      <!-- Top bar -->
-      <div style="position:absolute;top:0;left:0;width:1080px;height:40px;background:#000;"></div>
-      <!-- Bottom bar below b-roll zone (b-roll is ~1050px tall starting at 40px) -->
-      <div style="position:absolute;top:1090px;left:0;width:1080px;height:830px;background:#000;"></div>
-      <!-- Left bar -->
-      <div style="position:absolute;top:0;left:0;width:30px;height:1920px;background:#000;"></div>
-      <!-- Right bar -->
-      <div style="position:absolute;top:0;right:0;width:30px;height:1920px;background:#000;"></div>
-      <!-- Corner masks for rounded effect -->
-      <div style="position:absolute;top:40px;left:30px;width:40px;height:40px;background:#000;border-bottom-right-radius:20px;"></div>
-      <div style="position:absolute;top:40px;right:30px;width:40px;height:40px;background:#000;border-bottom-left-radius:20px;"></div>
-      <div style="position:absolute;top:1050px;left:30px;width:40px;height:40px;background:#000;border-top-right-radius:20px;"></div>
-      <div style="position:absolute;top:1050px;right:30px;width:40px;height:40px;background:#000;border-top-left-radius:20px;"></div>
-    </div>
-  `.replace(/\n\s*/g, "");
+function buildFallbackClip(beat: Beat, mode: "pip" | "fullscreen"): ShotstackClip {
+  const w = mode === "pip" ? 1020 : 1080;
+  const h = mode === "pip" ? 1050 : 1920;
+  const html = `<div style="width:${w}px;height:${h}px;background:linear-gradient(135deg,#1a1a2e,#16213e);display:flex;align-items:center;justify-content:center;padding:60px;border-radius:${mode === "pip" ? 20 : 0}px;"><p style="font-family:Inter,sans-serif;font-size:48px;color:#00E5FF;text-align:center;line-height:1.4;">${escapeHtml(beat.narration.slice(0, 120))}</p></div>`;
 
   return {
-    clips: [{
-      asset: {
-        type: "html",
-        html: frameHtml,
-        width: 1080,
-        height: 1920,
-      } as ShotstackAsset,
-      start: 0,
-      length: totalDuration,
-      fit: "none",
-    }],
-  };
-}
-
-// ─── B-Roll Track ───────────────────────────────────────────
-// Visual clips in the upper portion of the screen
-// Each beat's asset is split into 2-3 second sub-clips with
-// alternating effects (zoom in/out, slide) for fast-paced energy
-function buildBrollTrack(script: VideoScript, assets: AssetMap): ShotstackTrack {
-  const clips: ShotstackClip[] = [];
-  let effectIndex = 0;
-
-  for (const beat of script.beats) {
-    const asset = assets[beat.id];
-
-    if (beat.durationSec <= 0) continue;  // Guard: skip zero-duration beats
-
-    if (!asset) {
-      clips.push(buildFallbackClip(beat));
-      continue;
-    }
-
-    const isVideo = asset.mediaType === "video";
-
-    // Split beat into sub-clips of ~2.5 seconds each
-    const numSubClips = Math.max(1, Math.round(beat.durationSec / SUB_CLIP_DURATION));
-    const subClipLength = Math.max(beat.durationSec / numSubClips, 0.5);  // Min 0.5s
-
-    for (let i = 0; i < numSubClips; i++) {
-      const subStart = beat.startSec + (i * subClipLength);
-
-      const shotstackAsset: ShotstackAsset = isVideo
-        ? { type: "video", src: asset.url, trim: i * subClipLength }
-        : { type: "image", src: asset.url };
-
-      const clip: ShotstackClip = {
-        asset: shotstackAsset,
-        start: subStart,
-        length: subClipLength,
-        fit: "cover",
-        position: "top",
-        offset: { y: 0.02 },
-        scale: 0.95,
-      };
-
-      // Alternate effects on sub-clips for visual dynamism
-      if (!isVideo) {
-        clip.effect = SUB_CLIP_EFFECTS[effectIndex % SUB_CLIP_EFFECTS.length];
-        effectIndex++;
-      }
-
-      // Add transition between sub-clips (not on the first one)
-      if (i > 0 || beat.transition !== "cut") {
-        const trans = i > 0 ? "fade" : mapTransition(beat.transition);
-        if (VALID_TRANSITIONS.has(trans)) {
-          clip.transition = { in: trans };
-        }
-      }
-
-      clips.push(clip);
-    }
-  }
-
-  return { clips };
-}
-
-// ─── Background Track ───────────────────────────────────────
-// Solid black background for the full duration
-function buildBackgroundTrack(totalDuration: number): ShotstackTrack {
-  return {
-    clips: [{
-      asset: {
-        type: "html",
-        html: '<div style="width:1080px;height:1920px;background:#000000;"></div>',
-        width: 1080,
-        height: 1920,
-      } as ShotstackAsset,
-      start: 0,
-      length: totalDuration,
-      fit: "none",
-    }],
-  };
-}
-
-// ─── Fallback Clip ──────────────────────────────────────────
-function buildFallbackClip(beat: Beat): ShotstackClip {
-  const html = `<div style="width:1020px;height:1050px;background:linear-gradient(135deg,#1a1a2e,#16213e);display:flex;align-items:center;justify-content:center;padding:60px;border-radius:20px;"><p style="font-family:Inter,sans-serif;font-size:48px;color:#00E5FF;text-align:center;line-height:1.4;">${escapeHtml(beat.narration.slice(0, 120))}</p></div>`;
-
-  return {
-    asset: { type: "html", html, width: 1020, height: 1050 },
+    asset: { type: "html", html, width: w, height: h } as ShotstackAsset,
     start: beat.startSec,
     length: beat.durationSec,
-    position: "top",
-    offset: { y: 0.02 },
+    position: mode === "pip" ? "top" : "center",
+    offset: mode === "pip" ? { y: 0.02 } : undefined,
     fit: "none",
   };
 }
 
-// ─── Helpers ────────────────────────────────────────────────
 function mapTransition(t: string): string {
   switch (t) {
     case "dissolve": return "fade";

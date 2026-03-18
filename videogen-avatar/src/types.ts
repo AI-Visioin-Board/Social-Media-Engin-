@@ -15,11 +15,14 @@ export interface VideoScript {
   cta: string;
 }
 
+export type LayoutMode = "pip" | "fullscreen_broll" | "avatar_closeup";
+
 export interface Beat {
   id: number;
   startSec: number;
   durationSec: number;
   narration: string;
+  layout: LayoutMode;           // controls avatar/b-roll framing per beat
   visualType: VisualType;
   visualPrompt: string;
   visualSubject?: string;

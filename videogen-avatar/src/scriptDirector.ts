@@ -7,7 +7,7 @@
 
 import { CONFIG } from "./config.js";
 import { QUINN_SYSTEM_PROMPT, getSeriesCTA, type ContentBucket } from "./prompts/quinnPersona.js";
-import type { VideoScript, Beat, VisualType, MotionStyle, TransitionType } from "./types.js";
+import type { VideoScript, Beat, VisualType, MotionStyle, TransitionType, LayoutMode } from "./types.js";
 
 // ─── Verified Fact (from research pipeline) ─────────────────
 export interface VerifiedFact {
@@ -127,16 +127,22 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     "static_ken_burns", "ai_video", "stock_clip", "screen_capture",
   ];
   const validTransitions: TransitionType[] = ["cut", "dissolve", "zoom_in", "slide_left"];
+  const validLayouts: LayoutMode[] = ["pip", "fullscreen_broll", "avatar_closeup"];
 
   let runningTime = 0;
   const beats: Beat[] = raw.beats.map((b: any, i: number) => {
-    // Allow beats up to 25s (Beat 2 = 15-20s, Beat 3 = 10-15s per Quinn's 4-beat structure)
-    const duration = clamp(b.durationSec ?? 5, 2, 25);
+    // 8-12 beats at 3-8 seconds each (total ~45-60s)
+    const duration = clamp(b.durationSec ?? 5, 2, 10);
+    // Default layout: first beat = avatar_closeup, last beat = avatar_closeup, middle = pip
+    const isFirst = i === 0;
+    const isLast = i === raw.beats.length - 1;
+    const defaultLayout: LayoutMode = (isFirst || isLast) ? "avatar_closeup" : "pip";
     const beat: Beat = {
       id: i + 1,
       startSec: runningTime,
       durationSec: duration,
       narration: String(b.narration ?? ""),
+      layout: validLayouts.includes(b.layout) ? b.layout : defaultLayout,
       visualType: validVisualTypes.includes(b.visualType) ? b.visualType : "cinematic_concept",
       visualPrompt: String(b.visualPrompt ?? b.narration ?? ""),
       visualSubject: b.visualSubject || undefined,
