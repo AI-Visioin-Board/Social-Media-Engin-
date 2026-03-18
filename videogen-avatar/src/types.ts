@@ -125,7 +125,7 @@ export interface ShotstackClip {
   length: number | "end";
   fit?: "crop" | "cover" | "contain" | "none";
   scale?: number;
-  position?: "center" | "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+  position?: "center" | "top" | "topLeft" | "topRight" | "bottom" | "bottomLeft" | "bottomRight" | "left" | "right";
   offset?: { x?: number; y?: number };
   transition?: { in?: string; out?: string };
   effect?: string;

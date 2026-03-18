@@ -31,7 +31,7 @@ export const CONFIG = {
 
   // --- Pipeline defaults ---
   defaultTargetDuration: 60,
-  defaultAvatarPosition: "bottomRight" as const,
+  defaultAvatarPosition: "bottomLeft" as const,
   defaultAvatarScale: 0.28,
   maxRetries: 3,
   retryBaseDelaySec: 1,

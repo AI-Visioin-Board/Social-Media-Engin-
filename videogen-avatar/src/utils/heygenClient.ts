@@ -1,10 +1,10 @@
 // ============================================================
 // HeyGen API Client — AI Avatar Video Generation
-// Produces transparent-background talking head videos
+// Uses dedicated Avatar IV endpoint for best quality
+// Produces green-screen talking head videos for PIP compositing
 // ============================================================
 
 import { CONFIG } from "../config.js";
-import { retry } from "./retry.js";
 
 const BASE_URL = "https://api.heygen.com";
 
@@ -13,14 +13,6 @@ interface HeyGenVideoRequest {
   avatarId?: string;
   lookId?: string;
   voiceId?: string;
-}
-
-interface HeyGenVideoResponse {
-  videoId: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  videoUrl?: string;
-  duration?: number;
-  error?: string;
 }
 
 export async function generateAvatarVideo(
@@ -35,26 +27,98 @@ export async function generateAvatarVideo(
   const lookId = request.lookId ?? CONFIG.heygenLookId;
   const voiceId = request.voiceId ?? CONFIG.heygenVoiceId;
 
-  if (!avatarId) {
-    throw new Error("[HeyGen] No avatar ID configured. Set HEYGEN_AVATAR_ID in .env");
+  if (!lookId && !avatarId) {
+    throw new Error("[HeyGen] No avatar/look ID configured. Set HEYGEN_LOOK_ID or HEYGEN_AVATAR_ID in .env");
   }
 
-  // HeyGen v2 API: when using a specific look, pass the look_id AS avatar_id.
-  // The look_id IS the specific avatar variant HeyGen renders.
-  // The base avatar_id is just for reference/listing — the API routes by look.
+  // Use the look_id as the effective avatar for the API call
+  // HeyGen routes by look_id when available — it's the specific avatar variant
   const effectiveAvatarId = lookId || avatarId;
 
-  const character: Record<string, string> = {
-    type: "avatar",
-    avatar_id: effectiveAvatarId,
-    avatar_style: "normal",
-    version: "v2",  // Avatar IV
+  console.log(`[HeyGen] Avatar IV — avatar_id=${effectiveAvatarId} (base=${avatarId}, look=${lookId || "none"}), voice=${voiceId || "default"}`);
+
+  // ── Try Avatar IV dedicated endpoint first ──
+  // This endpoint produces better quality (matches HeyGen UI output)
+  try {
+    const result = await createAvatarIVVideo(effectiveAvatarId, request.script, voiceId, signal);
+    return result;
+  } catch (err: any) {
+    console.warn(`[HeyGen] Avatar IV endpoint failed: ${err.message}. Falling back to v2/video/generate...`);
+  }
+
+  // ── Fallback to generic v2 endpoint ──
+  return createGenericVideo(effectiveAvatarId, request.script, voiceId, signal);
+}
+
+// ─── Avatar IV Dedicated Endpoint ───────────────────────────
+// POST /v2/video/av4/generate
+// Higher quality, custom motion prompts, matches HeyGen UI
+async function createAvatarIVVideo(
+  avatarId: string,
+  script: string,
+  voiceId: string,
+  signal?: AbortSignal,
+): Promise<{ videoUrl: string; durationSec: number }> {
+  const body: Record<string, any> = {
+    // Required fields
+    image_key: avatarId,
+    video_title: `Quinn_${Date.now()}`,
+    script: {
+      type: "text",
+      input_text: script,
+    },
+    voice_id: voiceId || undefined,
+
+    // Avatar IV quality settings
+    custom_motion_prompt: "Speaking confidently to camera with natural subtle hand gestures. Slight head nods when emphasizing key points. Engaged, warm, and energetic. Natural blinking and eyebrow movement.",
+    enhance_custom_motion_prompt: true,
+
+    // Green screen for chroma key compositing
+    background: {
+      type: "color",
+      value: "#00FF00",
+    },
+
+    // 9:16 for Reels
+    dimension: {
+      width: 1080,
+      height: 1920,
+    },
   };
 
-  console.log(`[HeyGen] Using avatar_id=${effectiveAvatarId} (base=${avatarId}, look=${lookId || "none"}), voice=${voiceId || "default"}`);
+  const response = await fetch(`${BASE_URL}/v2/video/av4/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": CONFIG.heygenApiKey,
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
 
-  // Step 1: Create the video
-  const createResponse = await fetch(`${BASE_URL}/v2/video/generate`, {
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`[HeyGen] AV4 create failed (${response.status}): ${err}`);
+  }
+
+  const data = await response.json();
+  const videoId = data.data?.video_id;
+  if (!videoId) {
+    throw new Error(`[HeyGen] No video_id in AV4 response: ${JSON.stringify(data)}`);
+  }
+
+  console.log(`[HeyGen] Avatar IV video created, id: ${videoId}. Polling...`);
+  return pollVideoStatus(videoId, signal);
+}
+
+// ─── Generic v2 Endpoint (Fallback) ────────────────────────
+async function createGenericVideo(
+  avatarId: string,
+  script: string,
+  voiceId: string,
+  signal?: AbortSignal,
+): Promise<{ videoUrl: string; durationSec: number }> {
+  const response = await fetch(`${BASE_URL}/v2/video/generate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -62,44 +126,44 @@ export async function generateAvatarVideo(
     },
     body: JSON.stringify({
       video_inputs: [{
-        character,
+        character: {
+          type: "avatar",
+          avatar_id: avatarId,
+          avatar_style: "normal",
+          version: "v2",
+        },
         voice: {
           type: "text",
-          input_text: request.script,
+          input_text: script,
           voice_id: voiceId || undefined,
         },
         background: {
           type: "color",
-          value: "#00FF00",  // Green for chroma key — Shotstack luma matte handles masking
+          value: "#00FF00",
         },
       }],
-      dimension: {
-        width: 1080,
-        height: 1920,
-      },
+      dimension: { width: 1080, height: 1920 },
       test: false,
     }),
     signal,
   });
 
-  if (!createResponse.ok) {
-    const err = await createResponse.text();
-    throw new Error(`[HeyGen] Create video failed (${createResponse.status}): ${err}`);
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`[HeyGen] Create video failed (${response.status}): ${err}`);
   }
 
-  const createData = await createResponse.json();
-  const videoId = createData.data?.video_id;
+  const data = await response.json();
+  const videoId = data.data?.video_id;
   if (!videoId) {
-    throw new Error(`[HeyGen] No video_id in response: ${JSON.stringify(createData)}`);
+    throw new Error(`[HeyGen] No video_id in response: ${JSON.stringify(data)}`);
   }
 
-  console.log(`[HeyGen] Video created, id: ${videoId}. Polling for completion...`);
-
-  // Step 2: Poll for completion
-  const result = await pollVideoStatus(videoId, signal);
-  return result;
+  console.log(`[HeyGen] Generic video created, id: ${videoId}. Polling...`);
+  return pollVideoStatus(videoId, signal);
 }
 
+// ─── Poll for completion ────────────────────────────────────
 async function pollVideoStatus(
   videoId: string,
   signal?: AbortSignal,

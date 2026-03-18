@@ -204,7 +204,7 @@ export async function continueAfterTopicApproval(
     const pipelineConfig = {
       topic: run.topic ?? "",
       targetDurationSec: 60,
-      avatarPosition: "bottomRight" as const,
+      avatarPosition: "bottomLeft" as const,
       avatarScale: 0.3,
       captionStyle: "bold_highlight" as const,
       includeBackgroundMusic: true,
@@ -431,7 +431,7 @@ async function continueAfterTopicApprovalWithFacts(
     const pipelineConfig = {
       topic: run.topic ?? topic,
       targetDurationSec: 60,
-      avatarPosition: "bottomRight" as const,
+      avatarPosition: "bottomLeft" as const,
       avatarScale: 0.3,
       captionStyle: "bold_highlight" as const,
       includeBackgroundMusic: true,
@@ -514,7 +514,7 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
     const pipelineConfig = {
       topic: run.topic ?? "",
       targetDurationSec: 60,
-      avatarPosition: "bottomRight" as const,
+      avatarPosition: "bottomLeft" as const,
       avatarScale: 0.3,
       captionStyle: "bold_highlight" as const,
       includeBackgroundMusic: true,
@@ -590,7 +590,7 @@ export async function editNarration(runId: number, beatIndex: number, newText: s
     const pipelineConfig = {
       topic: run.topic ?? "",
       targetDurationSec: 60,
-      avatarPosition: "bottomRight" as const,
+      avatarPosition: "bottomLeft" as const,
       avatarScale: 0.3,
       captionStyle: "bold_highlight" as const,
       includeBackgroundMusic: true,
