@@ -121,8 +121,7 @@ function buildAvatarTrack(
       x: config.avatarPosition === "bottomRight" ? -0.05 : 0.05,
       y: 0.08,
     },
-    effect: "luma",
-    mask: { src: LUMA_CIRCLE_MASK },
+    // Circle mask will be added in PIP layout phase — for now, show avatar as-is
   };
 
   return { clips: [clip] };
