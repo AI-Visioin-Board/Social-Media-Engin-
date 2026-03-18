@@ -130,7 +130,8 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
 
   let runningTime = 0;
   const beats: Beat[] = raw.beats.map((b: any, i: number) => {
-    const duration = clamp(b.durationSec ?? 3, 2, 5);
+    // Allow beats up to 25s (Beat 2 = 15-20s, Beat 3 = 10-15s per Quinn's 4-beat structure)
+    const duration = clamp(b.durationSec ?? 5, 2, 25);
     const beat: Beat = {
       id: i + 1,
       startSec: runningTime,
