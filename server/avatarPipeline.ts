@@ -171,7 +171,7 @@ export async function continueAfterTopicApproval(
     let avatarDurationSec: number | null = null;
     if (avatarResult.status === "fulfilled") {
       avatarVideoUrl = avatarResult.value.videoUrl;
-      avatarDurationSec = avatarResult.value.durationSec;
+      avatarDurationSec = Math.round(avatarResult.value.durationSec);
       await updateRun(runId, { heygenCreditsUsed: (run.heygenCreditsUsed ?? 0) + 1 });
     } else {
       console.warn(`[AvatarPipeline] Avatar generation failed: ${avatarResult.reason?.message}`);
@@ -406,7 +406,7 @@ async function continueAfterTopicApprovalWithFacts(
     let avatarDurationSec = run.avatarDurationSec;
     if (avatarResult.status === "fulfilled") {
       avatarVideoUrl = avatarResult.value.videoUrl;
-      avatarDurationSec = avatarResult.value.durationSec;
+      avatarDurationSec = Math.round(avatarResult.value.durationSec);
       await updateRun(runId, { heygenCreditsUsed: (run.heygenCreditsUsed ?? 0) + 1 });
     }
 
@@ -577,7 +577,7 @@ export async function editNarration(runId: number, beatIndex: number, newText: s
 
     await updateRun(runId, {
       avatarVideoUrl: avatarResult.videoUrl,
-      avatarDurationSec: avatarResult.durationSec,
+      avatarDurationSec: Math.round(avatarResult.durationSec),
       heygenCreditsUsed: (run.heygenCreditsUsed ?? 0) + 1,
       status: "assembling",
       statusDetail: "Re-assembling video with new narration...",
