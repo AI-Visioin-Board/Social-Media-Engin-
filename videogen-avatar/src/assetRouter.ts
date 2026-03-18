@@ -19,7 +19,7 @@ const FALLBACK_CHAINS: Record<AssetSource, AssetSource[]> = {
   kling_t2v:        ["nano_banana", "pexels"],
   kling_i2v:        ["nano_banana"],               // fall back to the still image directly
   pexels:           ["nano_banana"],
-  puppeteer_graphic: [],                            // no fallback — we render it ourselves
+  puppeteer_graphic: ["nano_banana", "pexels"],      // fallback to AI image or stock if graphic render fails
 };
 
 const CONCURRENCY: Record<AssetSource, number> = {

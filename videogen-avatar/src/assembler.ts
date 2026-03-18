@@ -17,8 +17,6 @@ import type {
 } from "./types.js";
 import { renderVideo } from "./utils/shotstackClient.js";
 
-const LUMA_CIRCLE_MASK = "https://shotstack-assets.s3.amazonaws.com/luma-mattes/static/circle.jpg";
-
 const CAPTION_STYLES = {
   fontFamily: "Inter",
   fontSize: 44,
@@ -111,7 +109,12 @@ function buildAvatarTrack(
       type: "video",
       src: avatar.videoUrl,
       trim: 0,
-    },
+      chromaKey: {
+        color: "#00FF00",
+        threshold: 150,
+        halo: 100,
+      },
+    } as any,
     start: 0,
     length: totalDuration,
     fit: "crop",
@@ -121,7 +124,6 @@ function buildAvatarTrack(
       x: config.avatarPosition === "bottomRight" ? -0.05 : 0.05,
       y: 0.08,
     },
-    // Circle mask will be added in PIP layout phase — for now, show avatar as-is
   };
 
   return { clips: [clip] };

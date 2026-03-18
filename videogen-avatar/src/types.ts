@@ -129,7 +129,6 @@ export interface ShotstackClip {
   offset?: { x?: number; y?: number };
   transition?: { in?: string; out?: string };
   effect?: string;
-  mask?: { src: string };
 }
 
 export type ShotstackAsset =

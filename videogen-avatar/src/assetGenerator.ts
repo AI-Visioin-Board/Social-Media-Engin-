@@ -13,10 +13,25 @@ import type {
   ParallelGroup,
 } from "./types.js";
 import { getIndependentRequests, getDependentRequests } from "./assetRouter.js";
-import { generateImage, imageToDataUri } from "./utils/nanoBananaClient.js";
+import { generateImage } from "./utils/nanoBananaClient.js";
 import { generateTextToVideo, generateImageToVideo } from "./utils/klingClient.js";
 import { searchStockVideo } from "./utils/pexelsClient.js";
 import { retry } from "./utils/retry.js";
+
+// Upload base64 image to server storage so Shotstack can access it via public URL
+async function uploadToStorage(base64: string, mimeType: string, beatId: number): Promise<string> {
+  const { storagePut } = await import("../../../server/storage.js");
+  const ext = mimeType.includes("png") ? "png" : "jpg";
+  const key = `avatar-broll/beat-${beatId}-${Date.now()}.${ext}`;
+  const buffer = Buffer.from(base64, "base64");
+  const { url: localPath } = await storagePut(key, buffer, mimeType);
+
+  // Convert relative /uploads/... path to full public URL for Shotstack
+  const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
+  return `${baseUrl}${localPath}`;
+}
 
 export async function generateAllAssets(
   manifest: AssetManifest,
@@ -136,13 +151,13 @@ async function generateSingleAsset(
   switch (req.source) {
     case "nano_banana": {
       const result = await generateImage(req.prompt, signal);
-      const dataUri = imageToDataUri(result);
-      // In production, this would go through storagePut() for a public URL
+      // Upload to storage for a public URL — Shotstack can't use base64 data URIs
+      const publicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
       return {
         beatId: req.beatId,
         source: "nano_banana",
         mediaType: "image",
-        url: dataUri,
+        url: publicUrl,
         width: result.width,
         height: result.height,
         fallbackUsed: false,
