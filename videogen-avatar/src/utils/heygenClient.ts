@@ -60,13 +60,10 @@ async function createAvatarIVVideo(
   signal?: AbortSignal,
 ): Promise<{ videoUrl: string; durationSec: number }> {
   const body: Record<string, any> = {
-    // Required fields
-    image_key: avatarId,
+    // Required fields for AV4 endpoint
+    avatar_id: avatarId,
     video_title: `Quinn_${Date.now()}`,
-    script: {
-      type: "text",
-      input_text: script,
-    },
+    text: script,
     voice_id: voiceId || undefined,
 
     // Avatar IV quality settings
@@ -189,7 +186,9 @@ async function pollVideoStatus(
 
     if (status === "completed") {
       const videoUrl = data.data.video_url;
-      const duration = data.data.duration ?? 0;
+      // Duration may come as seconds or be missing — default to 30s minimum
+      const rawDuration = data.data.duration ?? 0;
+      const duration = rawDuration > 0 ? rawDuration : 30;
       console.log(`[HeyGen] Video completed: ${videoUrl} (${duration}s)`);
       return { videoUrl, durationSec: duration };
     }

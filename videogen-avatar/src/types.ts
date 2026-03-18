@@ -129,6 +129,7 @@ export interface ShotstackClip {
   offset?: { x?: number; y?: number };
   transition?: { in?: string; out?: string };
   effect?: string;
+  chromaKey?: { color: string; threshold: number; halo: number };
 }
 
 export type ShotstackAsset =
