@@ -529,7 +529,7 @@ export async function runFullResearch(suggestedTopic?: string): Promise<Research
         personalImpact: 8,
         userRelevance: 9,
       },
-      totalScore: 51,
+      weightedScore: 51,
       summary: suggestedTopic,
     };
 
