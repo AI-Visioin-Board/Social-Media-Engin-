@@ -55,6 +55,10 @@ export async function animateImage(
 
   console.log(`[Veo] Starting image-to-video animation (${aspectRatio})...`);
 
+  // Veo only supports 9:16 and 16:9 — no 1:1 square
+  // For square PIP beats, generate 9:16 and let Creatomate crop to fit
+  const veoAspectRatio = aspectRatio === "1:1" ? "9:16" : aspectRatio;
+
   let operation = await ai.models.generateVideos({
     model: VEO_MODEL,
     prompt,
@@ -64,8 +68,8 @@ export async function animateImage(
     },
     config: {
       numberOfVideos: 1,
-      durationSeconds: 5,
-      aspectRatio,
+      durationSeconds: 8,  // Veo image-to-video requires 5-8, use max for sub-clipping
+      aspectRatio: veoAspectRatio,
     },
   });
 
@@ -104,11 +108,11 @@ export async function animateImage(
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  console.log(`[Veo] Image-to-video complete (5s clip, ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB)`);
+  console.log(`[Veo] Image-to-video complete (8s clip, ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB)`);
 
   return {
     videoBuffer: Buffer.from(arrayBuffer),
-    durationSec: 5,
+    durationSec: 8,
     mimeType: "video/mp4",
   };
 }

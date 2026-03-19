@@ -53,28 +53,64 @@ export async function generateAvatarVideo(
 // ─── Avatar IV Dedicated Endpoint ───────────────────────────
 // POST /v2/video/av4/generate
 // Higher quality, custom motion prompts, matches HeyGen UI
+// Requires image_key for background — upload a black PNG first
+
+let _blackBgImageKey: string | null = null;
+
+async function getBlackBackgroundKey(apiKey: string): Promise<string> {
+  if (_blackBgImageKey) return _blackBgImageKey;
+
+  // Create a tiny 1x1 black PNG (67 bytes)
+  const blackPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  console.log("[HeyGen] Uploading black background for AV4...");
+  const response = await fetch("https://upload.heygen.com/v1/asset", {
+    method: "POST",
+    headers: {
+      "Content-Type": "image/png",
+      "X-Api-Key": apiKey,
+    },
+    body: blackPng,
+  });
+
+  if (!response.ok) {
+    throw new Error(`[HeyGen] Background upload failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const imageKey = data.data?.image_key;
+  if (!imageKey) {
+    throw new Error(`[HeyGen] No image_key in upload response: ${JSON.stringify(data)}`);
+  }
+
+  console.log(`[HeyGen] Black background uploaded: ${imageKey}`);
+  _blackBgImageKey = imageKey;
+  return imageKey;
+}
+
 async function createAvatarIVVideo(
   avatarId: string,
   script: string,
   voiceId: string,
   signal?: AbortSignal,
 ): Promise<{ videoUrl: string; durationSec: number }> {
+  // AV4 requires an image_key for background
+  const imageKey = await getBlackBackgroundKey(CONFIG.heygenApiKey);
+
   const body: Record<string, any> = {
     // Required fields for AV4 endpoint
     avatar_id: avatarId,
     video_title: `Quinn_${Date.now()}`,
     script: script,
     voice_id: voiceId,
+    image_key: imageKey,
 
     // Avatar IV quality settings
     custom_motion_prompt: "Speaking confidently to camera with natural subtle hand gestures. Slight head nods when emphasizing key points. Engaged, warm, and energetic. Natural blinking and eyebrow movement.",
     enhance_custom_motion_prompt: true,
-
-    // Dark background — Creatomate crops to avatar area, no chroma key needed
-    background: {
-      type: "color",
-      value: "#000000",
-    },
 
     // 9:16 for Reels
     dimension: {

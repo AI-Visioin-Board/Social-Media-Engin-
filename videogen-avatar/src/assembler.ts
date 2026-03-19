@@ -87,6 +87,26 @@ export function buildSource(
 
   const elements: any[] = [...beatCompositions];
 
+  // ── Continuous avatar audio track ──────────────────────────
+  // The avatar video element inside each beat only provides VISUAL.
+  // Audio must be a separate top-level element that spans the entire video,
+  // otherwise layouts without a visible avatar (fullscreen_broll, text_card)
+  // have silent gaps where Quinn stops talking mid-sentence.
+  if (avatar.videoUrl) {
+    elements.push({
+      type: "video",
+      source: avatar.videoUrl,
+      duration: avatar.durationSec,
+      // Make video invisible — we only want the audio from this element
+      width: "1%",
+      height: "1%",
+      x: "-10%",
+      y: "-10%",
+      opacity: "0%",
+      volume: "100%",
+    });
+  }
+
   // Background music — low volume, spans entire video
   // Only added if a valid URL is configured (avoids crashing render on bad URL)
   if (config.includeBackgroundMusic && BG_MUSIC_URL) {
@@ -200,6 +220,7 @@ function buildCloseupElements(
     height: "71%",
     fit: "cover",
     border_radius: "2.5 vmin",
+    volume: "0%",  // Audio comes from top-level continuous track
   });
 }
 
@@ -305,7 +326,7 @@ function buildPipElements(
       shadow_color: "rgba(0,0,0,0.6)",
       shadow_blur: "2 vmin",
     });
-    // Avatar video on top of card
+    // Avatar video on top of card (muted — audio from top-level continuous track)
     elements.push({
       type: "video",
       source: avatar.videoUrl,
@@ -317,6 +338,7 @@ function buildPipElements(
       height: "29%",
       fit: "cover",
       border_radius: "1.5 vmin",
+      volume: "0%",
     });
   }
 }
