@@ -138,7 +138,7 @@ export async function continueAfterTopicApproval(
     });
 
     const { routeAssets } = await import("../videogen-avatar/src/assetRouter.js");
-    const { generateAllAssets } = await import("../videogen-avatar/src/assetGenerator.js");
+    const { generateAllAssetsMulti } = await import("../videogen-avatar/src/assetGenerator.js");
     const { generateAvatarVideo } = await import("../videogen-avatar/src/utils/heygenClient.js");
 
     // Route beats to asset sources
@@ -148,8 +148,9 @@ export async function continueAfterTopicApproval(
     const narrationText = script.beats.map(b => b.narration).join(" ");
 
     // Run asset gen + avatar gen in parallel
+    // generateAllAssetsMulti returns multiple clips per Pexels beat for rapid-fire sub-clipping
     const [assetsResult, avatarResult] = await Promise.allSettled([
-      generateAllAssets(manifest, ac.signal),
+      generateAllAssetsMulti(manifest, ac.signal),
       generateAvatarVideo({
         script: narrationText,
         avatarId: CONFIG.heygenAvatarId,
@@ -164,7 +165,7 @@ export async function continueAfterTopicApproval(
     if (assetsResult.status === "rejected") {
       throw new Error(`Asset generation failed: ${assetsResult.reason?.message ?? assetsResult.reason}`);
     }
-    const assets = assetsResult.value;
+    const { primary: assets, multi: multiAssets } = assetsResult.value;
 
     // Handle avatar result
     let avatarVideoUrl: string | null = null;
@@ -210,14 +211,14 @@ export async function continueAfterTopicApproval(
       autoPost: false,
     };
 
-    const source = buildSource(script, assets, avatarInfo, pipelineConfig);
+    const source = buildSource(script, assets, avatarInfo, pipelineConfig, multiAssets);
 
     await updateRun(runId, {
       shotstackEditJson: JSON.stringify(source),
       statusDetail: "Submitting to Creatomate for rendering...",
     });
 
-    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig, ac.signal);
+    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig, ac.signal, multiAssets);
 
     await updateRun(runId, {
       status: "video_review",
@@ -378,7 +379,7 @@ async function continueAfterTopicApprovalWithFacts(
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
     const { routeAssets } = await import("../videogen-avatar/src/assetRouter.js");
-    const { generateAllAssets } = await import("../videogen-avatar/src/assetGenerator.js");
+    const { generateAllAssetsMulti } = await import("../videogen-avatar/src/assetGenerator.js");
     const { generateAvatarVideo } = await import("../videogen-avatar/src/utils/heygenClient.js");
     const { CONFIG } = await import("../videogen-avatar/src/config.js");
 
@@ -386,7 +387,7 @@ async function continueAfterTopicApprovalWithFacts(
     const narrationText = script.beats.map(b => b.narration).join(" ");
 
     const [assetsResult, avatarResult] = await Promise.allSettled([
-      generateAllAssets(manifest, ac.signal),
+      generateAllAssetsMulti(manifest, ac.signal),
       generateAvatarVideo({
         script: narrationText,
         avatarId: CONFIG.heygenAvatarId,
@@ -401,6 +402,8 @@ async function continueAfterTopicApprovalWithFacts(
       throw new Error(`Asset generation failed: ${assetsResult.reason?.message}`);
     }
 
+    const { primary: revAssets, multi: revMultiAssets } = assetsResult.value;
+
     let avatarVideoUrl = run.avatarVideoUrl;
     let avatarDurationSec = run.avatarDurationSec;
     if (avatarResult.status === "fulfilled") {
@@ -410,7 +413,7 @@ async function continueAfterTopicApprovalWithFacts(
     }
 
     await updateRun(runId, {
-      assetMap: JSON.stringify(assetsResult.value),
+      assetMap: JSON.stringify(revAssets),
       avatarVideoUrl,
       avatarDurationSec,
       status: "assembling",
@@ -436,11 +439,11 @@ async function continueAfterTopicApprovalWithFacts(
       autoPost: false,
     };
 
-    const source = buildSource(script, assetsResult.value, avatarInfo, pipelineConfig);
+    const source = buildSource(script, revAssets, avatarInfo, pipelineConfig, revMultiAssets);
 
     await updateRun(runId, { shotstackEditJson: JSON.stringify(source) });
 
-    const renderResult = await assembleVideo(script, assetsResult.value, avatarInfo, pipelineConfig, ac.signal);
+    const renderResult = await assembleVideo(script, revAssets, avatarInfo, pipelineConfig, ac.signal, revMultiAssets);
 
     await updateRun(runId, {
       status: "video_review",
