@@ -346,6 +346,8 @@ export const avatarRuns = pgTable("avatar_runs", {
   scriptJson: text("scriptJson"),
   /** JSON AssetMap from Stage 3 — persisted for surgical B-roll editing */
   assetMap: text("assetMap"),
+  /** JSON MultiAssetMap — multiple clips per beat for rapid-fire sub-clipping */
+  multiAssetMap: text("multiAssetMap"),
   /** Full Shotstack Edit JSON — persisted for re-assembly */
   shotstackEditJson: text("shotstackEditJson"),
   /** HeyGen avatar video URL */

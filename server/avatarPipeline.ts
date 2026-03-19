@@ -181,6 +181,7 @@ export async function continueAfterTopicApproval(
 
     await updateRun(runId, {
       assetMap: JSON.stringify(assets),
+      multiAssetMap: JSON.stringify(multiAssets),
       avatarVideoUrl,
       avatarDurationSec,
       statusDetail: "Assets and avatar ready. Assembling video...",
@@ -414,6 +415,7 @@ async function continueAfterTopicApprovalWithFacts(
 
     await updateRun(runId, {
       assetMap: JSON.stringify(revAssets),
+      multiAssetMap: JSON.stringify(revMultiAssets),
       avatarVideoUrl,
       avatarDurationSec,
       status: "assembling",
@@ -470,6 +472,7 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
 
   const script = JSON.parse(run.scriptJson ?? "{}");
   const assets = JSON.parse(run.assetMap ?? "{}");
+  const multiAssets = JSON.parse(run.multiAssetMap ?? "{}");
   const beat = script.beats?.[beatIndex];
 
   if (!beat) throw new Error(`Beat ${beatIndex} not found in script`);
@@ -486,7 +489,7 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
       script.beats[beatIndex] = beat;
     }
 
-    // Re-generate just this beat's asset
+    // Re-generate just this beat's asset (single-clip for surgical swap)
     const { routeAssets } = await import("../videogen-avatar/src/assetRouter.js");
     const { generateAllAssets } = await import("../videogen-avatar/src/assetGenerator.js");
 
@@ -495,10 +498,11 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
     const manifest = routeAssets(miniBeatScript);
     const newAssets = await generateAllAssets(manifest);
 
-    // Patch the asset map
+    // Patch both asset maps
     const newAsset = newAssets[beat.id];
     if (newAsset) {
       assets[beat.id] = newAsset;
+      multiAssets[beat.id] = [newAsset];  // Single clip for swapped beat
     }
 
     // Rebuild and re-render via Creatomate
@@ -521,14 +525,15 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
       autoPost: false,
     };
 
-    const source = buildSource(script, assets, avatarInfo, pipelineConfig);
-    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig);
+    const source = buildSource(script, assets, avatarInfo, pipelineConfig, multiAssets);
+    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig, undefined, multiAssets);
 
     await updateRun(runId, {
       status: "video_review",
       statusDetail: `B-roll swapped for beat ${beatIndex + 1}. Video re-rendered!`,
       scriptJson: JSON.stringify(script),
       assetMap: JSON.stringify(assets),
+      multiAssetMap: JSON.stringify(multiAssets),
       shotstackEditJson: JSON.stringify(source),
       assembledVideoUrl: renderResult.videoUrl,
       finalVideoUrl: renderResult.videoUrl,
@@ -549,6 +554,7 @@ export async function editNarration(runId: number, beatIndex: number, newText: s
 
   const script = JSON.parse(run.scriptJson ?? "{}");
   const assets = JSON.parse(run.assetMap ?? "{}");
+  const multiAssets = JSON.parse(run.multiAssetMap ?? "{}");
   const beat = script.beats?.[beatIndex];
 
   if (!beat) throw new Error(`Beat ${beatIndex} not found in script`);
@@ -603,8 +609,8 @@ export async function editNarration(runId: number, beatIndex: number, newText: s
       transparent: false,
     };
 
-    const source = buildSource(script, assets, avatarInfo, pipelineConfig);
-    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig);
+    const source = buildSource(script, assets, avatarInfo, pipelineConfig, multiAssets);
+    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig, undefined, multiAssets);
 
     await updateRun(runId, {
       status: "video_review",

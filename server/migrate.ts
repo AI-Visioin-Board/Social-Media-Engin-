@@ -326,6 +326,11 @@ export async function migrateDatabase(): Promise<void> {
         ALTER TABLE avatar_runs ADD COLUMN suggested_topic_id INTEGER;
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN "multiAssetMap" TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
 
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
