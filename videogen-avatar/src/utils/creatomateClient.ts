@@ -38,9 +38,7 @@ export async function renderVideo(
       width: source.width || 1080,
       height: source.height || 1920,
       frame_rate: source.frame_rate || 30,
-      source: {
-        elements: source.elements,
-      },
+      elements: source.elements,
     }),
     signal,
   });
