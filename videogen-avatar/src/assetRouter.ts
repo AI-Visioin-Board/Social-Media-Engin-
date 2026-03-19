@@ -2,6 +2,13 @@
 // videogen-avatar — Stage 2: Asset Router
 // Takes a VideoScript → returns an AssetManifest
 // Pure logic, no API calls. Decides which tool generates each beat's visual.
+//
+// ROUTING STRATEGY (updated):
+// - Nano Banana stills for ALL AI-generated visuals (sharp, handles text/logos)
+// - Pexels stock footage for generic_action beats (real footage)
+// - Ken Burns motion applied by Creatomate assembler (not AI video gen)
+// - Kling REMOVED from routing — output quality too low (smeared text, unclear)
+// - Puppeteer graphics not yet implemented, falls back to Nano Banana
 // ============================================================
 
 import { CONFIG } from "./config.js";
@@ -14,18 +21,19 @@ import type {
   ParallelGroup,
 } from "./types.js";
 
+// Fallback chains — Kling removed, everything degrades to Nano Banana → Pexels
 const FALLBACK_CHAINS: Record<AssetSource, AssetSource[]> = {
-  nano_banana:      ["kling_t2v", "pexels"],
-  kling_t2v:        ["nano_banana", "pexels"],
-  kling_i2v:        ["nano_banana"],               // fall back to the still image directly
-  pexels:           ["nano_banana"],
-  puppeteer_graphic: ["nano_banana", "pexels"],      // fallback to AI image or stock if graphic render fails
+  nano_banana:       ["pexels"],
+  kling_t2v:         ["nano_banana", "pexels"],  // kept for type safety, not routed to
+  kling_i2v:         ["nano_banana"],             // kept for type safety, not routed to
+  pexels:            ["nano_banana"],
+  puppeteer_graphic: ["nano_banana", "pexels"],
 };
 
 const CONCURRENCY: Record<AssetSource, number> = {
   nano_banana: CONFIG.nanoBananaConcurrency,
   kling_t2v: CONFIG.klingConcurrency,
-  kling_i2v: 2,                                     // sequential-ish, depends on Nano Banana
+  kling_i2v: 2,
   pexels: CONFIG.pexelsConcurrency,
   puppeteer_graphic: 3,
 };
@@ -40,6 +48,10 @@ export function routeAssets(script: VideoScript): AssetManifest {
 
   const parallelGroups = buildParallelGroups(requests);
 
+  console.log(`[AssetRouter] ${requests.length} asset requests from ${script.beats.length} beats`);
+  const sources = [...new Set(requests.map(r => r.source))];
+  console.log(`[AssetRouter] Sources: ${sources.join(", ")}`);
+
   return { requests, parallelGroups };
 }
 
@@ -53,39 +65,26 @@ function routeBeat(beat: Beat): AssetRequest[] {
 
   switch (beat.visualType) {
     case "named_person": {
-      // Step 1: Generate still image of the person via Nano Banana
-      const stillRequest: AssetRequest = {
+      // Sharp Nano Banana still of the person — Creatomate adds Ken Burns motion
+      requests.push({
         beatId: beat.id,
         source: "nano_banana",
         prompt: buildPersonPrompt(beat),
         subject: beat.visualSubject,
         aspectRatio: "9:16",
         fallbackChain: FALLBACK_CHAINS.nano_banana,
-      };
-      requests.push(stillRequest);
-
-      // Step 2: If motion requested, animate via Kling I2V (depends on still)
-      if (beat.motionStyle === "ai_video") {
-        requests.push({
-          beatId: beat.id,
-          source: "kling_i2v",
-          prompt: buildI2VPrompt(beat),
-          subject: beat.visualSubject,
-          aspectRatio: "9:16",
-          dependsOn: beat.id,  // waits for the nano_banana request above
-          fallbackChain: FALLBACK_CHAINS.kling_i2v,
-        });
-      }
+      });
+      // NO Kling I2V — quality too low, smears faces/text
       break;
     }
 
     case "product_logo_ui":
     case "screen_capture": {
-      // Still image via Nano Banana, Ken Burns applied by Shotstack
+      // Still image via Nano Banana — sharp text and logos
       requests.push({
         beatId: beat.id,
         source: "nano_banana",
-        prompt: beat.visualPrompt,
+        prompt: buildProductPrompt(beat),
         aspectRatio: "9:16",
         fallbackChain: FALLBACK_CHAINS.nano_banana,
       });
@@ -93,30 +92,20 @@ function routeBeat(beat: Beat): AssetRequest[] {
     }
 
     case "cinematic_concept": {
-      if (beat.motionStyle === "ai_video") {
-        // Full AI video via Kling T2V
-        requests.push({
-          beatId: beat.id,
-          source: "kling_t2v",
-          prompt: buildCinematicPrompt(beat),
-          aspectRatio: "9:16",
-          fallbackChain: FALLBACK_CHAINS.kling_t2v,
-        });
-      } else {
-        // Just a still from Nano Banana
-        requests.push({
-          beatId: beat.id,
-          source: "nano_banana",
-          prompt: beat.visualPrompt,
-          aspectRatio: "9:16",
-          fallbackChain: FALLBACK_CHAINS.nano_banana,
-        });
-      }
+      // Nano Banana still — even for "ai_video" motionStyle
+      // Ken Burns zoom/pan in Creatomate provides enough motion for 2-3s sub-clips
+      requests.push({
+        beatId: beat.id,
+        source: "nano_banana",
+        prompt: buildCinematicPrompt(beat),
+        aspectRatio: "9:16",
+        fallbackChain: FALLBACK_CHAINS.nano_banana,
+      });
       break;
     }
 
     case "generic_action": {
-      // Stock footage from Pexels
+      // Real stock footage from Pexels — authentic, high quality
       requests.push({
         beatId: beat.id,
         source: "pexels",
@@ -128,13 +117,14 @@ function routeBeat(beat: Beat): AssetRequest[] {
     }
 
     case "data_graphic": {
-      // Render locally via Puppeteer HTML → PNG
+      // Puppeteer not implemented — route to Nano Banana directly
+      // Nano Banana can generate infographic-style images
       requests.push({
         beatId: beat.id,
-        source: "puppeteer_graphic",
-        prompt: beat.visualPrompt,
+        source: "nano_banana",
+        prompt: buildDataGraphicPrompt(beat),
         aspectRatio: "9:16",
-        fallbackChain: FALLBACK_CHAINS.puppeteer_graphic,
+        fallbackChain: FALLBACK_CHAINS.nano_banana,
       });
       break;
     }
@@ -147,7 +137,6 @@ function buildParallelGroups(requests: AssetRequest[]): ParallelGroup[] {
   const groups = new Map<AssetSource, number[]>();
 
   for (const req of requests) {
-    // Skip dependent requests — they run after their dependency
     if (req.dependsOn !== undefined) continue;
 
     const existing = groups.get(req.source) ?? [];
@@ -171,25 +160,32 @@ function buildParallelGroups(requests: AssetRequest[]): ParallelGroup[] {
 
 function buildPersonPrompt(beat: Beat): string {
   const subject = beat.visualSubject ?? "a person";
-  return `Photorealistic portrait of ${subject}. ${beat.visualPrompt}. Vertical 9:16 composition, cinematic lighting, sharp focus, editorial photography style.`;
+  return `Photorealistic portrait of ${subject}. ${beat.visualPrompt}. Vertical 9:16 composition, cinematic lighting, sharp focus, editorial photography style. High detail on face and expression.`;
 }
 
-function buildI2VPrompt(beat: Beat): string {
-  const subject = beat.visualSubject ?? "the person";
-  return `${subject} with subtle natural movement: slight head turn, blinking, breathing. ${beat.visualPrompt}. Smooth cinematic motion, 5 seconds.`;
+function buildProductPrompt(beat: Beat): string {
+  return `${beat.visualPrompt}. Clean product photography style, sharp text and UI elements, vertical 9:16 composition. High contrast, professional lighting.`;
 }
 
 function buildCinematicPrompt(beat: Beat): string {
-  return `${beat.visualPrompt}. Cinematic 9:16 vertical composition, dramatic lighting, high production value, 5 seconds of smooth motion.`;
+  return `${beat.visualPrompt}. Cinematic 9:16 vertical composition, dramatic lighting, high production value. Sharp focus, vivid colors.`;
+}
+
+function buildDataGraphicPrompt(beat: Beat): string {
+  return `Infographic style image: ${beat.visualPrompt}. Clean design, bold numbers, high contrast. Dark background with bright accent colors (#00E5FF, #FF6B00). Vertical 9:16 format.`;
 }
 
 function buildStockQuery(beat: Beat): string {
   // Strip AI-specific language for stock footage search
-  return beat.visualPrompt
-    .replace(/\b(AI|artificial intelligence|neural|algorithm)\b/gi, "")
+  // Also limit to 5 words max for better Pexels results
+  const cleaned = beat.visualPrompt
+    .replace(/\b(AI|artificial intelligence|neural|algorithm|machine learning|deep learning|LLM|GPT|model)\b/gi, "")
     .replace(/\s{2,}/g, " ")
-    .trim()
-    || "technology office";
+    .trim();
+
+  // Take first 5 words max
+  const words = cleaned.split(/\s+/).slice(0, 5).join(" ");
+  return words || "technology office";
 }
 
 // --- Utilities for the asset generator ---
