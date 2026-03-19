@@ -3,7 +3,10 @@
 // Takes an AssetManifest → generates all assets in parallel
 // Handles fallback chains when sources fail
 //
-// NEW: Generates MULTIPLE stock clips per beat for rapid-fire
+// FLOW: Nano Banana still → Veo 3.1 animation → 5s video clip
+// Veo failure gracefully degrades to still image (Ken Burns in assembler)
+//
+// Pexels stock beats fetch MULTIPLE clips per beat for rapid-fire
 // sub-clipping (1.5-2.5s visual cuts instead of one static clip)
 // ============================================================
 
@@ -18,8 +21,9 @@ import type {
 } from "./types.js";
 import { getIndependentRequests, getDependentRequests } from "./assetRouter.js";
 import { generateImage } from "./utils/nanoBananaClient.js";
-import { generateTextToVideo, generateImageToVideo } from "./utils/klingClient.js";
+import { animateImage } from "./utils/veoClient.js";
 import { searchStockVideo, searchStockVideoBatch, resetUsedVideos } from "./utils/pexelsClient.js";
+// Note: klingClient.ts import removed — Kling no longer used in routing
 import { retry } from "./utils/retry.js";
 
 // How many stock clips to fetch per beat for rapid-fire sub-clipping
@@ -33,7 +37,19 @@ async function uploadToStorage(base64: string, mimeType: string, beatId: number)
   const buffer = Buffer.from(base64, "base64");
   const { url: localPath } = await storagePut(key, buffer, mimeType);
 
-  // Convert relative /uploads/... path to full public URL for Creatomate
+  return toPublicUrl(localPath);
+}
+
+// Upload a raw Buffer (video/image) to server storage
+async function uploadBufferToStorage(buf: Buffer, mimeType: string, beatId: number, ext: string): Promise<string> {
+  const { storagePut } = await import("../../../server/storage.js");
+  const key = `avatar-broll/beat-${beatId}-${Date.now()}.${ext}`;
+  const { url: localPath } = await storagePut(key, buf, mimeType);
+
+  return toPublicUrl(localPath);
+}
+
+function toPublicUrl(localPath: string): string {
   const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
     ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
     : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
@@ -267,46 +283,46 @@ async function generateSingleAsset(
 ): Promise<GeneratedAsset> {
   switch (req.source) {
     case "nano_banana": {
+      // Step 1: Generate sharp still image via Nano Banana
       const result = await generateImage(req.prompt, signal);
-      const publicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
-      return {
-        beatId: req.beatId,
-        source: "nano_banana",
-        mediaType: "image",
-        url: publicUrl,
-        width: result.width,
-        height: result.height,
-        fallbackUsed: false,
-      };
+      const imagePublicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
+
+      // Step 2: Animate the still with Veo 3.1 (image-to-video)
+      // If Veo fails, we gracefully fall back to the still image
+      // (Creatomate assembler will apply Ken Burns motion to stills)
+      try {
+        const motionPrompt = `Subtle cinematic motion: gentle camera movement, atmospheric lighting shifts. ${req.prompt}`;
+        const veoResult = await animateImage(result.imageBase64, result.mimeType, motionPrompt, signal);
+        const videoPublicUrl = await uploadBufferToStorage(veoResult.videoBuffer, veoResult.mimeType, req.beatId, "mp4");
+        console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana → Veo animation SUCCESS`);
+        return {
+          beatId: req.beatId,
+          source: "nano_banana",
+          mediaType: "video",
+          url: videoPublicUrl,
+          durationSec: veoResult.durationSec,
+          width: 1080,
+          height: 1920,
+          fallbackUsed: false,
+        };
+      } catch (veoErr: any) {
+        console.warn(`[AssetGen] Beat ${req.beatId}: Veo animation failed (${veoErr.message}), using still image with Ken Burns`);
+        return {
+          beatId: req.beatId,
+          source: "nano_banana",
+          mediaType: "image",
+          url: imagePublicUrl,
+          width: result.width,
+          height: result.height,
+          fallbackUsed: false,
+        };
+      }
     }
 
-    case "kling_t2v": {
-      const result = await generateTextToVideo(req.prompt, signal);
-      return {
-        beatId: req.beatId,
-        source: "kling_t2v",
-        mediaType: "video",
-        url: result.videoUrl,
-        durationSec: result.durationSec,
-        width: 1080,
-        height: 1920,
-        fallbackUsed: false,
-      };
-    }
-
+    // Kling cases kept for type safety but never routed to (removed from assetRouter)
+    case "kling_t2v":
     case "kling_i2v": {
-      if (!sourceImageUrl) throw new Error("I2V requires a source image URL");
-      const result = await generateImageToVideo(sourceImageUrl, req.prompt, signal);
-      return {
-        beatId: req.beatId,
-        source: "kling_i2v",
-        mediaType: "video",
-        url: result.videoUrl,
-        durationSec: result.durationSec,
-        width: 1080,
-        height: 1920,
-        fallbackUsed: false,
-      };
+      throw new Error("Kling video generation removed — use Nano Banana + Veo instead");
     }
 
     case "pexels": {

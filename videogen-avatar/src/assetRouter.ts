@@ -4,9 +4,9 @@
 // Pure logic, no API calls. Decides which tool generates each beat's visual.
 //
 // ROUTING STRATEGY (updated):
-// - Nano Banana stills for ALL AI-generated visuals (sharp, handles text/logos)
+// - Nano Banana stills → Veo 3.1 image-to-video animation (5s clips)
+//   * Veo failure degrades gracefully to still + Ken Burns in Creatomate
 // - Pexels stock footage for generic_action beats (real footage)
-// - Ken Burns motion applied by Creatomate assembler (not AI video gen)
 // - Kling REMOVED from routing — output quality too low (smeared text, unclear)
 // - Puppeteer graphics not yet implemented, falls back to Nano Banana
 // ============================================================
