@@ -47,7 +47,7 @@ export async function generateImage(
       }],
       generationConfig: {
         responseModalities: ["TEXT", "IMAGE"],
-        imageSizeOptions: { aspectRatio: aspect.apiRatio },
+        imageConfig: { aspectRatio: aspect.apiRatio },
       },
     }),
     signal,
