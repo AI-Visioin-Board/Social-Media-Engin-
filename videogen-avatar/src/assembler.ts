@@ -73,9 +73,15 @@ export function buildSource(
 ): Record<string, any> {
   const beatCompositions: any[] = [];
 
+  // Scale factor: HeyGen avatar duration may differ from script duration
+  // (speech rate varies). Scale trim_start so beats map to actual avatar timeline.
+  const avatarScale = avatar.durationSec > 0 && script.totalDurationSec > 0
+    ? avatar.durationSec / script.totalDurationSec
+    : 1;
+
   for (const beat of script.beats) {
     if (beat.durationSec <= 0) continue;
-    const comp = buildBeatComposition(beat, assets, avatar, config, multiAssets);
+    const comp = buildBeatComposition(beat, assets, avatar, config, multiAssets, avatarScale);
     beatCompositions.push(comp);
   }
 
@@ -108,6 +114,7 @@ function buildBeatComposition(
   avatar: AvatarResult,
   config: PipelineConfig,
   multiAssets?: MultiAssetMap,
+  avatarScale: number = 1,
 ): Record<string, any> {
   const layout: LayoutMode = beat.layout || "pip";
   const elements: any[] = [];
@@ -121,9 +128,9 @@ function buildBeatComposition(
   });
 
   if (layout === "avatar_closeup") {
-    buildCloseupElements(beat, avatar, elements);
+    buildCloseupElements(beat, avatar, elements, avatarScale);
   } else if (layout === "pip") {
-    buildPipElements(beat, assets, avatar, config, elements, multiAssets);
+    buildPipElements(beat, assets, avatar, config, elements, multiAssets, avatarScale);
   } else if (layout === "fullscreen_broll") {
     buildFullscreenBrollElements(beat, assets, elements, multiAssets);
   } else if (layout === "text_card") {
@@ -150,6 +157,7 @@ function buildCloseupElements(
   beat: Beat,
   avatar: AvatarResult,
   elements: any[],
+  avatarScale: number = 1,
 ): void {
   if (!avatar.videoUrl) {
     // No avatar available — show text card fallback
@@ -172,7 +180,7 @@ function buildCloseupElements(
   elements.push({
     type: "video",
     source: avatar.videoUrl,
-    trim_start: beat.startSec,
+    trim_start: beat.startSec * avatarScale,
     trim_duration: beat.durationSec,
     x: "50%",
     y: "45%",
@@ -194,6 +202,7 @@ function buildPipElements(
   config: PipelineConfig,
   elements: any[],
   multiAssets?: MultiAssetMap,
+  avatarScale: number = 1,
 ): void {
   const beatAssets = multiAssets?.[beat.id] ?? (assets[beat.id] ? [assets[beat.id]] : []);
 
@@ -279,7 +288,7 @@ function buildPipElements(
     elements.push({
       type: "video",
       source: avatar.videoUrl,
-      trim_start: beat.startSec,
+      trim_start: beat.startSec * avatarScale,
       trim_duration: beat.durationSec,
       x: "22%",
       y: "78%",
@@ -561,7 +570,7 @@ function highlightEmphasis(text: string, emphasisWords?: string[]): string {
   let result = text;
   for (const word of emphasisWords) {
     const regex = new RegExp(`\\b(${escapeRegex(word)})\\b`, "gi");
-    result = result.replace(regex, `<b style="color:#00E5FF">$1</b>`);
+    result = result.replace(regex, `<font color="#00E5FF"><b>$1</b></font>`);
   }
   return result;
 }

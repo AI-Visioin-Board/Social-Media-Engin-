@@ -35,7 +35,12 @@ export async function renderVideo(
     },
     body: JSON.stringify({
       output_format: source.output_format || "mp4",
-      source,
+      width: source.width || 1080,
+      height: source.height || 1920,
+      frame_rate: source.frame_rate || 30,
+      source: {
+        elements: source.elements,
+      },
     }),
     signal,
   });
