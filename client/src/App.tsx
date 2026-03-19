@@ -8,6 +8,7 @@ import DashboardLayout from "./components/DashboardLayout";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import ContentStudio from "./pages/ContentStudio";
 import AvatarReels from "./pages/AvatarReels";
+import EditorialCalendar from "./pages/EditorialCalendar";
 
 // Content Studio (Carousel) + Avatar Reels — dashboard routes
 function Router() {
@@ -22,6 +23,7 @@ function Router() {
           <Switch>
             <Route path="/" component={ContentStudio} />
             <Route path="/content-studio" component={ContentStudio} />
+            <Route path="/calendar" component={EditorialCalendar} />
             <Route path="/avatar-reels" component={AvatarReels} />
             <Route path="/404" component={NotFound} />
             <Route component={NotFound} />

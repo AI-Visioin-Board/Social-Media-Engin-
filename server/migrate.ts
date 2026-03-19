@@ -332,6 +332,23 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    // ── Editorial Calendar ────────────────────────
+    await sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS calendar_entries (
+        id SERIAL PRIMARY KEY,
+        scheduled_date DATE NOT NULL,
+        content_type VARCHAR(20) NOT NULL,
+        topic_title TEXT,
+        topic_context TEXT,
+        status VARCHAR(30) NOT NULL DEFAULT 'planned',
+        pipeline_run_id INTEGER,
+        pipeline_type VARCHAR(20),
+        notes TEXT,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);

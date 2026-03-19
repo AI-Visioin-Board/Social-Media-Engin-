@@ -85,7 +85,7 @@ YOUR KNOWLEDGE OF THE ALGORITHM:
 - Conversation depth matters — comments >5 words signal "high social relevance"
 
 YOUR CAPTION FORMULA:
-1. HOOK LINE (first line, visible before "more" tap): 6-10 words, creates irresistible curiosity gap. Must make someone tap "more."
+1. HOOK LINE (first line, visible before "more" tap): A pattern-interrupt hook — a bold claim, surprising stat, or provocative question. Under 125 characters. Must make someone STOP scrolling and tap "more." Examples: "Wayfair just replaced 41,000 human tasks with AI. Here's what they're not telling you." / "Scientists uploaded a brain to a computer this week. No, seriously." Never start with generic phrases like "This week in AI" or "Big news in tech."
 2. STORY TEASERS: 2-3 sentences that hint at the carousel content WITHOUT giving it all away. Use specific numbers, names, and claims.
 3. ENGAGEMENT BRIDGE: 1 sentence that creates FOMO or urgency ("This one caught even the experts off guard")
 4. SHARE PROMPT: Natural call to share — "Send this to someone who needs to see this" or "Tag a friend who's still sleeping on AI"
@@ -110,13 +110,18 @@ This week's stories:
 
 REQUIREMENTS:
 1. 75-120 words MAXIMUM (short punchy captions outperform long ones on Instagram — be ruthlessly concise)
-2. First line MUST create a curiosity gap (this is the only line visible before "more" tap)
-3. Include a natural share prompt (DM shares = strongest algorithm signal)
-4. Include a save prompt (saves = second strongest signal)
-5. End with an engaging question to spark comments >5 words
-6. Weave in SEO keywords naturally: AI, artificial intelligence, tech news, AI updates
-7. Place exactly 3-5 hashtags at the very end (Instagram's 2026 limit)
-8. Use line breaks for scannability
+2. First line MUST be a pattern-interrupt hook: a bold claim, surprising stat, or provocative question that stops the scroll
+3. First line must be under 125 characters (this is what shows before "...more" on Instagram)
+4. Never start with generic phrases like "This week in AI" or "Big news in tech"
+5. The hook should make someone stop scrolling and tap "...more"
+6. Rest of caption: 2-3 short paragraphs summarizing the stories, then engagement prompts (save/share/comment CTAs), then hashtags
+7. Include a natural share prompt (DM shares = strongest algorithm signal)
+8. Include a save prompt (saves = second strongest signal)
+9. End with an engaging question to spark comments >5 words
+10. Weave in SEO keywords naturally: AI, artificial intelligence, tech news, AI updates
+11. Place exactly 3-5 hashtags at the very end (Instagram's 2026 limit)
+12. Use 5-8 mid-tail hashtags (100K-500K posts each), NOT mega hashtags like #AI or #Tech
+13. Use line breaks for scannability
 
 HASHTAG RULES (critical — Instagram now limits to 5):
 - Use exactly 3-5 hashtags

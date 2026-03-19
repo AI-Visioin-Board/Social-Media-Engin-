@@ -403,3 +403,27 @@ export const suggestedTopics = pgTable("suggested_topics", {
 
 export type SuggestedTopic = typeof suggestedTopics.$inferSelect;
 export type InsertSuggestedTopic = typeof suggestedTopics.$inferInsert;
+
+// ─────────────────────────────────────────────
+// EDITORIAL CALENDAR
+// ─────────────────────────────────────────────
+
+/**
+ * Calendar entries — planned content for the editorial calendar
+ */
+export const calendarEntries = pgTable("calendar_entries", {
+  id: serial("id").primaryKey(),
+  scheduledDate: varchar("scheduled_date", { length: 10 }).notNull(), // 'YYYY-MM-DD'
+  contentType: varchar("content_type", { length: 20 }).notNull(), // 'carousel' or 'reel'
+  topicTitle: text("topic_title"),
+  topicContext: text("topic_context"),
+  status: varchar("status", { length: 30 }).notNull().default("planned"),
+  pipelineRunId: integer("pipeline_run_id"),
+  pipelineType: varchar("pipeline_type", { length: 20 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type CalendarEntry = typeof calendarEntries.$inferSelect;
+export type InsertCalendarEntry = typeof calendarEntries.$inferInsert;

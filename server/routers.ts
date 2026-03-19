@@ -1581,5 +1581,130 @@ export const appRouter = router({
         throw new Error("HeyGen voice test timed out after 3 minutes");
       }),
   }),
+
+  // ─── Editorial Calendar ────────────────────────────────────
+  calendar: router({
+    getWeek: adminProcedure
+      .input(z.object({ weekStart: z.string() })) // 'YYYY-MM-DD' (Monday)
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { and, gte, lte } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        // weekStart is Monday, weekEnd is Sunday
+        const start = input.weekStart;
+        const end = new Date(start);
+        end.setDate(end.getDate() + 6);
+        const endStr = end.toISOString().split("T")[0];
+        return db.select().from(calendarEntries)
+          .where(and(
+            gte(calendarEntries.scheduledDate, start),
+            lte(calendarEntries.scheduledDate, endStr),
+          ))
+          .orderBy(calendarEntries.scheduledDate);
+      }),
+
+    create: adminProcedure
+      .input(z.object({
+        scheduledDate: z.string(),
+        contentType: z.enum(["carousel", "reel"]),
+        topicTitle: z.string().optional(),
+        topicContext: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [entry] = await db.insert(calendarEntries).values({
+          scheduledDate: input.scheduledDate,
+          contentType: input.contentType,
+          topicTitle: input.topicTitle ?? null,
+          topicContext: input.topicContext ?? null,
+          notes: input.notes ?? null,
+        }).returning();
+        return entry;
+      }),
+
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        scheduledDate: z.string().optional(),
+        topicTitle: z.string().optional(),
+        topicContext: z.string().optional(),
+        notes: z.string().optional(),
+        status: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const updates: Record<string, any> = { updatedAt: new Date() };
+        if (input.scheduledDate !== undefined) updates.scheduledDate = input.scheduledDate;
+        if (input.topicTitle !== undefined) updates.topicTitle = input.topicTitle;
+        if (input.topicContext !== undefined) updates.topicContext = input.topicContext;
+        if (input.notes !== undefined) updates.notes = input.notes;
+        if (input.status !== undefined) updates.status = input.status;
+        const [entry] = await db.update(calendarEntries)
+          .set(updates)
+          .where(eq(calendarEntries.id, input.id))
+          .returning();
+        return entry;
+      }),
+
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.delete(calendarEntries).where(eq(calendarEntries.id, input.id));
+        return { success: true };
+      }),
+
+    trigger: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!entry) throw new Error("Calendar entry not found");
+        if (entry.status !== "planned") throw new Error("Can only trigger planned entries");
+
+        if (entry.contentType === "carousel") {
+          // Trigger carousel pipeline
+          const { runContentPipeline } = await import("./contentPipeline");
+          const day = new Date(entry.scheduledDate).getDay();
+          const slot = (day === 1 ? "monday" : day === 5 ? "friday" : "monday") as "monday" | "friday";
+          const runId = await runContentPipeline({
+            runSlot: slot,
+            perplexityApiKey: process.env.PERPLEXITY_API_KEY,
+            klingAccessKey: ENV.klingAccessKey,
+            klingSecretKey: ENV.klingSecretKey,
+            makeWebhookUrl: process.env.MAKE_WEBHOOK_URL,
+            requireAdminApproval: true,
+          });
+          await db.update(calendarEntries).set({
+            status: "discovering",
+            pipelineRunId: runId,
+            pipelineType: "carousel",
+            updatedAt: new Date(),
+          }).where(eq(calendarEntries.id, input.id));
+          return { runId, pipelineType: "carousel" };
+        } else {
+          // Reel — placeholder until avatar pipeline supports topic injection
+          throw new Error("Reel triggering from calendar not yet supported — use the Avatar Reels page");
+        }
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;

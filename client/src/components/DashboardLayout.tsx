@@ -22,6 +22,7 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
+  CalendarDays,
   Instagram,
   LogOut,
   PanelLeft,
@@ -35,6 +36,7 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: Instagram, label: "Carousel", path: "/" },
+  { icon: CalendarDays, label: "Calendar", path: "/calendar" },
   { icon: Video, label: "Avatar Reels", path: "/avatar-reels" },
 ];
 
