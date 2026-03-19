@@ -127,7 +127,7 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     "static_ken_burns", "ai_video", "stock_clip", "screen_capture",
   ];
   const validTransitions: TransitionType[] = ["cut", "dissolve", "zoom_in", "slide_left"];
-  const validLayouts: LayoutMode[] = ["pip", "fullscreen_broll", "avatar_closeup"];
+  const validLayouts: LayoutMode[] = ["pip", "fullscreen_broll", "avatar_closeup", "text_card"];
 
   let runningTime = 0;
   const beats: Beat[] = raw.beats.map((b: any, i: number) => {
@@ -149,7 +149,15 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
       motionStyle: validMotionStyles.includes(b.motionStyle) ? b.motionStyle : "static_ken_burns",
       transition: validTransitions.includes(b.transition) ? b.transition : "cut",
       captionEmphasis: Array.isArray(b.captionEmphasis) ? b.captionEmphasis.map(String) : [],
+      textCardText: b.textCardText ? String(b.textCardText) : undefined,
+      textCardColor: b.textCardColor ? String(b.textCardColor) : undefined,
     };
+
+    // Fix: text_card beats don't need visual generation
+    if (beat.layout === "text_card") {
+      beat.visualType = "data_graphic";
+      beat.motionStyle = "static_ken_burns";
+    }
 
     // Fix: named_person without a subject → reclassify
     if (beat.visualType === "named_person" && !beat.visualSubject) {

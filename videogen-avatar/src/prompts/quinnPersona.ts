@@ -94,13 +94,15 @@ Each beat MUST have a "layout" field that controls how the video frame looks:
 - "pip" — Avatar small in bottom-left, b-roll fills the top (like a news broadcast). Use for most beats.
 - "fullscreen_broll" — No avatar visible, just full-screen b-roll with captions. Use for dramatic visuals, product shots, or data graphics.
 - "avatar_closeup" — Avatar takes up most of the screen, no b-roll. Use for the HOOK (beat 1), emotional moments, and the CTA (last beat).
+- "text_card" — Bold text on a colored background, NO avatar, NO b-roll. Maximum visual impact. Use for: shocking stats ("$30 BILLION in one quarter"), bold claims, or pattern-interrupt hooks. Set textCardText to the display text and textCardColor to the background hex (e.g. "#FF0000" for red, "#000000" for black).
 
 LAYOUT RULES:
-- Beat 1 (hook) should ALWAYS be "avatar_closeup" — Quinn looks directly at camera and hooks them
+- Beat 1 (hook) can be "avatar_closeup" OR "text_card" — either Quinn hooks them directly, or a bold stat/claim grabs attention
 - Last beat (CTA) should ALWAYS be "avatar_closeup" — personal sign-off
-- Mix "pip" and "fullscreen_broll" throughout the middle beats for variety
-- Never use the same layout more than 3 beats in a row
-- Aim for at least 2 layout switches in any 15-second window
+- Mix ALL FOUR layouts throughout the middle beats for maximum variety
+- Never use the same layout more than 2 beats in a row
+- Aim for at least 2-3 layout switches in any 15-second window
+- Use at least 1 "text_card" beat per video (for a stat, shocking number, or key claim)
 
 RE-HOOK STRATEGY:
 - Insert mini-hooks at ~15 seconds and ~30 seconds to prevent watch-time drop-off
@@ -121,9 +123,15 @@ VISUAL TYPES (pick exactly one per beat):
 - "named_person" — A specific public figure (set visualSubject to their name)
 - "product_logo_ui" — App screenshots, product interfaces, company logos
 - "cinematic_concept" — Dramatic/abstract visuals
-- "generic_action" — Real-world footage (person typing, crowd, office). Keep prompts generic and searchable for stock footage
+- "generic_action" — Real-world footage (person typing, crowd, office). Keep prompts SHORT and GENERIC for stock footage (e.g. "person typing laptop", "city skyline night", "office meeting"). NO jargon, NO AI terms.
 - "data_graphic" — Stats, comparisons, rankings, timelines
 - "screen_capture" — Showing a screen: app demo, website, code editor
+
+VISUAL VARIETY RULES:
+- NEVER use the same visualType for 3 consecutive beats. Mix it up.
+- Use at least 3 DIFFERENT visualTypes across your 8-12 beats.
+- "generic_action" beats should have SHORT search-friendly prompts (2-4 words). Think Pexels/stock footage search queries.
+- For stock footage prompts: "person using phone" ✅, "developer implementing transformer architecture on neural network" ❌
 
 MOTION STYLES:
 - "ai_video" — Full AI-generated video clip (cinematic_concept, named_person action shots)
@@ -159,13 +167,15 @@ OUTPUT FORMAT: Return valid JSON matching this exact schema:
       "startSec": 0,
       "durationSec": 3,
       "narration": "string — what Quinn says",
-      "layout": "pip|fullscreen_broll|avatar_closeup",
+      "layout": "pip|fullscreen_broll|avatar_closeup|text_card",
       "visualType": "named_person|product_logo_ui|cinematic_concept|generic_action|data_graphic|screen_capture",
-      "visualPrompt": "string — detailed image/video generation prompt OR stock footage search query",
+      "visualPrompt": "string — detailed image/video generation prompt OR stock footage search query (keep stock queries SHORT: 2-4 words)",
       "visualSubject": "string|null — named person if applicable",
       "motionStyle": "ai_video|static_ken_burns|stock_clip|screen_capture",
       "transition": "cut|dissolve|zoom_in|slide_left",
-      "captionEmphasis": ["keyword1", "keyword2"]
+      "captionEmphasis": ["keyword1", "keyword2"],
+      "textCardText": "string|null — large display text for text_card layout (e.g. '$30 BILLION in 90 days')",
+      "textCardColor": "string|null — hex background color for text_card (e.g. '#FF0000')"
     }
   ],
   "caption": "string — Instagram post caption (keyword-rich for SEO, 75-120 words, with line breaks, 3-5 hashtags at end)",

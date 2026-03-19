@@ -46,6 +46,11 @@ export function routeAssets(script: VideoScript): AssetManifest {
 function routeBeat(beat: Beat): AssetRequest[] {
   const requests: AssetRequest[] = [];
 
+  // Text card beats render as pure Creatomate text — no asset needed
+  if (beat.layout === "text_card") {
+    return requests;
+  }
+
   switch (beat.visualType) {
     case "named_person": {
       // Step 1: Generate still image of the person via Nano Banana

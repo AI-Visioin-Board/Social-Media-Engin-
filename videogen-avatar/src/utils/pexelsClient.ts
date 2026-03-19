@@ -2,6 +2,9 @@
 // Pexels API Client — Free stock video footage
 // Free tier: 200 req/hr, 20,000/month
 // Used for "generic_action" beats (typing, office, city, etc.)
+//
+// searchStockVideo() — single best clip (original behavior)
+// searchStockVideoBatch() — multiple clips for rapid-fire sub-clipping
 // ============================================================
 
 import { CONFIG } from "../config.js";
@@ -29,60 +32,111 @@ interface PexelsSearchResult {
   videos: PexelsVideo[];
 }
 
+export interface StockClip {
+  url: string;
+  duration: number;
+  width: number;
+  height: number;
+  pexelsVideoId: number;
+}
+
+// Track used video IDs to avoid duplicates within a single video generation
+const usedVideoIds = new Set<number>();
+
+export function resetUsedVideos(): void {
+  usedVideoIds.clear();
+}
+
+/**
+ * Search for a single stock video clip (backward compatible)
+ */
 export async function searchStockVideo(
   query: string,
   signal?: AbortSignal,
-): Promise<{ url: string; duration: number; width: number; height: number } | null> {
+): Promise<StockClip | null> {
+  const results = await searchStockVideoBatch(query, 1, signal);
+  return results[0] ?? null;
+}
+
+/**
+ * Search for multiple stock video clips for rapid-fire sub-clipping.
+ * Returns up to `count` unique clips (deduplicated within this video generation).
+ */
+export async function searchStockVideoBatch(
+  query: string,
+  count: number = 3,
+  signal?: AbortSignal,
+): Promise<StockClip[]> {
   if (!CONFIG.pexelsApiKey) {
     console.warn("[Pexels] No API key configured, skipping stock footage search");
-    return null;
+    return [];
   }
+
+  // Request more results to have deduplication headroom
+  const perPage = Math.min(Math.max(count * 3, 10), 30);
 
   const params = new URLSearchParams({
     query,
     orientation: "portrait",
     size: "medium",
-    per_page: "10",
+    per_page: String(perPage),
   });
 
-  const response = await fetch(
-    `https://api.pexels.com/videos/search?${params}`,
-    {
-      headers: { Authorization: CONFIG.pexelsApiKey },
-      signal,
-    },
-  );
+  try {
+    const response = await fetch(
+      `https://api.pexels.com/videos/search?${params}`,
+      {
+        headers: { Authorization: CONFIG.pexelsApiKey },
+        signal,
+      },
+    );
 
-  if (!response.ok) {
-    const err = await response.text();
-    console.error(`[Pexels] API error (${response.status}): ${err}`);
-    return null;
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`[Pexels] API error (${response.status}): ${err}`);
+      return [];
+    }
+
+    const data: PexelsSearchResult = await response.json();
+
+    if (data.videos.length === 0) {
+      console.warn(`[Pexels] No results for query: "${query}"`);
+      return [];
+    }
+
+    // Filter for suitable videos (minimum duration, not already used)
+    const suitable = data.videos.filter(
+      v => v.duration >= CONFIG.pexelsMinDuration && !usedVideoIds.has(v.id)
+    );
+
+    // Fall back to all videos if deduplication is too aggressive
+    const pool = suitable.length >= count ? suitable : data.videos.filter(v => !usedVideoIds.has(v.id));
+    const finalPool = pool.length > 0 ? pool : data.videos;
+
+    const clips: StockClip[] = [];
+    for (const video of finalPool) {
+      if (clips.length >= count) break;
+
+      const file = pickBestFile(video.videoFiles);
+      if (!file) continue;
+
+      usedVideoIds.add(video.id);
+      clips.push({
+        url: file.link,
+        duration: video.duration,
+        width: file.width,
+        height: file.height,
+        pexelsVideoId: video.id,
+      });
+    }
+
+    console.log(`[Pexels] Found ${clips.length}/${count} clips for "${query}"`);
+    return clips;
+  } catch (err: any) {
+    if (err.name === "AbortError") throw err;
+    console.error(`[Pexels] Search failed for "${query}":`, err.message);
+    return [];
   }
-
-  const data: PexelsSearchResult = await response.json();
-
-  if (data.videos.length === 0) {
-    console.warn(`[Pexels] No results for query: "${query}"`);
-    return null;
-  }
-
-  // Pick the best video: prefer portrait, HD, at least 3 seconds
-  const suitable = data.videos.filter(v => v.duration >= CONFIG.pexelsMinDuration);
-  const video = suitable.length > 0 ? suitable[0] : data.videos[0];
-
-  // Find the best video file: prefer HD, portrait aspect
-  const file = pickBestFile(video.videoFiles);
-  if (!file) {
-    console.warn(`[Pexels] No suitable video file for video ${video.id}`);
-    return null;
-  }
-
-  return {
-    url: file.link,
-    duration: video.duration,
-    width: file.width,
-    height: file.height,
-  };
 }
 
 function pickBestFile(files: PexelsVideoFile[]): PexelsVideoFile | null {

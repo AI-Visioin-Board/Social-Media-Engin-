@@ -15,7 +15,7 @@ export interface VideoScript {
   cta: string;
 }
 
-export type LayoutMode = "pip" | "fullscreen_broll" | "avatar_closeup";
+export type LayoutMode = "pip" | "fullscreen_broll" | "avatar_closeup" | "text_card";
 
 export interface Beat {
   id: number;
@@ -29,6 +29,8 @@ export interface Beat {
   motionStyle: MotionStyle;
   transition: TransitionType;
   captionEmphasis?: string[];  // keywords to bold/highlight in captions
+  textCardText?: string;       // large text for text_card layout (stat, claim, quote)
+  textCardColor?: string;      // background color for text_card layout (e.g., "#FF0000")
 }
 
 export type VisualType =
@@ -93,7 +95,11 @@ export interface GeneratedAsset {
   fallbackSource?: AssetSource;
 }
 
+// Single asset per beat (primary)
 export type AssetMap = Record<number, GeneratedAsset>;
+
+// Multiple assets per beat for rapid-fire sub-clips (e.g., multiple Pexels clips)
+export type MultiAssetMap = Record<number, GeneratedAsset[]>;
 
 // --------------- Stage 4: Avatar Output ---------------
 
