@@ -84,7 +84,7 @@ export async function continueAfterTopicApproval(
     // Validate critical API keys upfront — fail fast before wasting time on scripting
     const { CONFIG, hasKey } = await import("../videogen-avatar/src/config.js");
     const missingKeys: string[] = [];
-    if (!hasKey("shotstack")) missingKeys.push("SHOTSTACK_API_KEY");
+    if (!hasKey("creatomate")) missingKeys.push("CREATOMATE_API_KEY");
     if (!hasKey("heygen")) missingKeys.push("HEYGEN_API_KEY");
     if (!CONFIG.heygenAvatarId && !CONFIG.heygenLookId) missingKeys.push("HEYGEN_AVATAR_ID or HEYGEN_LOOK_ID");
     if (missingKeys.length > 0) {
@@ -185,14 +185,13 @@ export async function continueAfterTopicApproval(
       statusDetail: "Assets and avatar ready. Assembling video...",
     });
 
-    // Stage 5: Assembly via Shotstack
+    // Stage 5: Assembly via Creatomate
     await updateRun(runId, {
       status: "assembling",
-      statusDetail: "Building Shotstack edit and rendering final video...",
+      statusDetail: "Building Creatomate render and assembling final video...",
     });
 
-    const { buildEdit } = await import("../videogen-avatar/src/assembler.js");
-    const { renderVideo } = await import("../videogen-avatar/src/utils/shotstackClient.js");
+    const { assembleVideo, buildSource } = await import("../videogen-avatar/src/assembler.js");
 
     const avatarInfo = {
       videoUrl: avatarVideoUrl ?? "",
@@ -211,14 +210,14 @@ export async function continueAfterTopicApproval(
       autoPost: false,
     };
 
-    const edit = buildEdit(script, assets, avatarInfo, pipelineConfig);
+    const source = buildSource(script, assets, avatarInfo, pipelineConfig);
 
     await updateRun(runId, {
-      shotstackEditJson: JSON.stringify(edit),
-      statusDetail: "Submitting to Shotstack for rendering...",
+      shotstackEditJson: JSON.stringify(source),
+      statusDetail: "Submitting to Creatomate for rendering...",
     });
 
-    const renderResult = await renderVideo(edit, ac.signal);
+    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig, ac.signal);
 
     await updateRun(runId, {
       status: "video_review",
@@ -418,8 +417,7 @@ async function continueAfterTopicApprovalWithFacts(
       statusDetail: "Assembling video...",
     });
 
-    const { buildEdit } = await import("../videogen-avatar/src/assembler.js");
-    const { renderVideo } = await import("../videogen-avatar/src/utils/shotstackClient.js");
+    const { assembleVideo, buildSource } = await import("../videogen-avatar/src/assembler.js");
 
     const avatarInfo = {
       videoUrl: avatarVideoUrl ?? "",
@@ -438,11 +436,11 @@ async function continueAfterTopicApprovalWithFacts(
       autoPost: false,
     };
 
-    const edit = buildEdit(script, assetsResult.value, avatarInfo, pipelineConfig);
+    const source = buildSource(script, assetsResult.value, avatarInfo, pipelineConfig);
 
-    await updateRun(runId, { shotstackEditJson: JSON.stringify(edit) });
+    await updateRun(runId, { shotstackEditJson: JSON.stringify(source) });
 
-    const renderResult = await renderVideo(edit, ac.signal);
+    const renderResult = await assembleVideo(script, assetsResult.value, avatarInfo, pipelineConfig, ac.signal);
 
     await updateRun(runId, {
       status: "video_review",
@@ -500,9 +498,8 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
       assets[beat.id] = newAsset;
     }
 
-    // Rebuild and re-render
-    const { buildEdit } = await import("../videogen-avatar/src/assembler.js");
-    const { renderVideo } = await import("../videogen-avatar/src/utils/shotstackClient.js");
+    // Rebuild and re-render via Creatomate
+    const { assembleVideo, buildSource } = await import("../videogen-avatar/src/assembler.js");
 
     const avatarInfo = {
       videoUrl: run.avatarVideoUrl ?? "",
@@ -521,15 +518,15 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
       autoPost: false,
     };
 
-    const edit = buildEdit(script, assets, avatarInfo, pipelineConfig);
-    const renderResult = await renderVideo(edit);
+    const source = buildSource(script, assets, avatarInfo, pipelineConfig);
+    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig);
 
     await updateRun(runId, {
       status: "video_review",
       statusDetail: `B-roll swapped for beat ${beatIndex + 1}. Video re-rendered!`,
       scriptJson: JSON.stringify(script),
       assetMap: JSON.stringify(assets),
-      shotstackEditJson: JSON.stringify(edit),
+      shotstackEditJson: JSON.stringify(source),
       assembledVideoUrl: renderResult.videoUrl,
       finalVideoUrl: renderResult.videoUrl,
     });
@@ -583,9 +580,8 @@ export async function editNarration(runId: number, beatIndex: number, newText: s
       statusDetail: "Re-assembling video with new narration...",
     });
 
-    // Re-assemble
-    const { buildEdit } = await import("../videogen-avatar/src/assembler.js");
-    const { renderVideo } = await import("../videogen-avatar/src/utils/shotstackClient.js");
+    // Re-assemble via Creatomate
+    const { assembleVideo, buildSource } = await import("../videogen-avatar/src/assembler.js");
 
     const pipelineConfig = {
       topic: run.topic ?? "",
@@ -597,20 +593,21 @@ export async function editNarration(runId: number, beatIndex: number, newText: s
       autoPost: false,
     };
 
-    const edit = buildEdit(script, assets, {
+    const avatarInfo = {
       videoUrl: avatarResult.videoUrl,
       durationSec: avatarResult.durationSec,
-      format: "mp4",
+      format: "mp4" as const,
       transparent: false,
-    }, pipelineConfig);
+    };
 
-    const renderResult = await renderVideo(edit);
+    const source = buildSource(script, assets, avatarInfo, pipelineConfig);
+    const renderResult = await assembleVideo(script, assets, avatarInfo, pipelineConfig);
 
     await updateRun(runId, {
       status: "video_review",
       statusDetail: `Narration updated for beat ${beatIndex + 1}. Video re-rendered!`,
       scriptJson: JSON.stringify(script),
-      shotstackEditJson: JSON.stringify(edit),
+      shotstackEditJson: JSON.stringify(source),
       assembledVideoUrl: renderResult.videoUrl,
       finalVideoUrl: renderResult.videoUrl,
     });

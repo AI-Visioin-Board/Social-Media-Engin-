@@ -28,6 +28,7 @@ export const CONFIG = {
   shotstackApiKey: process.env.SHOTSTACK_API_KEY ?? "",
   shotstackEnv: (process.env.SHOTSTACK_ENV ?? "v1") as "stage" | "v1",
   pexelsApiKey: process.env.PEXELS_API_KEY ?? "",
+  creatomateApiKey: process.env.CREATOMATE_API_KEY ?? "",
 
   // --- Pipeline defaults ---
   defaultTargetDuration: 60,
@@ -62,12 +63,13 @@ function requireEnv(name: string): string {
   return val;
 }
 
-export function hasKey(service: "heygen" | "shotstack" | "pexels" | "kling" | "gemini"): boolean {
+export function hasKey(service: "heygen" | "shotstack" | "pexels" | "kling" | "gemini" | "creatomate"): boolean {
   switch (service) {
     case "heygen": return CONFIG.heygenApiKey.length > 0;
     case "shotstack": return CONFIG.shotstackApiKey.length > 0;
     case "pexels": return CONFIG.pexelsApiKey.length > 0;
     case "kling": return CONFIG.klingAccessKey.length > 0 && CONFIG.klingSecretKey.length > 0;
     case "gemini": return CONFIG.geminiApiKey.length > 0;
+    case "creatomate": return CONFIG.creatomateApiKey.length > 0;
   }
 }

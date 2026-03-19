@@ -1,7 +1,7 @@
 // ============================================================
 // HeyGen API Client — AI Avatar Video Generation
 // Uses dedicated Avatar IV endpoint for best quality
-// Produces green-screen talking head videos for PIP compositing
+// Produces talking head videos for PIP compositing via Creatomate
 // ============================================================
 
 import { CONFIG } from "../config.js";
@@ -70,10 +70,10 @@ async function createAvatarIVVideo(
     custom_motion_prompt: "Speaking confidently to camera with natural subtle hand gestures. Slight head nods when emphasizing key points. Engaged, warm, and energetic. Natural blinking and eyebrow movement.",
     enhance_custom_motion_prompt: true,
 
-    // Green screen for chroma key compositing
+    // Dark background — Creatomate crops to avatar area, no chroma key needed
     background: {
       type: "color",
-      value: "#00FF00",
+      value: "#000000",
     },
 
     // 9:16 for Reels
@@ -136,7 +136,7 @@ async function createGenericVideo(
         },
         background: {
           type: "color",
-          value: "#00FF00",
+          value: "#000000",
         },
       }],
       dimension: { width: 1080, height: 1920 },
