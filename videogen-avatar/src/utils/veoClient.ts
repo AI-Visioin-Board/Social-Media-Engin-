@@ -39,16 +39,18 @@ function getClient(): GoogleGenAI {
  * @param mimeType — e.g. "image/png" or "image/jpeg"
  * @param prompt — motion/animation guidance prompt
  * @param signal — optional AbortSignal
+ * @param aspectRatio — "9:16" for fullscreen b-roll, "1:1" for PIP TV frame
  */
 export async function animateImage(
   imageBase64: string,
   mimeType: string,
   prompt: string,
   signal?: AbortSignal,
+  aspectRatio: "9:16" | "1:1" = "9:16",
 ): Promise<VeoResult> {
   const ai = getClient();
 
-  console.log(`[Veo] Starting image-to-video animation...`);
+  console.log(`[Veo] Starting image-to-video animation (${aspectRatio})...`);
 
   let operation = await ai.models.generateVideos({
     model: VEO_MODEL,
@@ -60,7 +62,7 @@ export async function animateImage(
     config: {
       numberOfVideos: 1,
       durationSeconds: 5,
-      aspectRatio: "9:16",
+      aspectRatio,
     },
   });
 

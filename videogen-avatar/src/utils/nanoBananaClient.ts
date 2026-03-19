@@ -19,14 +19,23 @@ interface NanoBananaResult {
   height: number;
 }
 
+// Map our pipeline aspect ratios to Nano Banana API ratios + expected dimensions
+const ASPECT_CONFIGS: Record<string, { apiRatio: string; width: number; height: number }> = {
+  "9:16": { apiRatio: "9:16", width: 1080, height: 1920 },
+  "1:1":  { apiRatio: "1:1",  width: 1080, height: 1080 },
+  "3:4":  { apiRatio: "3:4",  width: 810,  height: 1080 },  // legacy default
+};
+
 export async function generateImage(
   prompt: string,
   signal?: AbortSignal,
+  aspectRatio: "9:16" | "1:1" = "9:16",
 ): Promise<NanoBananaResult> {
   if (!CONFIG.geminiApiKey) {
     throw new Error("[NanoBanana] GEMINI_API_KEY not configured");
   }
 
+  const aspect = ASPECT_CONFIGS[aspectRatio] ?? ASPECT_CONFIGS["9:16"];
   const url = `${API_BASE}/${MODEL}:generateContent?key=${CONFIG.geminiApiKey}`;
 
   const response = await fetch(url, {
@@ -38,7 +47,7 @@ export async function generateImage(
       }],
       generationConfig: {
         responseModalities: ["TEXT", "IMAGE"],
-        imageSizeOptions: { aspectRatio: "3:4" },  // 3:4 close to 9:16
+        imageSizeOptions: { aspectRatio: aspect.apiRatio },
       },
     }),
     signal,
@@ -67,8 +76,8 @@ export async function generateImage(
   return {
     imageBase64: imagePart.inlineData.data,
     mimeType: imagePart.inlineData.mimeType,
-    width: 810,   // Nano Banana default for 3:4 aspect
-    height: 1080,
+    width: aspect.width,
+    height: aspect.height,
   };
 }
 

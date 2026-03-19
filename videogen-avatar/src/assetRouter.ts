@@ -15,11 +15,22 @@ import { CONFIG } from "./config.js";
 import type {
   VideoScript,
   Beat,
+  LayoutMode,
   AssetSource,
   AssetRequest,
   AssetManifest,
   ParallelGroup,
 } from "./types.js";
+
+/**
+ * Pick the right generation aspect ratio based on how the beat will be displayed:
+ * - "pip" → b-roll sits in a roughly square "TV frame" (top 55%, 92% width) → 1:1
+ * - "fullscreen_broll" → fills the entire 1080×1920 canvas → 9:16
+ * - "avatar_closeup" / "text_card" → no b-roll generated, but default to 9:16
+ */
+function aspectRatioForLayout(layout: LayoutMode): "9:16" | "1:1" {
+  return layout === "pip" ? "1:1" : "9:16";
+}
 
 // Fallback chains — Kling removed, everything degrades to Nano Banana → Pexels
 const FALLBACK_CHAINS: Record<AssetSource, AssetSource[]> = {
@@ -71,7 +82,7 @@ function routeBeat(beat: Beat): AssetRequest[] {
         source: "nano_banana",
         prompt: buildPersonPrompt(beat),
         subject: beat.visualSubject,
-        aspectRatio: "9:16",
+        aspectRatio: aspectRatioForLayout(beat.layout),
         fallbackChain: FALLBACK_CHAINS.nano_banana,
       });
       // NO Kling I2V — quality too low, smears faces/text
@@ -85,7 +96,7 @@ function routeBeat(beat: Beat): AssetRequest[] {
         beatId: beat.id,
         source: "nano_banana",
         prompt: buildProductPrompt(beat),
-        aspectRatio: "9:16",
+        aspectRatio: aspectRatioForLayout(beat.layout),
         fallbackChain: FALLBACK_CHAINS.nano_banana,
       });
       break;
@@ -98,7 +109,7 @@ function routeBeat(beat: Beat): AssetRequest[] {
         beatId: beat.id,
         source: "nano_banana",
         prompt: buildCinematicPrompt(beat),
-        aspectRatio: "9:16",
+        aspectRatio: aspectRatioForLayout(beat.layout),
         fallbackChain: FALLBACK_CHAINS.nano_banana,
       });
       break;
@@ -110,7 +121,7 @@ function routeBeat(beat: Beat): AssetRequest[] {
         beatId: beat.id,
         source: "pexels",
         prompt: buildStockQuery(beat),
-        aspectRatio: "9:16",
+        aspectRatio: aspectRatioForLayout(beat.layout),
         fallbackChain: FALLBACK_CHAINS.pexels,
       });
       break;
@@ -123,7 +134,7 @@ function routeBeat(beat: Beat): AssetRequest[] {
         beatId: beat.id,
         source: "nano_banana",
         prompt: buildDataGraphicPrompt(beat),
-        aspectRatio: "9:16",
+        aspectRatio: aspectRatioForLayout(beat.layout),
         fallbackChain: FALLBACK_CHAINS.nano_banana,
       });
       break;
@@ -158,21 +169,28 @@ function buildParallelGroups(requests: AssetRequest[]): ParallelGroup[] {
 
 // --- Prompt builders ---
 
+function compositionHint(beat: Beat): string {
+  return beat.layout === "pip"
+    ? "Square 1:1 composition, centered subject"
+    : "Vertical 9:16 composition";
+}
+
 function buildPersonPrompt(beat: Beat): string {
   const subject = beat.visualSubject ?? "a person";
-  return `Photorealistic portrait of ${subject}. ${beat.visualPrompt}. Vertical 9:16 composition, cinematic lighting, sharp focus, editorial photography style. High detail on face and expression.`;
+  return `Photorealistic portrait of ${subject}. ${beat.visualPrompt}. ${compositionHint(beat)}, cinematic lighting, sharp focus, editorial photography style. High detail on face and expression.`;
 }
 
 function buildProductPrompt(beat: Beat): string {
-  return `${beat.visualPrompt}. Clean product photography style, sharp text and UI elements, vertical 9:16 composition. High contrast, professional lighting.`;
+  return `${beat.visualPrompt}. Clean product photography style, sharp text and UI elements, ${compositionHint(beat).toLowerCase()}. High contrast, professional lighting.`;
 }
 
 function buildCinematicPrompt(beat: Beat): string {
-  return `${beat.visualPrompt}. Cinematic 9:16 vertical composition, dramatic lighting, high production value. Sharp focus, vivid colors.`;
+  return `${beat.visualPrompt}. Cinematic ${compositionHint(beat).toLowerCase()}, dramatic lighting, high production value. Sharp focus, vivid colors.`;
 }
 
 function buildDataGraphicPrompt(beat: Beat): string {
-  return `Infographic style image: ${beat.visualPrompt}. Clean design, bold numbers, high contrast. Dark background with bright accent colors (#00E5FF, #FF6B00). Vertical 9:16 format.`;
+  const format = beat.layout === "pip" ? "Square 1:1 format" : "Vertical 9:16 format";
+  return `Infographic style image: ${beat.visualPrompt}. Clean design, bold numbers, high contrast. Dark background with bright accent colors (#00E5FF, #FF6B00). ${format}.`;
 }
 
 function buildStockQuery(beat: Beat): string {

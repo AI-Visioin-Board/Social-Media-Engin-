@@ -63,7 +63,7 @@ export interface AssetRequest {
   source: AssetSource;
   prompt: string;
   subject?: string;
-  aspectRatio: "9:16";
+  aspectRatio: "9:16" | "1:1";
   dependsOn?: number;  // beatId of a dependency (e.g. I2V depends on Nano Banana still)
   fallbackChain: AssetSource[];
 }

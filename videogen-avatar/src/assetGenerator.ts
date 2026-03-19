@@ -284,25 +284,31 @@ async function generateSingleAsset(
   switch (req.source) {
     case "nano_banana": {
       // Step 1: Generate sharp still image via Nano Banana
-      const result = await generateImage(req.prompt, signal);
+      // Aspect ratio matches the beat's layout: 1:1 for PIP TV frame, 9:16 for fullscreen
+      const result = await generateImage(req.prompt, signal, req.aspectRatio);
       const imagePublicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
+
+      // Dimensions depend on aspect ratio
+      const isSquare = req.aspectRatio === "1:1";
+      const videoWidth = isSquare ? 1080 : 1080;
+      const videoHeight = isSquare ? 1080 : 1920;
 
       // Step 2: Animate the still with Veo 3.1 (image-to-video)
       // If Veo fails, we gracefully fall back to the still image
       // (Creatomate assembler will apply Ken Burns motion to stills)
       try {
         const motionPrompt = `Subtle cinematic motion: gentle camera movement, atmospheric lighting shifts. ${req.prompt}`;
-        const veoResult = await animateImage(result.imageBase64, result.mimeType, motionPrompt, signal);
+        const veoResult = await animateImage(result.imageBase64, result.mimeType, motionPrompt, signal, req.aspectRatio);
         const videoPublicUrl = await uploadBufferToStorage(veoResult.videoBuffer, veoResult.mimeType, req.beatId, "mp4");
-        console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana → Veo animation SUCCESS`);
+        console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana → Veo animation SUCCESS (${req.aspectRatio})`);
         return {
           beatId: req.beatId,
           source: "nano_banana",
           mediaType: "video",
           url: videoPublicUrl,
           durationSec: veoResult.durationSec,
-          width: 1080,
-          height: 1920,
+          width: videoWidth,
+          height: videoHeight,
           fallbackUsed: false,
         };
       } catch (veoErr: any) {
