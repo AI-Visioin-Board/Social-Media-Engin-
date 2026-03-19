@@ -33,7 +33,10 @@ export async function renderVideo(
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ source }),
+    body: JSON.stringify({
+      output_format: source.output_format || "mp4",
+      source,
+    }),
     signal,
   });
 

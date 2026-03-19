@@ -10,7 +10,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { CONFIG } from "../config.js";
 
-const VEO_MODEL = "veo-3.1-fast-generate-001";
+// Try GA model first; parent repo uses same name but some API keys may
+// only have access to the preview model. The 404 fallback is handled by
+// the caller (assetGenerator) which keeps the still image.
+const VEO_MODEL = "veo-3.1-fast-generate-preview";
 const POLL_INTERVAL_MS = 10_000;  // 10s between polls
 const MAX_POLLS = 60;              // 10 minutes max
 
