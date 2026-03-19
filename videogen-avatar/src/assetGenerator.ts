@@ -31,7 +31,7 @@ const PEXELS_CLIPS_PER_BEAT = 3;
 
 // Upload base64 image to server storage so Creatomate can access it via public URL
 async function uploadToStorage(base64: string, mimeType: string, beatId: number): Promise<string> {
-  const { storagePut } = await import("../../../server/storage.js");
+  const { storagePut } = await import("../../server/storage.js");
   const ext = mimeType.includes("png") ? "png" : "jpg";
   const key = `avatar-broll/beat-${beatId}-${Date.now()}.${ext}`;
   const buffer = Buffer.from(base64, "base64");
@@ -42,7 +42,7 @@ async function uploadToStorage(base64: string, mimeType: string, beatId: number)
 
 // Upload a raw Buffer (video/image) to server storage
 async function uploadBufferToStorage(buf: Buffer, mimeType: string, beatId: number, ext: string): Promise<string> {
-  const { storagePut } = await import("../../../server/storage.js");
+  const { storagePut } = await import("../../server/storage.js");
   const key = `avatar-broll/beat-${beatId}-${Date.now()}.${ext}`;
   const { url: localPath } = await storagePut(key, buf, mimeType);
 
