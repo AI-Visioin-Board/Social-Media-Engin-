@@ -192,6 +192,20 @@ async function startServer() {
     if (Number(slideResult.count) > 0) {
       console.log(`[Startup] Reset ${slideResult.count} stuck slide(s) to 'ready'`);
     }
+    // Also recover orphaned avatar_runs stuck in non-terminal states
+    // Valid terminal states: video_review, completed, failed, cancelled
+    // All other states mean the pipeline was in-flight when the server restarted
+    const avatarResult = await sql`
+      UPDATE avatar_runs
+      SET status = 'failed',
+          "statusDetail" = 'Server restarted while pipeline was running',
+          "errorMessage" = 'Orphaned by server restart — please re-run',
+          "updatedAt" = NOW()
+      WHERE status NOT IN ('video_review','completed','failed','cancelled','topic_review')
+    `;
+    if (Number(avatarResult.count) > 0) {
+      console.log(`[Startup] Auto-failed ${avatarResult.count} orphaned avatar run(s)`);
+    }
     await sql.end();
   } catch (e) {
     console.warn("[Startup] Ghost-run recovery skipped:", e);
