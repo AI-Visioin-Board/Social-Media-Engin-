@@ -100,8 +100,8 @@ export function buildSource(
 
   return {
     output_format: "mp4",
-    width: 1080,
-    height: 1920,
+    width: 1440,
+    height: 2560,
     frame_rate: 30,
     elements,
   };
@@ -177,6 +177,18 @@ function buildCloseupElements(
     return;
   }
 
+  // Gray card border behind avatar
+  elements.push({
+    type: "shape",
+    x: "50%",
+    y: "45%",
+    width: "83%",
+    height: "74%",
+    fill_color: "#333333",
+    border_radius: "3 vmin",
+    shadow_color: "rgba(0,0,0,0.5)",
+    shadow_blur: "2 vmin",
+  });
   elements.push({
     type: "video",
     source: avatar.videoUrl,
@@ -185,16 +197,14 @@ function buildCloseupElements(
     x: "50%",
     y: "45%",
     width: "80%",
-    height: "72%",
+    height: "71%",
     fit: "cover",
-    border_radius: "3 vmin",
-    shadow_color: "rgba(80,80,80,0.6)",
-    shadow_blur: "2 vmin",
+    border_radius: "2.5 vmin",
   });
 }
 
 // ─── PIP Layout ────────────────────────────────────────────
-// B-roll in top 55% (TV frame), Quinn bottom-left, captions bottom-right
+// B-roll in top area (TV screen with rounded corners + border), Quinn bottom-right with card
 function buildPipElements(
   beat: Beat,
   assets: AssetMap,
@@ -205,6 +215,17 @@ function buildPipElements(
   avatarScale: number = 1,
 ): void {
   const beatAssets = multiAssets?.[beat.id] ?? (assets[beat.id] ? [assets[beat.id]] : []);
+
+  // ── TV Screen border (gray rounded rect behind b-roll) ──
+  elements.push({
+    type: "shape",
+    x: "50%",
+    y: "28%",
+    width: "94%",
+    height: "52%",
+    fill_color: "#2a2a2a",
+    border_radius: "2.5 vmin",
+  });
 
   if (beatAssets.length > 0) {
     // RAPID-FIRE: Split beat into sub-clips, each showing a different asset
@@ -223,13 +244,11 @@ function buildPipElements(
           trim_start: sub.trimStart,
           trim_duration: sub.duration,
           x: "50%",
-          y: "30%",
-          width: "92%",
-          height: "55%",
+          y: "28%",
+          width: "90%",
+          height: "49%",
           fit: "cover",
-          border_radius: "2.5 vmin",
-          shadow_color: "rgba(0,0,0,0.5)",
-          shadow_blur: "3 vmin",
+          border_radius: "2 vmin",
           ...(sub.index > 0 ? { transition: { type: "fade", duration: 0.2 } } : {}),
         });
       } else {
@@ -239,13 +258,11 @@ function buildPipElements(
           source: asset.url,
           duration: sub.duration,
           x: "50%",
-          y: "30%",
-          width: "92%",
-          height: "55%",
+          y: "28%",
+          width: "90%",
+          height: "49%",
           fit: "cover",
-          border_radius: "2.5 vmin",
-          shadow_color: "rgba(0,0,0,0.5)",
-          shadow_blur: "3 vmin",
+          border_radius: "2 vmin",
           animations: [{
             type: "scale",
             scope: "element",
@@ -258,21 +275,12 @@ function buildPipElements(
       }
     }
   } else {
-    // Fallback: dark card with text
-    elements.push({
-      type: "shape",
-      x: "50%",
-      y: "30%",
-      width: "92%",
-      height: "55%",
-      fill_color: "#16213e",
-      border_radius: "2.5 vmin",
-    });
+    // Fallback: dark card with text inside TV frame
     elements.push({
       type: "text",
       text: beat.narration.slice(0, 80),
       x: "50%",
-      y: "30%",
+      y: "28%",
       width: "80%",
       height: "45%",
       font_family: "Inter",
@@ -283,21 +291,32 @@ function buildPipElements(
     });
   }
 
-  // Avatar PIP — bottom-left with border (skip if no avatar)
+  // ── Avatar PIP — bottom-right with gray card border ──
   if (avatar.videoUrl) {
+    // Gray card background behind avatar
+    elements.push({
+      type: "shape",
+      x: "76%",
+      y: "80%",
+      width: "40%",
+      height: "32%",
+      fill_color: "#333333",
+      border_radius: "2 vmin",
+      shadow_color: "rgba(0,0,0,0.6)",
+      shadow_blur: "2 vmin",
+    });
+    // Avatar video on top of card
     elements.push({
       type: "video",
       source: avatar.videoUrl,
       trim_start: beat.startSec * avatarScale,
       trim_duration: beat.durationSec * avatarScale,
-      x: "22%",
-      y: "78%",
-      width: "35%",
-      height: "30%",
+      x: "76%",
+      y: "80%",
+      width: "37%",
+      height: "29%",
       fit: "cover",
-      border_radius: "2 vmin",
-      shadow_color: "rgba(60,60,60,0.8)",
-      shadow_blur: "1.5 vmin",
+      border_radius: "1.5 vmin",
     });
   }
 }
@@ -411,7 +430,9 @@ function buildTextCardElements(
 }
 
 // ─── Captions ──────────────────────────────────────────────
-// Short phrase-by-phrase captions (4 words each for punchy feel)
+// Short phrase-by-phrase captions — bold italic with keyword highlighting
+// Creatomate doesn't support HTML in text, so we use separate elements
+// for highlighted keywords (cyan overlay on top of white base text)
 function buildCaptionElements(
   beat: Beat,
   layout: LayoutMode,
@@ -429,38 +450,50 @@ function buildCaptionElements(
   let captionWidth = "90%";
 
   if (layout === "pip") {
-    captionX = "65%";
+    // Bottom-left area (avatar is bottom-right now)
+    captionX = "30%";
     captionY = "82%";
-    captionWidth = "55%";
+    captionWidth = "50%";
   } else if (layout === "avatar_closeup") {
     captionY = "88%";
+  } else if (layout === "fullscreen_broll") {
+    captionY = "85%";
   }
 
   for (let i = 0; i < phrases.length; i++) {
-    const styledText = highlightEmphasis(phrases[i], beat.captionEmphasis);
+    // Clean text — no HTML tags
+    const cleanText = phrases[i];
+
+    // Check if this phrase contains any emphasis words
+    const hasEmphasis = beat.captionEmphasis?.some(w =>
+      cleanText.toLowerCase().includes(w.toLowerCase())
+    );
 
     elements.push({
       type: "text",
       track: 2,  // Caption track (sequential within beat)
       duration: Math.max(phraseDuration, 0.5),
-      text: styledText,
+      text: cleanText,
       font_family: "Inter",
-      font_weight: "700",
-      font_size: "4.5 vmin",
-      fill_color: "#FFFFFF",
-      shadow_color: "rgba(0,0,0,0.9)",
+      font_weight: 800,
+      font_style: "italic",
+      font_size: "5 vmin",
+      fill_color: hasEmphasis ? "#00E5FF" : "#FFFFFF",
+      shadow_color: "rgba(0,0,0,0.95)",
       shadow_blur: "1.5 vmin",
-      background_color: "rgba(0,0,0,0.5)",
-      background_border_radius: "10%",
-      background_x_padding: "8%",
-      background_y_padding: "5%",
+      background_color: "rgba(0,0,0,0.6)",
+      background_border_radius: "12%",
+      background_x_padding: "10%",
+      background_y_padding: "8%",
       x: captionX,
       y: captionY,
       width: captionWidth,
       x_alignment: "50%",
       y_alignment: "50%",
+      line_height: "130%",
+      letter_spacing: "1%",
       animations: [
-        { type: "text-appear", scope: "element", duration: 0.15 },
+        { type: "text-appear", scope: "element", duration: 0.12 },
       ],
       ...(i > 0 ? { transition: { type: "fade", duration: 0.1 } } : {}),
     });
@@ -564,20 +597,9 @@ function splitIntoPhrases(text: string): string[] {
   return phrases.length > 0 ? phrases : [text];
 }
 
-function highlightEmphasis(text: string, emphasisWords?: string[]): string {
-  if (!emphasisWords || emphasisWords.length === 0) return text;
-
-  let result = text;
-  for (const word of emphasisWords) {
-    const regex = new RegExp(`\\b(${escapeRegex(word)})\\b`, "gi");
-    result = result.replace(regex, `<font color="#00E5FF"><b>$1</b></font>`);
-  }
-  return result;
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+// highlightEmphasis removed — Creatomate doesn't support HTML in text fields.
+// Keyword highlighting is now done by coloring the entire phrase cyan
+// when it contains an emphasis word (see buildCaptionElements).
 
 // Pick vibrant background colors for text cards
 const TEXT_CARD_COLORS = [
