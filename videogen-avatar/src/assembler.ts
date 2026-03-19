@@ -41,9 +41,10 @@ const MIN_SUB_CLIP_SEC = 1.5;
 // Words per caption phrase (shorter = punchier)
 const WORDS_PER_PHRASE = 4;
 
-// Background music options (royalty-free lo-fi URLs)
-// These are placeholder URLs — replace with actual royalty-free tracks
-const BG_MUSIC_URL = "https://cdn.pixabay.com/audio/2024/11/04/audio_2fecf38b0e.mp3"; // lo-fi chill beat
+// Background music — disabled until a verified royalty-free URL is configured.
+// Set BACKGROUND_MUSIC_URL in env to enable.
+// Pixabay URLs expire; using an unreliable URL will crash the entire Creatomate render.
+const BG_MUSIC_URL = process.env.BACKGROUND_MUSIC_URL || "";
 
 export async function assembleVideo(
   script: VideoScript,
@@ -81,13 +82,13 @@ export function buildSource(
   const elements: any[] = [...beatCompositions];
 
   // Background music — low volume, spans entire video
-  if (config.includeBackgroundMusic) {
+  // Only added if a valid URL is configured (avoids crashing render on bad URL)
+  if (config.includeBackgroundMusic && BG_MUSIC_URL) {
     elements.push({
       type: "audio",
       source: BG_MUSIC_URL,
       duration: script.totalDurationSec,
       volume: "12%",  // Very low — voice is king
-      audio_fade_out: 2,
     });
   }
 
@@ -150,6 +151,24 @@ function buildCloseupElements(
   avatar: AvatarResult,
   elements: any[],
 ): void {
+  if (!avatar.videoUrl) {
+    // No avatar available — show text card fallback
+    elements.push({
+      type: "text",
+      text: beat.narration.slice(0, 120),
+      font_family: "Inter",
+      font_weight: "700",
+      font_size: "5 vh",
+      fill_color: "#FFFFFF",
+      x: "50%",
+      y: "50%",
+      width: "85%",
+      x_alignment: "50%",
+      y_alignment: "50%",
+    });
+    return;
+  }
+
   elements.push({
     type: "video",
     source: avatar.videoUrl,
@@ -255,21 +274,23 @@ function buildPipElements(
     });
   }
 
-  // Avatar PIP — bottom-left with border
-  elements.push({
-    type: "video",
-    source: avatar.videoUrl,
-    trim_start: beat.startSec,
-    trim_duration: beat.durationSec,
-    x: "22%",
-    y: "78%",
-    width: "35%",
-    height: "30%",
-    fit: "cover",
-    border_radius: "2 vmin",
-    shadow_color: "rgba(60,60,60,0.8)",
-    shadow_blur: "1.5 vmin",
-  });
+  // Avatar PIP — bottom-left with border (skip if no avatar)
+  if (avatar.videoUrl) {
+    elements.push({
+      type: "video",
+      source: avatar.videoUrl,
+      trim_start: beat.startSec,
+      trim_duration: beat.durationSec,
+      x: "22%",
+      y: "78%",
+      width: "35%",
+      height: "30%",
+      fit: "cover",
+      border_radius: "2 vmin",
+      shadow_color: "rgba(60,60,60,0.8)",
+      shadow_blur: "1.5 vmin",
+    });
+  }
 }
 
 // ─── Fullscreen B-Roll Layout ──────────────────────────────
@@ -300,7 +321,8 @@ function buildFullscreenBrollElements(
         width: "100%",
         height: "100%",
         fit: "cover",
-        color_overlay: "rgba(0,0,0,0.15)",
+        // Dark overlay for caption readability — applied via a shape element layered on top
+        opacity: "85%",
         ...(!isVideo ? {
           animations: [{
             type: "scale",
@@ -314,17 +336,12 @@ function buildFullscreenBrollElements(
       });
     }
   } else {
-    // Fallback gradient
+    // Fallback solid background
     elements.push({
       type: "shape",
       width: "100%",
       height: "100%",
-      fill_mode: "linear",
-      fill_x0: "0%",
-      fill_y0: "0%",
-      fill_x1: "100%",
-      fill_y1: "100%",
-      fill_color: ["#1a1a2e", "#16213e"],
+      fill_color: "#1a1a2e",
     });
   }
 }
@@ -508,17 +525,19 @@ function buildEvenSubClips(
 }
 
 // ─── Transition Mapper ─────────────────────────────────────
+// Returns the transition OBJECT (not wrapped in { transition: ... })
+// because the caller already spreads it as { transition: mapTransition(...) }
 function mapTransition(transition?: string): Record<string, any> {
   switch (transition) {
     case "dissolve":
-      return { transition: { type: "fade", duration: 0.4 } };
+      return { type: "fade", duration: 0.4 };
     case "zoom_in":
-      return { transition: { type: "fade", duration: 0.3 } }; // Creatomate doesn't have native zoom transition
+      return { type: "fade", duration: 0.3 }; // Creatomate doesn't have native zoom transition
     case "slide_left":
-      return { transition: { type: "slide", duration: 0.3, direction: "left" } };
+      return { type: "slide", duration: 0.3, direction: "left" };
     case "cut":
     default:
-      return { transition: { type: "fade", duration: 0.15 } }; // Quick fade instead of hard cut (smoother)
+      return { type: "fade", duration: 0.15 }; // Quick fade instead of hard cut (smoother)
   }
 }
 
@@ -568,22 +587,28 @@ function pickTextCardColor(beatId: number): string {
 
 // Extract the most impactful short phrase from narration for text card display
 function extractKeyPhrase(narration: string): string {
+  if (!narration || narration.trim().length === 0) return "...";
+
   // Look for content in quotes first
   const quoted = narration.match(/"([^"]+)"/);
-  if (quoted) return quoted[1];
+  if (quoted && quoted[1].length <= 80) return quoted[1];
 
-  // Look for numbers/stats
+  // Look for numbers/stats — grab the sentence containing them
   const statMatch = narration.match(/(\$[\d,.]+\s*\w+|\d+%|\d+\s*(?:million|billion|trillion))/i);
   if (statMatch) {
-    // Get surrounding context
     const idx = narration.indexOf(statMatch[0]);
-    const start = Math.max(0, narration.lastIndexOf(" ", Math.max(0, idx - 30)));
-    const end = Math.min(narration.length, narration.indexOf(".", idx + statMatch[0].length));
-    return narration.slice(start, end > idx ? end : idx + statMatch[0].length + 20).trim();
+    // Find sentence boundaries around the stat
+    const sentenceStart = Math.max(0, narration.lastIndexOf(".", Math.max(0, idx - 1)) + 1);
+    const dotAfter = narration.indexOf(".", idx + statMatch[0].length);
+    const sentenceEnd = dotAfter > idx ? dotAfter : narration.length;
+    const sentence = narration.slice(sentenceStart, sentenceEnd).trim();
+    if (sentence.length <= 80) return sentence;
+    // If sentence too long, just use the stat + some context
+    return sentence.slice(0, 77) + "...";
   }
 
   // Fallback: first sentence, capped at 60 chars
-  const firstSentence = narration.split(/[.!?]/)[0];
+  const firstSentence = narration.split(/[.!?]/)[0]?.trim() || narration;
   if (firstSentence.length <= 60) return firstSentence;
   return firstSentence.slice(0, 57) + "...";
 }

@@ -15,13 +15,13 @@ interface PexelsVideo {
   duration: number;
   width: number;
   height: number;
-  videoFiles: PexelsVideoFile[];
+  video_files: PexelsVideoFile[];  // Pexels API uses snake_case
 }
 
 interface PexelsVideoFile {
   id: number;
   quality: "hd" | "sd" | "uhd";
-  fileType: string;
+  file_type: string;   // Pexels API uses snake_case
   width: number;
   height: number;
   link: string;
@@ -117,7 +117,7 @@ export async function searchStockVideoBatch(
     for (const video of finalPool) {
       if (clips.length >= count) break;
 
-      const file = pickBestFile(video.videoFiles);
+      const file = pickBestFile(video.video_files);
       if (!file) continue;
 
       usedVideoIds.add(video.id);
@@ -141,7 +141,7 @@ export async function searchStockVideoBatch(
 
 function pickBestFile(files: PexelsVideoFile[]): PexelsVideoFile | null {
   // Prefer HD, then SD. Filter for mp4.
-  const mp4s = files.filter(f => f.fileType === "video/mp4");
+  const mp4s = files.filter(f => f.file_type === "video/mp4");
   if (mp4s.length === 0) return files[0] ?? null;
 
   // Prefer portrait (height > width)
