@@ -726,6 +726,91 @@ export const appRouter = router({
         return { success: true, posted };
       }),
 
+    // Save edited caption for a run
+    saveCaption: adminProcedure
+      .input(z.object({ runId: z.number(), caption: z.string() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        await db.update(contentRuns).set({
+          instagramCaption: input.caption,
+        }).where(eq(contentRuns.id, input.runId));
+
+        return { success: true };
+      }),
+
+    // Post to X/Twitter via Make.com webhook
+    postToTwitter: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { contentRuns, generatedSlides } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, input.runId));
+        if (!run) throw new Error("Run not found");
+
+        const caption = run.instagramCaption;
+        if (!caption) throw new Error("Run has no caption");
+
+        const slides = await db.select().from(generatedSlides)
+          .where(eq(generatedSlides.runId, input.runId))
+          .orderBy(generatedSlides.slideIndex as any);
+
+        const readySlides = slides.filter((s) => s.assembledUrl).map((s) => ({
+          assembledUrl: s.assembledUrl!,
+          headline: s.headline ?? "",
+          isVideo: s.isVideoSlide === 1 && !!(s.assembledUrl && (s.assembledUrl.includes(".mp4") || s.assembledUrl.includes("video"))),
+        }));
+
+        if (readySlides.length === 0) throw new Error("No assembled slides found");
+
+        // Fire X/Twitter webhook (separate URL from Instagram)
+        const xWebhookUrl = process.env.X_WEBHOOK_URL;
+        if (!xWebhookUrl) throw new Error("X_WEBHOOK_URL not configured — set it in Railway environment variables");
+
+        try {
+          const payload = {
+            platform: "twitter",
+            runId: input.runId,
+            caption,
+            slideCount: readySlides.length,
+            slides: readySlides.map((s, i) => ({
+              index: i,
+              url: s.assembledUrl,
+              headline: s.headline,
+              isVideo: s.isVideo,
+            })),
+            // First image for Twitter card
+            coverImageUrl: readySlides[0]?.assembledUrl,
+          };
+
+          const res = await fetch(xWebhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          if (!res.ok) {
+            console.error(`[Twitter] Webhook failed: HTTP ${res.status}`);
+            return { success: true, posted: false };
+          }
+
+          console.log(`[Twitter] Webhook success for run #${input.runId}`);
+          return { success: true, posted: true };
+        } catch (err: any) {
+          console.error(`[Twitter] Webhook error:`, err?.message);
+          return { success: true, posted: false };
+        }
+      }),
+
     // Get Kling API status
     getKlingStatus: adminProcedure
       .query(async () => {

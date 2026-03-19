@@ -13,7 +13,7 @@ import {
   Calendar, BarChart3, Eye, ThumbsUp, Globe, Zap,
   ChevronRight, ChevronLeft, RotateCcw, Instagram, Sparkles, BookOpen,
   TrendingUp, Shield, Video, Layers, Send, Settings, Info,
-  ExternalLink, Download, Maximize2, X, RefreshCw, Music2, Copy
+  ExternalLink, Download, Maximize2, X, RefreshCw, Music2, Copy, Twitter, Save
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
@@ -388,6 +388,7 @@ function RunDetailDialog({
   const [swapDialogOpen, setSwapDialogOpen] = useState(false);
   const [swapTopicIndex, setSwapTopicIndex] = useState<number | null>(null);
   const [editCaption, setEditCaption] = useState<string | null>(null);
+  const [editCompletedCaption, setEditCompletedCaption] = useState<string | null>(null);
   const [activeSlide, setActiveSlide] = useState(0);
   const [lightboxSlide, setLightboxSlide] = useState<number | null>(null);
   const [regeneratingSlideId, setRegeneratingSlideId] = useState<number | null>(null);
@@ -431,6 +432,27 @@ function RunDetailDialog({
       } else {
         toast.error("Webhook failed — check your Make.com scenario is active");
       }
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const postToTwitter = trpc.contentStudio.postToTwitter.useMutation({
+    onSuccess: (data) => {
+      if (data.posted) {
+        toast.success("Posted to X/Twitter! 🎉");
+      } else {
+        toast.error("X webhook failed — check your Make.com X scenario is active");
+      }
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const saveCaption = trpc.contentStudio.saveCaption.useMutation({
+    onSuccess: () => {
+      toast.success("Caption saved!");
+      setEditCompletedCaption(null);
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -961,19 +983,6 @@ function RunDetailDialog({
                         <Instagram className="w-3 h-3 mr-1" /> Posted
                       </Badge>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className={`${run.instagramPostId ? "" : "ml-auto "}text-xs`}
-                      disabled={resendWebhook.isPending}
-                      onClick={() => resendWebhook.mutate({ runId: run.id })}
-                    >
-                      {resendWebhook.isPending ? (
-                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Sending...</>
-                      ) : (
-                        <><Send className="w-3 h-3 mr-1" /> Resend to Instagram</>
-                      )}
-                    </Button>
                   </div>
                   {/* Slide thumbnail grid */}
                   <div className="grid grid-cols-5 gap-2 mb-3">
@@ -1008,45 +1017,113 @@ function RunDetailDialog({
                       </div>
                     ))}
                   </div>
-                  {/* Caption display (persists after approval) */}
-                  {run.instagramCaption && (
-                    <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Instagram Caption</h4>
-                        <div className="flex gap-1.5">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-xs h-6 px-2"
-                            onClick={() => {
-                              navigator.clipboard.writeText(run.instagramCaption!);
-                            }}
-                          >
-                            <Copy className="w-3 h-3 mr-1" /> Copy
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-xs h-6 px-2"
-                            onClick={() => {
-                              const blob = new Blob([run.instagramCaption!], { type: "text/plain" });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = `run-${run.id}-caption.txt`;
-                              a.click();
-                              URL.revokeObjectURL(url);
-                            }}
-                          >
-                            <Download className="w-3 h-3 mr-1" /> Save
-                          </Button>
-                        </div>
+                  {/* Caption — editable + persist */}
+                  <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Caption</h4>
+                      <div className="flex gap-1.5">
+                        {editCompletedCaption !== null ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-6 px-2"
+                              onClick={() => setEditCompletedCaption(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="text-xs h-6 px-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                              disabled={saveCaption.isPending}
+                              onClick={() => saveCaption.mutate({ runId: run.id, caption: editCompletedCaption })}
+                            >
+                              {saveCaption.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Save className="w-3 h-3 mr-1" /> Save</>}
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-6 px-2 text-indigo-600"
+                              onClick={() => setEditCompletedCaption(run.instagramCaption ?? "")}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-6 px-2"
+                              onClick={() => {
+                                navigator.clipboard.writeText(run.instagramCaption ?? "");
+                                toast.success("Caption copied!");
+                              }}
+                            >
+                              <Copy className="w-3 h-3 mr-1" /> Copy
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-xs h-6 px-2"
+                              onClick={() => {
+                                const blob = new Blob([run.instagramCaption ?? ""], { type: "text/plain" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `run-${run.id}-caption.txt`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              }}
+                            >
+                              <Download className="w-3 h-3 mr-1" /> Download
+                            </Button>
+                          </>
+                        )}
                       </div>
-                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">{run.instagramCaption}</p>
                     </div>
-                  )}
-                  {/* Download all button */}
-                  <div className="flex gap-2 mt-3">
+                    {editCompletedCaption !== null ? (
+                      <Textarea
+                        value={editCompletedCaption}
+                        onChange={(e) => setEditCompletedCaption(e.target.value)}
+                        className="text-xs font-mono min-h-[100px] resize-y"
+                      />
+                    ) : (
+                      <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {run.instagramCaption || "No caption generated yet."}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Action buttons: Resend IG, Post to X, Download All */}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      disabled={resendWebhook.isPending}
+                      onClick={() => resendWebhook.mutate({ runId: run.id })}
+                    >
+                      {resendWebhook.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Sending...</>
+                      ) : (
+                        <><Instagram className="w-3 h-3 mr-1" /> Resend to Instagram</>
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      disabled={postToTwitter.isPending}
+                      onClick={() => postToTwitter.mutate({ runId: run.id })}
+                    >
+                      {postToTwitter.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Posting...</>
+                      ) : (
+                        <><Twitter className="w-3 h-3 mr-1" /> Post to X</>
+                      )}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -1062,7 +1139,7 @@ function RunDetailDialog({
                         });
                       }}
                     >
-                      <Download className="w-3 h-3 mr-1" /> Download All Slides
+                      <Download className="w-3 h-3 mr-1" /> Download All
                     </Button>
                   </div>
                 </div>
