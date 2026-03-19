@@ -45,7 +45,7 @@ export async function runAvatarPipeline(runId: number, suggestedTopic?: string):
     });
 
     // Run full research pipeline (discover → score → verify)
-    // If suggestedTopic provided, it gets injected as highest-priority candidate
+    // If suggestedTopic provided, skips discovery/scoring — verifies only
     const research = await runFullResearch(suggestedTopic);
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
@@ -57,7 +57,14 @@ export async function runAvatarPipeline(runId: number, suggestedTopic?: string):
       topicCandidates: JSON.stringify(research.candidates),
     });
 
-    // Pipeline pauses here — user picks a topic in the dashboard
+    // If user already chose this topic (suggested), auto-approve and continue immediately
+    if (suggestedTopic && research.candidates.length > 0) {
+      console.log(`[AvatarPipeline] Run ${runId}: Auto-approving suggested topic "${suggestedTopic}"`);
+      await continueAfterTopicApproval(runId, 0);
+      return;
+    }
+
+    // Otherwise, pipeline pauses here — user picks a topic in the dashboard
     console.log(`[AvatarPipeline] Run ${runId}: ${research.candidates.length} candidates ready for review`);
   } catch (err: any) {
     if (err.message === "Pipeline cancelled") {

@@ -513,18 +513,39 @@ export interface ResearchResult {
 }
 
 export async function runFullResearch(suggestedTopic?: string): Promise<ResearchResult> {
-  // Step 1: Discover (inject suggested topic if provided)
-  const rawTopics = await discoverTopics();
-
-  // If user suggested a topic, inject it as a high-priority raw topic
+  // ── Fast path: user already picked a topic — skip discovery + scoring ──
+  // Only verify it (SERP + article fetch) so we have sources for the script
   if (suggestedTopic) {
-    console.log(`[AvatarResearch] Injecting user-suggested topic: "${suggestedTopic}"`);
-    rawTopics.unshift({
+    console.log(`[AvatarResearch] User-suggested topic — skipping discovery, verifying directly: "${suggestedTopic}"`);
+
+    const preScored: ScoredTopic = {
       title: suggestedTopic,
-      source: "gpt_search" as const,
       url: "",
-    });
+      scores: {
+        shareability: 9,
+        saveWorthiness: 9,
+        debatePotential: 8,
+        informationGap: 8,
+        personalImpact: 8,
+        userRelevance: 9,
+      },
+      totalScore: 51,
+      summary: suggestedTopic,
+    };
+
+    const verified = await verifyTopic(preScored);
+    console.log(`[AvatarResearch] Suggested topic verified: ${verified.verificationStatus}`);
+
+    return {
+      candidates: [verified],
+      totalDiscovered: 1,
+      totalAfterDedup: 1,
+    };
   }
+
+  // ── Normal path: full discovery pipeline ──
+  // Step 1: Discover
+  const rawTopics = await discoverTopics();
 
   const totalDiscovered = rawTopics.length;
 
