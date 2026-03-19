@@ -289,9 +289,8 @@ async function generateSingleAsset(
       const imagePublicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
 
       // Dimensions depend on aspect ratio
-      const isSquare = req.aspectRatio === "1:1";
-      const videoWidth = isSquare ? 1080 : 1080;
-      const videoHeight = isSquare ? 1080 : 1920;
+      const videoWidth = 1080;
+      const videoHeight = req.aspectRatio === "1:1" ? 1080 : 1920;
 
       // Step 2: Animate the still with Veo 3.1 (image-to-video)
       // If Veo fails, we gracefully fall back to the still image

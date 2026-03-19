@@ -63,8 +63,8 @@ async function createAvatarIVVideo(
     // Required fields for AV4 endpoint
     avatar_id: avatarId,
     video_title: `Quinn_${Date.now()}`,
-    text: script,
-    voice_id: voiceId || undefined,
+    script: script,
+    voice_id: voiceId,
 
     // Avatar IV quality settings
     custom_motion_prompt: "Speaking confidently to camera with natural subtle hand gestures. Slight head nods when emphasizing key points. Engaged, warm, and energetic. Natural blinking and eyebrow movement.",
