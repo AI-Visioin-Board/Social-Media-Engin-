@@ -478,7 +478,7 @@ export const appRouter = router({
     // Trigger a new pipeline run
     triggerRun: adminProcedure
       .input(z.object({
-        runSlot: z.enum(["monday", "friday"]),
+        runSlot: z.enum(["monday", "friday", "manual"]),
         requireApproval: z.boolean().default(true),
       }))
       .mutation(async ({ input }) => {
@@ -743,13 +743,14 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // Post to X/Twitter via Make.com webhook
+    // Post to X/Twitter via direct API (no Make.com)
     postToTwitter: adminProcedure
-      .input(z.object({ runId: z.number() }))
+      .input(z.object({ runId: z.number(), includeSalesSlide: z.boolean().optional() }))
       .mutation(async ({ input }) => {
         const { getDb } = await import("./db");
         const { contentRuns, generatedSlides } = await import("../drizzle/schema");
         const { eq } = await import("drizzle-orm");
+        const { postTweet } = await import("./twitterClient");
         const db = await getDb();
         if (!db) throw new Error("DB not available");
 
@@ -763,51 +764,38 @@ export const appRouter = router({
           .where(eq(generatedSlides.runId, input.runId))
           .orderBy(generatedSlides.slideIndex as any);
 
-        const readySlides = slides.filter((s) => s.assembledUrl).map((s) => ({
-          assembledUrl: s.assembledUrl!,
-          headline: s.headline ?? "",
-          isVideo: s.isVideoSlide === 1 && !!(s.assembledUrl && (s.assembledUrl.includes(".mp4") || s.assembledUrl.includes("video"))),
-        }));
+        // Get image-only slides (Twitter doesn't support mixed media)
+        const imageSlides = slides
+          .filter((s) => s.assembledUrl && !(s.assembledUrl.includes(".mp4") || s.assembledUrl.includes("video")))
+          .map((s) => s.assembledUrl!);
 
-        if (readySlides.length === 0) throw new Error("No assembled slides found");
+        if (imageSlides.length === 0) throw new Error("No assembled image slides found");
 
-        // Fire X/Twitter webhook (separate URL from Instagram)
-        const xWebhookUrl = process.env.X_WEBHOOK_URL;
-        if (!xWebhookUrl) throw new Error("X_WEBHOOK_URL not configured — set it in Railway environment variables");
+        // Pick up to 4 images; if sales slide requested, use first 3 + last slide
+        let selectedImages: string[];
+        if (input.includeSalesSlide && imageSlides.length > 4) {
+          selectedImages = [...imageSlides.slice(0, 3), imageSlides[imageSlides.length - 1]];
+        } else {
+          selectedImages = imageSlides.slice(0, 4);
+        }
+
+        // Twitter allows 280 chars — trim caption if needed (keep first line + hashtags)
+        let tweetText = caption;
+        if (tweetText.length > 280) {
+          const lines = tweetText.split("\n").filter(Boolean);
+          const hashtags = lines.find((l) => l.includes("#")) ?? "";
+          const firstLine = lines[0] ?? "";
+          tweetText = firstLine.slice(0, 280 - hashtags.length - 4) + "\n\n" + hashtags;
+          if (tweetText.length > 280) tweetText = tweetText.slice(0, 280);
+        }
 
         try {
-          const payload = {
-            platform: "twitter",
-            runId: input.runId,
-            caption,
-            slideCount: readySlides.length,
-            slides: readySlides.map((s, i) => ({
-              index: i,
-              url: s.assembledUrl,
-              headline: s.headline,
-              isVideo: s.isVideo,
-            })),
-            // First image for Twitter card
-            coverImageUrl: readySlides[0]?.assembledUrl,
-          };
-
-          const res = await fetch(xWebhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(30_000),
-          });
-
-          if (!res.ok) {
-            console.error(`[Twitter] Webhook failed: HTTP ${res.status}`);
-            return { success: true, posted: false };
-          }
-
-          console.log(`[Twitter] Webhook success for run #${input.runId}`);
-          return { success: true, posted: true };
+          const result = await postTweet(tweetText, selectedImages);
+          console.log(`[Twitter] Posted tweet ${result.tweetId} for run #${input.runId} (salesSlide: ${!!input.includeSalesSlide})`);
+          return { success: true, posted: true, tweetId: result.tweetId };
         } catch (err: any) {
-          console.error(`[Twitter] Webhook error:`, err?.message);
-          return { success: true, posted: false };
+          console.error(`[Twitter] Post failed:`, err?.message);
+          throw new Error(`Twitter post failed: ${err?.message}`);
         }
       }),
 
@@ -1684,7 +1672,7 @@ export const appRouter = router({
           // Trigger carousel pipeline
           const { runContentPipeline } = await import("./contentPipeline");
           const day = new Date(entry.scheduledDate).getDay();
-          const slot = (day === 1 ? "monday" : day === 5 ? "friday" : "monday") as "monday" | "friday";
+          const slot = (day === 1 ? "monday" : day === 5 ? "friday" : "manual") as "monday" | "friday" | "manual";
           const runId = await runContentPipeline({
             runSlot: slot,
             perplexityApiKey: process.env.PERPLEXITY_API_KEY,

@@ -440,9 +440,9 @@ function RunDetailDialog({
   const postToTwitter = trpc.contentStudio.postToTwitter.useMutation({
     onSuccess: (data) => {
       if (data.posted) {
-        toast.success("Posted to X/Twitter! 🎉");
+        toast.success(`Posted to X! Tweet ID: ${data.tweetId}`);
       } else {
-        toast.error("X webhook failed — check your Make.com X scenario is active");
+        toast.error("X post failed");
       }
       refetch();
     },
@@ -1128,6 +1128,19 @@ function RunDetailDialog({
                       size="sm"
                       variant="outline"
                       className="text-xs"
+                      disabled={postToTwitter.isPending}
+                      onClick={() => postToTwitter.mutate({ runId: run.id, includeSalesSlide: true })}
+                    >
+                      {postToTwitter.isPending ? (
+                        <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Posting...</>
+                      ) : (
+                        <><Twitter className="w-3 h-3 mr-1" /> Post to X + Sales Slide</>
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
                       onClick={() => {
                         slides.filter(s => s.assembledUrl).forEach((slide, i) => {
                           setTimeout(() => {
@@ -1707,27 +1720,17 @@ export default function ContentStudio() {
             Content Studio
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Automated AI news carousel pipeline — posts every Monday &amp; Friday
+            Automated AI news carousel pipeline
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => triggerRun.mutate({ runSlot: "monday", requireApproval: true })}
-            disabled={triggerRun.isPending}
-          >
-            {triggerRun.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
-            Monday Run
-          </Button>
-          <Button
-            onClick={() => triggerRun.mutate({ runSlot: "friday", requireApproval: true })}
-            disabled={triggerRun.isPending}
-            className="bg-indigo-600 hover:bg-indigo-700"
-          >
-            {triggerRun.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
-            Friday Run
-          </Button>
-        </div>
+        <Button
+          onClick={() => triggerRun.mutate({ runSlot: "manual", requireApproval: true })}
+          disabled={triggerRun.isPending}
+          className="bg-indigo-600 hover:bg-indigo-700"
+        >
+          {triggerRun.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
+          Run Pipeline
+        </Button>
       </div>
 
       {/* Stats */}

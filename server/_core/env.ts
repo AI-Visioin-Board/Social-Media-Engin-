@@ -43,6 +43,12 @@ export const ENV = {
   // Pexels (Stock B-roll fallback)
   pexelsApiKey: process.env.PEXELS_API_KEY ?? "",
 
+  // Twitter/X API (direct posting)
+  twitterApiKey: process.env.TWITTER_API_KEY ?? "",
+  twitterApiSecret: process.env.TWITTER_API_SECRET ?? "",
+  twitterAccessToken: process.env.TWITTER_ACCESS_TOKEN ?? "",
+  twitterAccessSecret: process.env.TWITTER_ACCESS_SECRET ?? "",
+
   // External APIs
   newsApiKey: process.env.NEWS_API_KEY ?? "",
   serpApiKey: process.env.SERP_API_KEY ?? "",
