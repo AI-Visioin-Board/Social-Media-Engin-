@@ -1272,11 +1272,13 @@ export const appRouter = router({
   // ─── Avatar Reels ─────────────────────────────────────────
   avatarReels: router({
     // Trigger a new avatar reel pipeline (optionally from a suggested topic)
+    // pipelineType: "api" (HeyGen+Creatomate) or "captions" (b-roll images only)
     triggerRun: adminProcedure
       .input(z.object({
         contentBucket: z.string().optional(),
         dayNumber: z.number().optional(),
         suggestedTopicId: z.number().optional(),
+        pipelineType: z.enum(["api", "captions"]).default("api"),
       }).optional())
       .mutation(async ({ input }) => {
         const { getDb } = await import("./db");
@@ -1285,6 +1287,7 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB not available");
 
+        const pipelineType = input?.pipelineType ?? "api";
         let suggestedTopic: string | undefined;
 
         // If triggered from a suggested topic, fetch it and mark as running
@@ -1297,6 +1300,7 @@ export const appRouter = router({
 
         const [row] = await db.insert(avatarRuns).values({
           status: "pending",
+          pipelineType,
           contentBucket: input?.contentBucket ?? null,
           dayNumber: input?.dayNumber ?? null,
           suggestedTopicId: input?.suggestedTopicId ?? null,
@@ -1307,9 +1311,9 @@ export const appRouter = router({
           await db.update(suggestedTopics).set({ avatarRunId: row.id }).where(eq(suggestedTopics.id, input.suggestedTopicId));
         }
 
-        // Fire pipeline async (don't await)
+        // Fire pipeline async (don't await) — both pipelines share Stage 1 (discovery)
         import("./avatarPipeline").then(m => m.runAvatarPipeline(row.id, suggestedTopic)).catch(console.error);
-        return { runId: row.id };
+        return { runId: row.id, pipelineType };
       }),
 
     // Get all avatar runs
@@ -1337,13 +1341,26 @@ export const appRouter = router({
         return run ?? null;
       }),
 
-    // Approve selected topic, continue pipeline
+    // Approve selected topic, continue pipeline (routes to API or Captions based on pipelineType)
     approveTopic: adminProcedure
       .input(z.object({ runId: z.number(), topicIndex: z.number() }))
       .mutation(async ({ input }) => {
-        const { continueAfterTopicApproval } = await import("./avatarPipeline");
-        // Fire async
-        continueAfterTopicApproval(input.runId, input.topicIndex).catch(console.error);
+        // Check pipelineType to route correctly
+        const { getDb } = await import("./db");
+        const { avatarRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [run] = await db.select().from(avatarRuns).where(eq(avatarRuns.id, input.runId));
+        if (!run) throw new Error("Run not found");
+
+        if (run.pipelineType === "captions") {
+          const { continueAfterTopicApprovalCaptions } = await import("./captionsPipeline");
+          continueAfterTopicApprovalCaptions(input.runId, input.topicIndex).catch(console.error);
+        } else {
+          const { continueAfterTopicApproval } = await import("./avatarPipeline");
+          continueAfterTopicApproval(input.runId, input.topicIndex).catch(console.error);
+        }
         return { ok: true };
       }),
 
@@ -1373,8 +1390,22 @@ export const appRouter = router({
         fromStt: z.boolean().default(false),
       }))
       .mutation(async ({ input }) => {
-        const { handleFeedback } = await import("./avatarPipeline");
-        handleFeedback(input.runId, input.feedback, input.fromStt).catch(console.error);
+        // Route feedback to correct pipeline
+        const { getDb } = await import("./db");
+        const { avatarRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [run] = await db.select().from(avatarRuns).where(eq(avatarRuns.id, input.runId));
+        if (!run) throw new Error("Run not found");
+
+        if (run.pipelineType === "captions") {
+          const { handleCaptionsFeedback } = await import("./captionsPipeline");
+          handleCaptionsFeedback(input.runId, input.feedback).catch(console.error);
+        } else {
+          const { handleFeedback } = await import("./avatarPipeline");
+          handleFeedback(input.runId, input.feedback, input.fromStt).catch(console.error);
+        }
         return { ok: true };
       }),
 
@@ -1404,15 +1435,17 @@ export const appRouter = router({
         return { ok: true };
       }),
 
-    // Cancel running pipeline
+    // Cancel running pipeline (works for both API and Captions)
     cancelRun: adminProcedure
       .input(z.object({ runId: z.number() }))
       .mutation(async ({ input }) => {
         const { cancelPipeline } = await import("./avatarPipeline");
+        const { cancelCaptionsPipeline } = await import("./captionsPipeline");
         const { getDb } = await import("./db");
         const { avatarRuns } = await import("../drizzle/schema");
         const { eq } = await import("drizzle-orm");
-        const cancelled = cancelPipeline(input.runId);
+        // Try both cancel registries
+        const cancelled = cancelPipeline(input.runId) || cancelCaptionsPipeline(input.runId);
         if (!cancelled) {
           const db = await getDb();
           if (db) {

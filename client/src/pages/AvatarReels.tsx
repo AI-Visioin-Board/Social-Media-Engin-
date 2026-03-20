@@ -54,6 +54,9 @@ interface AvatarRun {
   errorMessage: string | null;
   heygenCreditsUsed: number;
   instagramPostId: string | null;
+  pipelineType: "api" | "captions";
+  brollOutputDir: string | null;
+  brollImageCount: number | null;
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -152,9 +155,17 @@ export default function AvatarReels() {
     { enabled: !!selectedRunId, refetchInterval: 3000 },
   );
 
-  const triggerMut = trpc.avatarReels.triggerRun.useMutation({
+  const triggerApiMut = trpc.avatarReels.triggerRun.useMutation({
     onSuccess: (data) => {
-      toast.success(`Reel pipeline started (Run #${data.runId})`);
+      toast.success(`API pipeline started (Run #${data.runId})`);
+      runsQuery.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const triggerCaptionsMut = trpc.avatarReels.triggerRun.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Captions pipeline started (Run #${data.runId})`);
       runsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -186,13 +197,23 @@ export default function AvatarReels() {
           <h1 className="text-2xl font-bold">Avatar Reels</h1>
           <p className="text-muted-foreground text-sm">Quinn AI news reels pipeline</p>
         </div>
-        <Button
-          onClick={() => triggerMut.mutate({})}
-          disabled={triggerMut.isPending}
-        >
-          {triggerMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Video className="w-4 h-4 mr-2" />}
-          New Reel
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => triggerApiMut.mutate({ pipelineType: "api" })}
+            disabled={triggerApiMut.isPending || triggerCaptionsMut.isPending}
+          >
+            {triggerApiMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Video className="w-4 h-4 mr-2" />}
+            New Reel (API Pipeline)
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => triggerCaptionsMut.mutate({ pipelineType: "captions" })}
+            disabled={triggerApiMut.isPending || triggerCaptionsMut.isPending}
+          >
+            {triggerCaptionsMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />}
+            New Reel (Captions Pipeline)
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -205,8 +226,9 @@ export default function AvatarReels() {
 
       {/* Suggested Topics Bank */}
       <TopicBank
-        onRunTopic={(id) => triggerMut.mutate({ suggestedTopicId: id })}
-        isRunning={triggerMut.isPending}
+        onRunTopicApi={(id) => triggerApiMut.mutate({ suggestedTopicId: id, pipelineType: "api" })}
+        onRunTopicCaptions={(id) => triggerCaptionsMut.mutate({ suggestedTopicId: id, pipelineType: "captions" })}
+        isRunning={triggerApiMut.isPending || triggerCaptionsMut.isPending}
       />
 
       {/* Script Lab — preview scripts + test voice */}
@@ -266,7 +288,7 @@ function StatsCard({ title, value, icon, color }: { title: string; value: number
 
 // ─── Topic Bank ─────────────────────────────────────────────
 
-function TopicBank({ onRunTopic, isRunning: parentRunning }: { onRunTopic: (id: number) => void; isRunning: boolean }) {
+function TopicBank({ onRunTopicApi, onRunTopicCaptions, isRunning: parentRunning }: { onRunTopicApi: (id: number) => void; onRunTopicCaptions: (id: number) => void; isRunning: boolean }) {
   const [newTopic, setNewTopic] = useState("");
   const [newNotes, setNewNotes] = useState("");
   const [showNotes, setShowNotes] = useState(false);
@@ -384,12 +406,26 @@ function TopicBank({ onRunTopic, isRunning: parentRunning }: { onRunTopic: (id: 
                           size="icon"
                           className="h-7 w-7"
                           disabled={parentRunning}
-                          onClick={() => onRunTopic(topic.id)}
+                          onClick={() => onRunTopicApi(topic.id)}
                         >
                           <Rocket className="w-3.5 h-3.5 text-green-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Research & run this topic</TooltipContent>
+                      <TooltipContent>Run with API pipeline (HeyGen + Creatomate)</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          disabled={parentRunning}
+                          onClick={() => onRunTopicCaptions(topic.id)}
+                        >
+                          <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Run with Captions pipeline (b-roll images only)</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -716,6 +752,12 @@ function RunCard({ run, onClick }: { run: AvatarRun; onClick: () => void }) {
           </div>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge
+            variant="outline"
+            className={`text-[10px] px-1.5 ${run.pipelineType === "captions" ? "border-blue-500 text-blue-600" : "border-green-500 text-green-600"}`}
+          >
+            {run.pipelineType === "captions" ? "Captions" : "API"}
+          </Badge>
           {run.contentBucket && <Badge variant="outline" className="text-xs">{run.contentBucket}</Badge>}
           <span>{new Date(run.createdAt).toLocaleDateString()}</span>
         </div>
@@ -750,6 +792,12 @@ function RunDetailDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <StatusBadge status={run.status} />
+            <Badge
+              variant="outline"
+              className={`text-[10px] px-1.5 ${run.pipelineType === "captions" ? "border-blue-500 text-blue-600" : "border-green-500 text-green-600"}`}
+            >
+              {run.pipelineType === "captions" ? "Captions" : "API"}
+            </Badge>
             <span>{run.topic ?? `Run #${run.id}`}</span>
           </DialogTitle>
         </DialogHeader>
@@ -775,14 +823,16 @@ function RunDetailDialog({
               <PipelineProgressPanel run={run} />
             )}
 
-            {/* Video Review Panel */}
-            {run.status === "video_review" && (
+            {/* Video Review Panel — API pipeline only */}
+            {run.status === "video_review" && run.pipelineType !== "captions" && (
               <VideoReviewPanel run={run} onRefresh={onRefresh} />
             )}
 
             {/* Completed Panel */}
             {run.status === "completed" && (
-              <CompletedPanel run={run} />
+              run.pipelineType === "captions"
+                ? <CaptionsCompletedPanel run={run} />
+                : <CompletedPanel run={run} />
             )}
 
             {/* Error Panel */}
@@ -1269,6 +1319,93 @@ function SourcesAccordion({ sources }: { sources: Array<{ url: string; domain: s
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Captions Completed Panel ────────────────────────────────
+
+function CaptionsCompletedPanel({ run }: { run: AvatarRun }) {
+  const script = JSON.parse(run.scriptJson ?? "{}");
+  const beats: Beat[] = script.beats ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* B-Roll Output Summary */}
+      <Card className="border-blue-500/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-blue-500" />
+            B-Roll Images Ready
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-accent/30 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">Images Generated</p>
+              <p className="text-xl font-bold">{run.brollImageCount ?? 0}</p>
+            </div>
+            <div className="bg-accent/30 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">Output Folder</p>
+              <p className="text-xs font-mono break-all mt-1">{run.brollOutputDir ?? "—"}</p>
+            </div>
+          </div>
+
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 space-y-2">
+            <p className="text-sm font-medium text-blue-600">Next Steps (Marketing Manager):</p>
+            <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Open <span className="font-medium text-foreground">script.txt</span> from the output folder</li>
+              <li>Go to <span className="font-medium text-foreground">HeyGen</span> → paste the script → generate avatar video</li>
+              <li>Open <span className="font-medium text-foreground">Captions/Mirage</span> → upload avatar video</li>
+              <li>Upload numbered b-roll images <span className="font-medium text-foreground">(1.png, 2.png, ...)</span> in order</li>
+              <li>Export final video → upload to Editorial Calendar for posting</li>
+            </ol>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Script Narration */}
+      {run.scriptJson && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Script ({beats.length} beats, {script.totalDurationSec}s)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="max-h-[300px]">
+              <div className="space-y-2">
+                {beats.map((beat, i) => (
+                  <div key={i} className="p-2 rounded bg-accent/20 text-sm">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="text-[10px]">Beat {i + 1}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">{beat.visualType}</Badge>
+                      <span className="text-[10px] text-muted-foreground">{beat.durationSec}s</span>
+                    </div>
+                    <p className="text-xs">{beat.narration}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1 italic">{beat.visualPrompt?.slice(0, 100)}</p>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Caption */}
+      {run.instagramCaption && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Instagram Caption</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm whitespace-pre-wrap">{run.instagramCaption}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sources */}
+      {run.sourceArticles && (
+        <SourcesAccordion sources={JSON.parse(run.sourceArticles)} />
+      )}
+    </div>
   );
 }
 

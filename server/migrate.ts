@@ -332,6 +332,23 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    // ── Captions pipeline columns ─────────────────
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN pipeline_type VARCHAR(20) NOT NULL DEFAULT 'api';
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN broll_output_dir TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE avatar_runs ADD COLUMN broll_image_count INTEGER;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     // ── Editorial Calendar ────────────────────────
     await sql.unsafe(`
       CREATE TABLE IF NOT EXISTS calendar_entries (

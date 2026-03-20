@@ -376,6 +376,12 @@ export const avatarRuns = pgTable("avatar_runs", {
   errorMessage: text("errorMessage"),
   /** HeyGen API credits consumed by this run */
   heygenCreditsUsed: integer("heygenCreditsUsed").default(0).notNull(),
+  /** Pipeline type: "api" (HeyGen+Creatomate) or "captions" (b-roll images + script only) */
+  pipelineType: varchar("pipeline_type", { length: 20 }).default("api").notNull(),
+  /** Local folder path where b-roll images were saved (captions pipeline only) */
+  brollOutputDir: text("broll_output_dir"),
+  /** Number of b-roll images generated (captions pipeline only) */
+  brollImageCount: integer("broll_image_count"),
   /** FK to suggested_topics if this run was seeded by a user suggestion */
   suggestedTopicId: integer("suggested_topic_id"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

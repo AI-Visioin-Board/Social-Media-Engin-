@@ -58,9 +58,17 @@ export async function runAvatarPipeline(runId: number, suggestedTopic?: string):
     });
 
     // If user already chose this topic (suggested), auto-approve and continue immediately
+    // Route to correct pipeline based on pipelineType stored in the run
     if (suggestedTopic && research.candidates.length > 0) {
-      console.log(`[AvatarPipeline] Run ${runId}: Auto-approving suggested topic "${suggestedTopic}"`);
-      await continueAfterTopicApproval(runId, 0);
+      const currentRun = await getRun(runId);
+      if (currentRun?.pipelineType === "captions") {
+        console.log(`[AvatarPipeline] Run ${runId}: Auto-approving suggested topic for CAPTIONS pipeline`);
+        const { continueAfterTopicApprovalCaptions } = await import("./captionsPipeline.js");
+        await continueAfterTopicApprovalCaptions(runId, 0);
+      } else {
+        console.log(`[AvatarPipeline] Run ${runId}: Auto-approving suggested topic for API pipeline`);
+        await continueAfterTopicApproval(runId, 0);
+      }
       return;
     }
 
