@@ -215,9 +215,9 @@ async function startServer() {
   const server = createServer(app);
   // Stripe webhook MUST be registered before express.json() to preserve raw body
   registerStripeWebhook(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Configure body parser with larger size limit for video uploads (base64 via TRPC)
+  app.use(express.json({ limit: "200mb" }));
+  app.use(express.urlencoded({ limit: "200mb", extended: true }));
   // Auth routes (login endpoint)
   registerAuthRoutes(app);
   // Serve uploaded files (local filesystem storage)

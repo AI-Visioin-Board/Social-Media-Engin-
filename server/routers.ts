@@ -1703,6 +1703,11 @@ export const appRouter = router({
         mimeType: z.string().default("video/mp4"),
       }))
       .mutation(async ({ input }) => {
+        // Server-side mime type validation
+        if (!input.mimeType.startsWith("video/")) {
+          throw new Error("Invalid file type — only video files are allowed");
+        }
+
         const { getDb } = await import("./db");
         const { calendarEntries } = await import("../drizzle/schema");
         const { eq } = await import("drizzle-orm");
@@ -1710,8 +1715,9 @@ export const appRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB not available");
 
-        // Save video to storage
-        const ext = input.fileName.split(".").pop() ?? "mp4";
+        // Sanitize extension to prevent path traversal (strip non-alphanumeric)
+        const rawExt = input.fileName.split(".").pop() ?? "mp4";
+        const ext = rawExt.replace(/[^a-zA-Z0-9]/g, "") || "mp4";
         const key = `calendar/video-${input.id}-${Date.now()}.${ext}`;
         const buffer = Buffer.from(input.videoBase64, "base64");
         const { url } = await storagePut(key, buffer, input.mimeType);
@@ -1747,8 +1753,12 @@ export const appRouter = router({
       }),
 
     // Post uploaded video to Instagram via Make.com webhook
+    // Caption is passed in the payload to avoid race condition with saveCaption
     postToInstagram: adminProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({
+        id: z.number(),
+        caption: z.string().optional(), // sent from frontend to avoid race with saveCaption
+      }))
       .mutation(async ({ input }) => {
         const { getDb } = await import("./db");
         const { calendarEntries } = await import("../drizzle/schema");
@@ -1760,17 +1770,28 @@ export const appRouter = router({
         if (!entry) throw new Error("Calendar entry not found");
         if (!entry.uploadedVideoUrl) throw new Error("No video uploaded for this entry");
 
+        // Use caption from payload (freshest), fall back to DB, fall back to topic title
+        const caption = input.caption || entry.instagramCaption || entry.topicTitle || "";
+
+        // Save caption to DB if provided (so it persists)
+        if (input.caption) {
+          await db.update(calendarEntries).set({
+            instagramCaption: input.caption,
+            updatedAt: new Date(),
+          }).where(eq(calendarEntries.id, input.id));
+        }
+
         // Build public URL for the video
         const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
           ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
           : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
-        const videoPublicUrl = `${baseUrl}${entry.uploadedVideoUrl}`;
+        const videoPublicUrl = entry.uploadedVideoUrl.startsWith("http")
+          ? entry.uploadedVideoUrl
+          : `${baseUrl}${entry.uploadedVideoUrl}`;
 
-        // Fire Make.com webhook with video as a Reel
+        // Fire Make.com webhook with video as a Reel (30s timeout)
         const webhookUrl = process.env.MAKE_WEBHOOK_URL;
         if (!webhookUrl) throw new Error("MAKE_WEBHOOK_URL not configured");
-
-        const caption = entry.instagramCaption || entry.topicTitle || "";
 
         const response = await fetch(webhookUrl, {
           method: "POST",
@@ -1782,6 +1803,7 @@ export const appRouter = router({
             calendarEntryId: input.id,
             topicTitle: entry.topicTitle,
           }),
+          signal: AbortSignal.timeout(30_000),
         });
 
         const posted = response.ok;
@@ -1792,7 +1814,7 @@ export const appRouter = router({
           updatedAt: new Date(),
         }).where(eq(calendarEntries.id, input.id));
 
-        return { success: posted, videoUrl: videoPublicUrl };
+        return { success: posted, postStatus: posted ? "posted_ig" : entry.postStatus, videoUrl: videoPublicUrl };
       }),
   }),
 });

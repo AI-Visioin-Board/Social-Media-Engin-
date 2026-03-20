@@ -150,13 +150,17 @@ export default function EditorialCalendar() {
   });
 
   const uploadVideo = trpc.calendar.uploadVideo.useMutation({
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast.success("Video uploaded!");
       refetch();
-      // Refresh detail view
+      // Update detail modal immediately with new video URL (don't wait for refetch)
       if (detailEntry) {
-        const updated = entries.find((e: CalendarEntry) => e.id === detailEntry.id);
-        if (updated) setDetailEntry(updated);
+        setDetailEntry({
+          ...detailEntry,
+          uploadedVideoUrl: data.videoUrl,
+          uploadedVideoName: data.entry?.uploadedVideoName ?? detailEntry.uploadedVideoName,
+          postStatus: "ready",
+        });
       }
     },
     onError: (e: any) => toast.error(e.message),
@@ -174,6 +178,9 @@ export default function EditorialCalendar() {
     onSuccess: (data: any) => {
       if (data.success) {
         toast.success("Posted to Instagram!");
+        if (detailEntry) {
+          setDetailEntry({ ...detailEntry, postStatus: data.postStatus ?? "posted_ig" });
+        }
       } else {
         toast.error("Webhook failed — check Make.com");
       }
@@ -233,8 +240,9 @@ export default function EditorialCalendar() {
       toast.error("Please upload a video file (.mp4, .mov, etc.)");
       return;
     }
-    if (file.size > 500 * 1024 * 1024) {
-      toast.error("File too large (max 500MB)");
+    // Express JSON body limit is 200MB; base64 inflates ~33%, so cap at ~140MB
+    if (file.size > 140 * 1024 * 1024) {
+      toast.error("File too large (max 140MB). Compress the video first.");
       return;
     }
 
@@ -560,11 +568,11 @@ export default function EditorialCalendar() {
                 <Button
                   onClick={() => {
                     if (detailEntry) {
-                      // Save caption first, then post
-                      if (captionText !== (detailEntry.instagramCaption ?? "")) {
-                        saveCaption.mutate({ id: detailEntry.id, caption: captionText });
-                      }
-                      postToInstagram.mutate({ id: detailEntry.id });
+                      // Pass caption directly — backend saves it and posts in one call (no race condition)
+                      postToInstagram.mutate({
+                        id: detailEntry.id,
+                        caption: captionText || undefined,
+                      });
                     }
                   }}
                   disabled={
