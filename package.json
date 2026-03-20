@@ -56,6 +56,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "cookie": "^1.0.2",
+    "creatomate": "^1.2.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.2",
     "drizzle-orm": "^0.44.5",
@@ -86,10 +87,10 @@
     "superjson": "^1.13.3",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
+    "twitter-api-v2": "^1.29.0",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
-    "zod": "^4.1.12",
-    "creatomate": "^1.2.0"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@builder.io/vite-plugin-jsx-loc": "^0.1.1",
