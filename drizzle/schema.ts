@@ -11,7 +11,7 @@ export const servicePhaseEnum = pgEnum("service_phase", [
   "competitor_analysis", "final_report", "follow_up",
 ]);
 export const messageSenderEnum = pgEnum("message_sender", ["client", "admin"]);
-export const runSlotEnum = pgEnum("run_slot", ["monday", "friday"]);
+export const runSlotEnum = pgEnum("run_slot", ["monday", "friday", "manual"]);
 export const contentRunStatusEnum = pgEnum("content_run_status", [
   "pending", "discovering", "scoring", "researching",
   "generating", "assembling", "review", "pending_post",
@@ -421,6 +421,11 @@ export const calendarEntries = pgTable("calendar_entries", {
   pipelineRunId: integer("pipeline_run_id"),
   pipelineType: varchar("pipeline_type", { length: 20 }),
   notes: text("notes"),
+  // Video upload fields (Captions/Mirage workflow)
+  uploadedVideoUrl: text("uploaded_video_url"),
+  uploadedVideoName: text("uploaded_video_name"),
+  instagramCaption: text("instagram_caption"),
+  postStatus: varchar("post_status", { length: 30 }).default("draft"), // draft | ready | posted_ig | posted_yt | posted_both
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

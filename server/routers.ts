@@ -1693,6 +1693,107 @@ export const appRouter = router({
           throw new Error("Reel triggering from calendar not yet supported — use the Avatar Reels page");
         }
       }),
+
+    // Upload a video to a calendar entry (base64-encoded from frontend)
+    uploadVideo: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        videoBase64: z.string(), // base64-encoded video
+        fileName: z.string(),
+        mimeType: z.string().default("video/mp4"),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const { storagePut } = await import("./storage");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        // Save video to storage
+        const ext = input.fileName.split(".").pop() ?? "mp4";
+        const key = `calendar/video-${input.id}-${Date.now()}.${ext}`;
+        const buffer = Buffer.from(input.videoBase64, "base64");
+        const { url } = await storagePut(key, buffer, input.mimeType);
+
+        // Update calendar entry
+        const [entry] = await db.update(calendarEntries).set({
+          uploadedVideoUrl: url,
+          uploadedVideoName: input.fileName,
+          postStatus: "ready",
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id)).returning();
+
+        return { success: true, videoUrl: url, entry };
+      }),
+
+    // Save Instagram caption for a calendar entry
+    saveCaption: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        caption: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [entry] = await db.update(calendarEntries).set({
+          instagramCaption: input.caption,
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id)).returning();
+        return entry;
+      }),
+
+    // Post uploaded video to Instagram via Make.com webhook
+    postToInstagram: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!entry) throw new Error("Calendar entry not found");
+        if (!entry.uploadedVideoUrl) throw new Error("No video uploaded for this entry");
+
+        // Build public URL for the video
+        const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
+        const videoPublicUrl = `${baseUrl}${entry.uploadedVideoUrl}`;
+
+        // Fire Make.com webhook with video as a Reel
+        const webhookUrl = process.env.MAKE_WEBHOOK_URL;
+        if (!webhookUrl) throw new Error("MAKE_WEBHOOK_URL not configured");
+
+        const caption = entry.instagramCaption || entry.topicTitle || "";
+
+        const response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "reel",
+            videoUrl: videoPublicUrl,
+            caption,
+            calendarEntryId: input.id,
+            topicTitle: entry.topicTitle,
+          }),
+        });
+
+        const posted = response.ok;
+
+        await db.update(calendarEntries).set({
+          postStatus: posted ? "posted_ig" : entry.postStatus,
+          status: posted ? "posted" : entry.status,
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id));
+
+        return { success: posted, videoUrl: videoPublicUrl };
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

@@ -349,6 +349,28 @@ export async function migrateDatabase(): Promise<void> {
       );
     `);
 
+    // ── Calendar video upload columns ──────────
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN uploaded_video_url TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN uploaded_video_name TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN instagram_caption TEXT;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN post_status VARCHAR(30) DEFAULT 'draft';
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);

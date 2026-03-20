@@ -1,0 +1,6 @@
+# Generated output — b-roll images + scripts for Captions/Mirage
+output/
+
+# Node
+node_modules/
+dist/

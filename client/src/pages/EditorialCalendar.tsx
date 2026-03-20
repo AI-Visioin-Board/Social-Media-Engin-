@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -16,13 +16,16 @@ import {
   ChevronRight,
   Plus,
   Play,
-  Eye,
   Pencil,
   Trash2,
   Instagram,
   Video,
   FileText,
   CalendarDays,
+  Upload,
+  Send,
+  CheckCircle2,
+  Film,
 } from "lucide-react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -64,6 +67,14 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   failed: { label: "Failed", color: "bg-red-500" },
 };
 
+const POST_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  draft: { label: "Draft", color: "bg-gray-500" },
+  ready: { label: "Ready to Post", color: "bg-cyan-500" },
+  posted_ig: { label: "Posted (IG)", color: "bg-green-500" },
+  posted_yt: { label: "Posted (YT)", color: "bg-green-500" },
+  posted_both: { label: "Posted (Both)", color: "bg-green-500" },
+};
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type CalendarEntry = {
@@ -76,6 +87,10 @@ type CalendarEntry = {
   pipelineRunId: number | null;
   pipelineType: string | null;
   notes: string | null;
+  uploadedVideoUrl: string | null;
+  uploadedVideoName: string | null;
+  instagramCaption: string | null;
+  postStatus: string | null;
 };
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -85,10 +100,12 @@ export default function EditorialCalendar() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addModalDate, setAddModalDate] = useState("");
   const [editEntry, setEditEntry] = useState<CalendarEntry | null>(null);
+  const [detailEntry, setDetailEntry] = useState<CalendarEntry | null>(null);
   const [formType, setFormType] = useState<"carousel" | "reel">("carousel");
   const [formTitle, setFormTitle] = useState("");
   const [formContext, setFormContext] = useState("");
   const [formNotes, setFormNotes] = useState("");
+  const [captionText, setCaptionText] = useState("");
 
   const weekStartStr = formatDate(weekStart);
   const { data: entries = [], refetch } = trpc.calendar.getWeek.useQuery(
@@ -103,7 +120,7 @@ export default function EditorialCalendar() {
       resetForm();
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const updateEntry = trpc.calendar.update.useMutation({
@@ -113,7 +130,7 @@ export default function EditorialCalendar() {
       resetForm();
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const deleteEntry = trpc.calendar.delete.useMutation({
@@ -121,15 +138,48 @@ export default function EditorialCalendar() {
       toast.success("Removed from calendar");
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
   });
 
   const triggerEntry = trpc.calendar.trigger.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(`Pipeline triggered! Run ID: ${data.runId}`);
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const uploadVideo = trpc.calendar.uploadVideo.useMutation({
+    onSuccess: () => {
+      toast.success("Video uploaded!");
+      refetch();
+      // Refresh detail view
+      if (detailEntry) {
+        const updated = entries.find((e: CalendarEntry) => e.id === detailEntry.id);
+        if (updated) setDetailEntry(updated);
+      }
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const saveCaption = trpc.calendar.saveCaption.useMutation({
+    onSuccess: () => {
+      toast.success("Caption saved!");
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const postToInstagram = trpc.calendar.postToInstagram.useMutation({
+    onSuccess: (data: any) => {
+      if (data.success) {
+        toast.success("Posted to Instagram!");
+      } else {
+        toast.error("Webhook failed — check Make.com");
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   function resetForm() {
@@ -153,6 +203,11 @@ export default function EditorialCalendar() {
     setEditEntry(entry);
   }
 
+  function openDetailModal(entry: CalendarEntry) {
+    setCaptionText(entry.instagramCaption ?? "");
+    setDetailEntry(entry);
+  }
+
   function handleSubmitAdd() {
     createEntry.mutate({
       scheduledDate: addModalDate,
@@ -172,6 +227,29 @@ export default function EditorialCalendar() {
       notes: formNotes || undefined,
     });
   }
+
+  const handleFileUpload = useCallback(async (entryId: number, file: File) => {
+    if (!file.type.startsWith("video/")) {
+      toast.error("Please upload a video file (.mp4, .mov, etc.)");
+      return;
+    }
+    if (file.size > 500 * 1024 * 1024) {
+      toast.error("File too large (max 500MB)");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(",")[1];
+      uploadVideo.mutate({
+        id: entryId,
+        videoBase64: base64,
+        fileName: file.name,
+        mimeType: file.type,
+      });
+    };
+    reader.readAsDataURL(file);
+  }, [uploadVideo]);
 
   // Build days of the week
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -266,7 +344,10 @@ export default function EditorialCalendar() {
                     }
                   }}
                   onTrigger={() => triggerEntry.mutate({ id: entry.id })}
+                  onOpenDetail={() => openDetailModal(entry)}
+                  onFileUpload={handleFileUpload}
                   triggerLoading={triggerEntry.isPending}
+                  uploadLoading={uploadVideo.isPending}
                 />
               ))}
             </div>
@@ -387,7 +468,181 @@ export default function EditorialCalendar() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Detail / Upload / Post Modal */}
+      <Dialog open={!!detailEntry} onOpenChange={(open) => !open && setDetailEntry(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Film className="h-5 w-5" />
+              {detailEntry?.topicTitle || "Reel Details"}
+            </DialogTitle>
+          </DialogHeader>
+          {detailEntry && (
+            <div className="space-y-5">
+              {/* Video Preview / Upload */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Video</label>
+                {detailEntry.uploadedVideoUrl ? (
+                  <div className="space-y-2">
+                    <video
+                      src={detailEntry.uploadedVideoUrl}
+                      controls
+                      className="w-full max-h-[300px] rounded-lg bg-black"
+                    />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                      <span>{detailEntry.uploadedVideoName}</span>
+                    </div>
+                    <VideoUploadButton
+                      entryId={detailEntry.id}
+                      onUpload={handleFileUpload}
+                      loading={uploadVideo.isPending}
+                      label="Replace Video"
+                      variant="outline"
+                    />
+                  </div>
+                ) : (
+                  <VideoUploadButton
+                    entryId={detailEntry.id}
+                    onUpload={handleFileUpload}
+                    loading={uploadVideo.isPending}
+                    label="Upload Video"
+                    variant="default"
+                    large
+                  />
+                )}
+              </div>
+
+              {/* Caption Editor */}
+              <div>
+                <label className="text-sm font-medium mb-1.5 block">
+                  Instagram Caption
+                </label>
+                <Textarea
+                  placeholder="Write the Instagram caption for this Reel..."
+                  value={captionText}
+                  onChange={(e) => setCaptionText(e.target.value)}
+                  rows={4}
+                />
+                <div className="flex justify-end mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (detailEntry) {
+                        saveCaption.mutate({ id: detailEntry.id, caption: captionText });
+                      }
+                    }}
+                    disabled={saveCaption.isPending}
+                  >
+                    {saveCaption.isPending ? "Saving..." : "Save Caption"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Post Status */}
+              {detailEntry.postStatus && detailEntry.postStatus !== "draft" && (
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${
+                      POST_STATUS_CONFIG[detailEntry.postStatus]?.color ?? "bg-gray-500"
+                    }`}
+                  />
+                  <span className="text-sm">
+                    {POST_STATUS_CONFIG[detailEntry.postStatus]?.label ?? detailEntry.postStatus}
+                  </span>
+                </div>
+              )}
+
+              {/* Post Buttons */}
+              <div className="flex gap-3 pt-2 border-t">
+                <Button
+                  onClick={() => {
+                    if (detailEntry) {
+                      // Save caption first, then post
+                      if (captionText !== (detailEntry.instagramCaption ?? "")) {
+                        saveCaption.mutate({ id: detailEntry.id, caption: captionText });
+                      }
+                      postToInstagram.mutate({ id: detailEntry.id });
+                    }
+                  }}
+                  disabled={
+                    !detailEntry.uploadedVideoUrl ||
+                    postToInstagram.isPending ||
+                    detailEntry.postStatus === "posted_ig" ||
+                    detailEntry.postStatus === "posted_both"
+                  }
+                  className="flex-1"
+                >
+                  <Instagram className="h-4 w-4 mr-2" />
+                  {postToInstagram.isPending
+                    ? "Posting..."
+                    : detailEntry.postStatus === "posted_ig"
+                    ? "Posted to Instagram"
+                    : "Post to Instagram"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled
+                  title="YouTube posting coming soon"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Post to YouTube
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// ─── Video Upload Button ─────────────────────────────────────────────────────
+
+function VideoUploadButton({
+  entryId,
+  onUpload,
+  loading,
+  label,
+  variant = "default",
+  large = false,
+}: {
+  entryId: number;
+  onUpload: (id: number, file: File) => void;
+  loading: boolean;
+  label: string;
+  variant?: "default" | "outline";
+  large?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onUpload(entryId, file);
+          e.target.value = "";
+        }}
+      />
+      <Button
+        variant={variant}
+        size={large ? "default" : "sm"}
+        className={large ? "w-full h-20 border-dashed border-2" : ""}
+        onClick={() => inputRef.current?.click()}
+        disabled={loading}
+      >
+        <Upload className={`${large ? "h-5 w-5" : "h-3.5 w-3.5"} mr-2`} />
+        {loading ? "Uploading..." : label}
+      </Button>
+    </>
   );
 }
 
@@ -398,18 +653,30 @@ function EntryCard({
   onEdit,
   onDelete,
   onTrigger,
+  onOpenDetail,
+  onFileUpload,
   triggerLoading,
+  uploadLoading,
 }: {
   entry: CalendarEntry;
   onEdit: () => void;
   onDelete: () => void;
   onTrigger: () => void;
+  onOpenDetail: () => void;
+  onFileUpload: (id: number, file: File) => void;
   triggerLoading: boolean;
+  uploadLoading: boolean;
 }) {
   const statusInfo = STATUS_CONFIG[entry.status] ?? {
     label: entry.status,
     color: "bg-gray-500",
   };
+
+  const isReel = entry.contentType === "reel";
+  const hasVideo = !!entry.uploadedVideoUrl;
+  const postInfo = entry.postStatus
+    ? POST_STATUS_CONFIG[entry.postStatus]
+    : null;
 
   return (
     <div className="rounded-md border bg-background p-2 space-y-1.5 text-xs">
@@ -433,6 +700,13 @@ function EntryCard({
           className={`inline-block h-1.5 w-1.5 rounded-full ${statusInfo.color}`}
         />
         <span className="text-muted-foreground truncate">{statusInfo.label}</span>
+        {/* Post status badge for reels with video */}
+        {isReel && hasVideo && postInfo && (
+          <>
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${postInfo.color}`} />
+            <span className="text-muted-foreground truncate">{postInfo.label}</span>
+          </>
+        )}
       </div>
 
       {/* Title */}
@@ -442,13 +716,21 @@ function EntryCard({
         </p>
       )}
 
+      {/* Video indicator for reels */}
+      {isReel && hasVideo && (
+        <div className="flex items-center gap-1 text-green-600">
+          <Film className="h-2.5 w-2.5" />
+          <span className="truncate">{entry.uploadedVideoName ?? "Video uploaded"}</span>
+        </div>
+      )}
+
       {/* Notes */}
       {entry.notes && (
         <p className="text-muted-foreground truncate">{entry.notes}</p>
       )}
 
       {/* Action Buttons */}
-      <div className="flex gap-1 pt-0.5">
+      <div className="flex gap-1 pt-0.5 flex-wrap">
         {entry.status === "planned" && (
           <>
             <Button
@@ -471,6 +753,23 @@ function EntryCard({
             </Button>
           </>
         )}
+
+        {/* Reel: Upload / Open detail */}
+        {isReel && (
+          <Button
+            variant={hasVideo ? "outline" : "default"}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={onOpenDetail}
+          >
+            {hasVideo ? (
+              <><Film className="h-2.5 w-2.5 mr-0.5" /> View</>
+            ) : (
+              <><Upload className="h-2.5 w-2.5 mr-0.5" /> Upload</>
+            )}
+          </Button>
+        )}
+
         {entry.pipelineRunId && (
           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
             <FileText className="h-2.5 w-2.5 mr-0.5" />

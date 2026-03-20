@@ -139,6 +139,86 @@ export async function searchStockVideoBatch(
   }
 }
 
+// ============================================================
+// Pexels PHOTOS API — Still images for Captions/Mirage pipeline
+// ============================================================
+
+interface PexelsPhoto {
+  id: number;
+  width: number;
+  height: number;
+  src: {
+    original: string;
+    large2x: string;
+    large: string;
+    medium: string;
+  };
+}
+
+interface PexelsPhotoSearchResult {
+  total_results: number;
+  photos: PexelsPhoto[];
+}
+
+/**
+ * Search for a stock PHOTO (not video) from Pexels.
+ * Used by the Captions pipeline which needs still images, not video clips.
+ * Returns the large2x URL (high quality, fast to download).
+ */
+export async function searchStockPhoto(
+  query: string,
+  signal?: AbortSignal,
+): Promise<{ url: string; width: number; height: number } | null> {
+  if (!CONFIG.pexelsApiKey) {
+    console.warn("[Pexels] No API key configured, skipping stock photo search");
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    query,
+    orientation: "portrait",
+    size: "large",
+    per_page: "5",
+  });
+
+  try {
+    const response = await fetch(
+      `https://api.pexels.com/v1/search?${params}`,
+      {
+        headers: { Authorization: CONFIG.pexelsApiKey },
+        signal,
+      },
+    );
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`[Pexels] Photos API error (${response.status}): ${err}`);
+      return null;
+    }
+
+    const data: PexelsPhotoSearchResult = await response.json();
+
+    if (data.photos.length === 0) {
+      console.warn(`[Pexels] No photos for query: "${query}"`);
+      return null;
+    }
+
+    // Pick first portrait-oriented photo, or fall back to first result
+    const portrait = data.photos.find(p => p.height > p.width);
+    const photo = portrait ?? data.photos[0];
+
+    return {
+      url: photo.src.large2x || photo.src.original,
+      width: photo.width,
+      height: photo.height,
+    };
+  } catch (err: any) {
+    if (err.name === "AbortError") throw err;
+    console.error(`[Pexels] Photo search failed for "${query}":`, err.message);
+    return null;
+  }
+}
+
 function pickBestFile(files: PexelsVideoFile[]): PexelsVideoFile | null {
   // Prefer HD, then SD. Filter for mp4.
   const mp4s = files.filter(f => f.file_type === "video/mp4");
