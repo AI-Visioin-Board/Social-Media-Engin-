@@ -27,7 +27,9 @@ import { searchStockPhoto } from "./utils/pexelsClient.js";
 import type { VideoScript, Beat } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUTPUT_BASE = resolve(__dirname, "../output/B Roll for Reels");
+// Save to AVATAR PIPELINE folder in project root (override with BROLL_OUTPUT_DIR env var)
+const OUTPUT_BASE = process.env.BROLL_OUTPUT_DIR
+  || resolve(__dirname, "../../AVATAR PIPELINE");
 
 // ─── Types ───────────────────────────────────────────────────
 

@@ -23,8 +23,10 @@ import type { ContentBucket } from "../videogen-avatar/src/prompts/quinnPersona.
 import { mkdir, writeFile, readdir, unlink } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
-// Output base directory — relative to project root
-const OUTPUT_BASE = resolve(process.cwd(), "B Roll for Reels");
+// Output base directory — defaults to AVATAR PIPELINE folder in project root
+// Override with BROLL_OUTPUT_DIR env var to save elsewhere
+const OUTPUT_BASE = process.env.BROLL_OUTPUT_DIR
+  || resolve(process.cwd(), "AVATAR PIPELINE");
 
 // ─── Abort Controller Registry ──────────────────────────────
 
@@ -136,7 +138,7 @@ export async function continueAfterTopicApprovalCaptions(
     await updateRun(runId, {
       status: "completed",
       statusDetail: `[Captions] Done! ${savedFiles.length} b-roll files + script saved.`,
-      brollOutputDir: `B Roll for Reels/${folderName}`,
+      brollOutputDir: `AVATAR PIPELINE/${folderName}`,
       brollImageCount: savedFiles.length,
     });
 
@@ -233,7 +235,7 @@ async function rerunCaptionsPipeline(
     await updateRun(runId, {
       status: "completed",
       statusDetail: `[Captions] Revised! ${savedFiles.length} b-roll files saved.`,
-      brollOutputDir: `B Roll for Reels/${folderName}`,
+      brollOutputDir: `AVATAR PIPELINE/${folderName}`,
       brollImageCount: savedFiles.length,
     });
   } catch (err: any) {
