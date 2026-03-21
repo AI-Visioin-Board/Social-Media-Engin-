@@ -65,3 +65,40 @@ export async function postTweet(
 
   return { tweetId: tweet.data.id, success: true };
 }
+
+/**
+ * Post a tweet with a video (mp4).
+ * Downloads video from URL, uploads via chunked media upload, waits for processing, then posts.
+ * Twitter v1.1 chunked upload supports videos up to 512MB.
+ */
+export async function postTweetWithVideo(
+  text: string,
+  videoUrl: string,
+): Promise<{ tweetId: string; success: boolean }> {
+  const client = getClient();
+
+  console.log(`[Twitter] Downloading video from ${videoUrl}...`);
+  const res = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+  if (!res.ok) {
+    throw new Error(`Failed to download video: HTTP ${res.status}`);
+  }
+  const buffer = Buffer.from(await res.arrayBuffer());
+  console.log(`[Twitter] Video downloaded: ${(buffer.length / 1024 / 1024).toFixed(1)}MB`);
+
+  // Upload video via chunked media upload (twitter-api-v2 handles chunking automatically)
+  console.log(`[Twitter] Uploading video to Twitter...`);
+  const mediaId = await client.v1.uploadMedia(buffer, {
+    mimeType: "video/mp4",
+    type: "longVideo",
+  });
+  console.log(`[Twitter] Video uploaded: ${mediaId}`);
+
+  // Post tweet with video
+  const tweet = await client.v2.tweet({
+    text,
+    media: { media_ids: [mediaId] },
+  });
+  console.log(`[Twitter] Tweet posted with video: ${tweet.data.id}`);
+
+  return { tweetId: tweet.data.id, success: true };
+}

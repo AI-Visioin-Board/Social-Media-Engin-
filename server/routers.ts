@@ -1849,6 +1849,56 @@ export const appRouter = router({
 
         return { success: posted, postStatus: posted ? "posted_ig" : entry.postStatus, videoUrl: videoPublicUrl };
       }),
+
+    // Post uploaded video to Twitter/X via direct API (no Make.com)
+    postToTwitter: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        caption: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const { postTweetWithVideo } = await import("./twitterClient");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!entry) throw new Error("Calendar entry not found");
+        if (!entry.uploadedVideoUrl) throw new Error("No video uploaded for this entry");
+
+        const caption = input.caption || entry.instagramCaption || entry.topicTitle || "";
+
+        // Save caption if provided
+        if (input.caption) {
+          await db.update(calendarEntries).set({
+            instagramCaption: input.caption,
+            updatedAt: new Date(),
+          }).where(eq(calendarEntries.id, input.id));
+        }
+
+        // Build public URL
+        const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
+        const videoPublicUrl = entry.uploadedVideoUrl.startsWith("http")
+          ? entry.uploadedVideoUrl
+          : `${baseUrl}${entry.uploadedVideoUrl}`;
+
+        // Post to Twitter directly
+        const result = await postTweetWithVideo(caption, videoPublicUrl);
+
+        // Update post status
+        const newStatus = entry.postStatus === "posted_ig" ? "posted_both" : "posted_x";
+        await db.update(calendarEntries).set({
+          postStatus: newStatus,
+          status: "posted",
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id));
+
+        return { success: result.success, tweetId: result.tweetId, postStatus: newStatus };
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

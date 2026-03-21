@@ -71,8 +71,9 @@ const POST_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   draft: { label: "Draft", color: "bg-gray-500" },
   ready: { label: "Ready to Post", color: "bg-cyan-500" },
   posted_ig: { label: "Posted (IG)", color: "bg-green-500" },
+  posted_x: { label: "Posted (X)", color: "bg-green-500" },
   posted_yt: { label: "Posted (YT)", color: "bg-green-500" },
-  posted_both: { label: "Posted (Both)", color: "bg-green-500" },
+  posted_both: { label: "Posted (IG + X)", color: "bg-green-500" },
 };
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -187,6 +188,19 @@ export default function EditorialCalendar() {
       refetch();
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  const postToTwitter = trpc.calendar.postToTwitter.useMutation({
+    onSuccess: (data: any) => {
+      if (data.success) {
+        toast.success(`Posted to X/Twitter! Tweet ID: ${data.tweetId}`);
+        if (detailEntry) {
+          setDetailEntry({ ...detailEntry, postStatus: data.postStatus ?? "posted_x" });
+        }
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(`Twitter post failed: ${e.message}`),
   });
 
   function resetForm() {
@@ -593,11 +607,27 @@ export default function EditorialCalendar() {
                 <Button
                   variant="outline"
                   className="flex-1"
-                  disabled
-                  title="YouTube posting coming soon"
+                  onClick={() => {
+                    if (detailEntry) {
+                      postToTwitter.mutate({
+                        id: detailEntry.id,
+                        caption: captionText || undefined,
+                      });
+                    }
+                  }}
+                  disabled={
+                    !detailEntry.uploadedVideoUrl ||
+                    postToTwitter.isPending ||
+                    detailEntry.postStatus === "posted_x" ||
+                    detailEntry.postStatus === "posted_both"
+                  }
                 >
                   <Send className="h-4 w-4 mr-2" />
-                  Post to YouTube
+                  {postToTwitter.isPending
+                    ? "Posting..."
+                    : detailEntry.postStatus === "posted_x" || detailEntry.postStatus === "posted_both"
+                    ? "Posted to X"
+                    : "Post to X/Twitter"}
                 </Button>
               </div>
             </div>
