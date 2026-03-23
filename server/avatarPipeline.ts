@@ -284,7 +284,7 @@ export async function continueAfterVideoApproval(runId: number, caption?: string
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        type: "avatar_reel",
+        type: "reel",
         videoUrl: run.finalVideoUrl,
         caption: caption || run.instagramCaption,
         topic: run.topic,
