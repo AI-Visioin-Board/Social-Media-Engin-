@@ -147,7 +147,7 @@ export function createMcpServer(): McpServer {
       selected_topics: z.array(z.object({
         title: z.string(), summary: z.string().optional(),
         source: z.string().optional(), url: z.string().optional(),
-        scores: z.record(z.number()).optional(),
+        scores: z.string().optional().describe("JSON object of score name→number pairs"),
       })).describe("The topics to approve. Use the topics from get_run_topics."),
     },
     async ({ run_id, selected_topics }) => {
