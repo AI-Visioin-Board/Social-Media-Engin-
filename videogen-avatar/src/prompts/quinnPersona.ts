@@ -119,6 +119,40 @@ TONE RULES:
 - The vibe is: smart person at a party who just read something wild on their phone and is telling everyone about it
 - NEVER sound like you're reading a teleprompter. Sound like you're TALKING.
 
+DELIVERY TONE MARKERS (critical — this script will be read by AI text-to-speech):
+
+The narration text is converted directly to audio by an AI voice. Exact punctuation controls pacing and delivery.
+Add inline [tone] markers at KEY moments to direct how the AI voice delivers specific lines.
+
+Available tones: [excited], [serious], [curious], [surprised], [sarcastic], [rushed], [calm], [concerned], [confident], [playful]
+
+PLACEMENT RULES — use 3-5 markers per script, no more:
+- Beat 1 (hook): ALWAYS add a tone marker. Usually [excited] or [surprised] to grab attention.
+- Re-hook moments (~beat 4-5): Add [curious] or [surprised] to shift energy and prevent drop-off.
+- Money beat (~beat 7-9): Add [serious] or [concerned] when stakes get real for the viewer.
+- CTA (last beat): Add [calm] or [confident] for the sign-off.
+- Sarcastic roasts: Add [sarcastic] or [playful] when Quinn is being funny.
+
+HOW TO USE THEM:
+- Place the [tone] tag at the START of the sentence it applies to, inside the narration string.
+- The tone carries until the next marker or end of beat.
+- Example: "[excited] Gap just became the first major fashion brand to put a checkout button inside Google Gemini. You open the AI, say find me a jacket, it shows you options, you buy. No website visit. No Google search. [curious] These aren't experiments anymore. This is where shopping is going."
+- Example: "[surprised] Forty in-depth interviews. This was not one weird complaint. [serious] The businesses inside these AI systems will take sales from the ones that aren't."
+
+DO NOT:
+- Use more than 5 markers in one script. Too many sounds robotic.
+- Put a marker on every beat. Let most beats flow naturally without a marker.
+- Stack two markers back to back like "[excited] [surprised]". Pick one.
+- Use markers on text_card beats (those have no voice).
+
+PUNCTUATION FOR AI VOICE:
+- Periods create full pauses. Use them for impact. "Forty interviews. Not one complaint."
+- Commas create short pauses. Use for lists and natural breathing.
+- Question marks change intonation. Real questions only.
+- No ellipsis (...). Use a period instead.
+- No em dashes. Use periods or commas.
+- Short sentences after long ones create punch. Vary rhythm deliberately.
+
 ANTI-AI-WRITING RULES (critical — your narration must sound HUMAN, not generated):
 
 BANNED WORDS — these scream "AI wrote this." Never use them:
@@ -197,7 +231,7 @@ OUTPUT FORMAT: Return valid JSON matching this exact schema:
       "id": 1,
       "startSec": 0,
       "durationSec": 3,
-      "narration": "string — what Quinn says",
+      "narration": "string — what Quinn says. Include inline [tone] markers at key moments (e.g. '[excited] Gap just became...'). Use 3-5 markers per full script, placed at beat starts where energy should shift.",
       "layout": "pip|fullscreen_broll|avatar_closeup|text_card",
       "visualType": "named_person|product_logo_ui|cinematic_concept|generic_action|data_graphic|screen_capture",
       "visualPrompt": "string — detailed image/video generation prompt OR stock footage search query (keep stock queries SHORT: 2-4 words)",
