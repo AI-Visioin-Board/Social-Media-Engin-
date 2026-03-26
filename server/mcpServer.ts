@@ -683,7 +683,6 @@ export function createMcpServer(): McpServer {
   server.tool(
     "get_reel_topics",
     "Get pending suggested topics for reel production.",
-    {},
     async () => {
       const db = await getDb();
       if (!db) throw new Error("DB not available");
@@ -836,7 +835,6 @@ export function createMcpServer(): McpServer {
   server.tool(
     "get_pipeline_status",
     "Returns overall system health — which pipelines are operational, API connectivity, recent errors.",
-    {},
     async () => {
       const { ENV } = await import("./_core/env");
       const db = await getDb();
@@ -890,7 +888,6 @@ export function createMcpServer(): McpServer {
   server.tool(
     "get_app_settings",
     "Get current configuration state (which APIs are configured). Does NOT return secrets.",
-    {},
     async () => {
       const { ENV } = await import("./_core/env");
       return { content: [{ type: "text" as const, text: JSON.stringify({
