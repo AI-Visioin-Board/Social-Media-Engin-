@@ -57,6 +57,20 @@
       "when": 1772607464175,
       "tag": "0007_colossal_morph",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1774022400000,
+      "tag": "0008_add_manual_run_slot",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1774800000000,
+      "tag": "0009_add_text_content",
+      "breakpoints": true
     }
   ]
 }

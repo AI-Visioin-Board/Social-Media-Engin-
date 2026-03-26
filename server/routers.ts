@@ -1632,6 +1632,7 @@ export const appRouter = router({
         contentType: z.enum(["carousel", "reel", "x_post"]),
         topicTitle: z.string().optional(),
         topicContext: z.string().optional(),
+        textContent: z.string().optional(),
         notes: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -1644,6 +1645,7 @@ export const appRouter = router({
           contentType: input.contentType,
           topicTitle: input.topicTitle ?? null,
           topicContext: input.topicContext ?? null,
+          textContent: input.textContent ?? null,
           notes: input.notes ?? null,
         }).returning();
         return entry;
@@ -1655,6 +1657,7 @@ export const appRouter = router({
         scheduledDate: z.string().optional(),
         topicTitle: z.string().optional(),
         topicContext: z.string().optional(),
+        textContent: z.string().optional(),
         notes: z.string().optional(),
         status: z.string().optional(),
       }))
@@ -1668,6 +1671,7 @@ export const appRouter = router({
         if (input.scheduledDate !== undefined) updates.scheduledDate = input.scheduledDate;
         if (input.topicTitle !== undefined) updates.topicTitle = input.topicTitle;
         if (input.topicContext !== undefined) updates.topicContext = input.topicContext;
+        if (input.textContent !== undefined) updates.textContent = input.textContent;
         if (input.notes !== undefined) updates.notes = input.notes;
         if (input.status !== undefined) updates.status = input.status;
         const [entry] = await db.update(calendarEntries)

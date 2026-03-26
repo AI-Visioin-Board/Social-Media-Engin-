@@ -16,6 +16,7 @@
     "@google/genai": "^1.44.0",
     "@hookform/resolvers": "^5.2.2",
     "@imgly/background-removal-node": "^1.4.5",
+    "@modelcontextprotocol/sdk": "^1.28.0",
     "@mozilla/readability": "^0.6.0",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
