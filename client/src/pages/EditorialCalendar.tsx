@@ -26,6 +26,7 @@ import {
   Send,
   CheckCircle2,
   Film,
+  Twitter,
 } from "lucide-react";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ export default function EditorialCalendar() {
   const [addModalDate, setAddModalDate] = useState("");
   const [editEntry, setEditEntry] = useState<CalendarEntry | null>(null);
   const [detailEntry, setDetailEntry] = useState<CalendarEntry | null>(null);
-  const [formType, setFormType] = useState<"carousel" | "reel">("carousel");
+  const [formType, setFormType] = useState<"carousel" | "reel" | "x_post">("carousel");
   const [formTitle, setFormTitle] = useState("");
   const [formContext, setFormContext] = useState("");
   const [formNotes, setFormNotes] = useState("");
@@ -203,6 +204,19 @@ export default function EditorialCalendar() {
     onError: (e: any) => toast.error(`Twitter post failed: ${e.message}`),
   });
 
+  const postXText = trpc.calendar.postXText.useMutation({
+    onSuccess: (data: any) => {
+      if (data.success) {
+        toast.success(`Posted to X! Tweet ID: ${data.tweetId}`);
+        if (detailEntry) {
+          setDetailEntry({ ...detailEntry, postStatus: "posted_x" });
+        }
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(`X post failed: ${e.message}`),
+  });
+
   function resetForm() {
     setFormType("carousel");
     setFormTitle("");
@@ -217,7 +231,7 @@ export default function EditorialCalendar() {
   }
 
   function openEditModal(entry: CalendarEntry) {
-    setFormType(entry.contentType as "carousel" | "reel");
+    setFormType(entry.contentType as "carousel" | "reel" | "x_post");
     setFormTitle(entry.topicTitle ?? "");
     setFormContext(entry.topicContext ?? "");
     setFormNotes(entry.notes ?? "");
@@ -409,6 +423,13 @@ export default function EditorialCalendar() {
                 >
                   <Video className="h-4 w-4 mr-1.5" /> Reel
                 </Button>
+                <Button
+                  variant={formType === "x_post" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFormType("x_post")}
+                >
+                  <Twitter className="h-4 w-4 mr-1.5" /> X Post
+                </Button>
               </div>
             </div>
             <div>
@@ -496,57 +517,73 @@ export default function EditorialCalendar() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Film className="h-5 w-5" />
-              {detailEntry?.topicTitle || "Reel Details"}
+              {detailEntry?.contentType === "x_post" ? (
+                <Twitter className="h-5 w-5" />
+              ) : (
+                <Film className="h-5 w-5" />
+              )}
+              {detailEntry?.topicTitle || (detailEntry?.contentType === "x_post" ? "X Post Details" : "Reel Details")}
             </DialogTitle>
           </DialogHeader>
           {detailEntry && (
             <div className="space-y-5">
-              {/* Video Preview / Upload */}
-              <div>
-                <label className="text-sm font-medium mb-2 block">Video</label>
-                {detailEntry.uploadedVideoUrl ? (
-                  <div className="space-y-2">
-                    <video
-                      src={detailEntry.uploadedVideoUrl}
-                      controls
-                      className="w-full max-h-[300px] rounded-lg bg-black"
-                    />
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                      <span>{detailEntry.uploadedVideoName}</span>
+              {/* Video Preview / Upload — only for reels */}
+              {detailEntry.contentType !== "x_post" && (
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Video</label>
+                  {detailEntry.uploadedVideoUrl ? (
+                    <div className="space-y-2">
+                      <video
+                        src={detailEntry.uploadedVideoUrl}
+                        controls
+                        className="w-full max-h-[300px] rounded-lg bg-black"
+                      />
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                        <span>{detailEntry.uploadedVideoName}</span>
+                      </div>
+                      <VideoUploadButton
+                        entryId={detailEntry.id}
+                        onUpload={handleFileUpload}
+                        loading={uploadVideo.isPending}
+                        label="Replace Video"
+                        variant="outline"
+                      />
                     </div>
+                  ) : (
                     <VideoUploadButton
                       entryId={detailEntry.id}
                       onUpload={handleFileUpload}
                       loading={uploadVideo.isPending}
-                      label="Replace Video"
-                      variant="outline"
+                      label="Upload Video"
+                      variant="default"
+                      large
                     />
-                  </div>
-                ) : (
-                  <VideoUploadButton
-                    entryId={detailEntry.id}
-                    onUpload={handleFileUpload}
-                    loading={uploadVideo.isPending}
-                    label="Upload Video"
-                    variant="default"
-                    large
-                  />
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
-              {/* Caption Editor */}
+              {/* Caption / Tweet Text Editor */}
               <div>
                 <label className="text-sm font-medium mb-1.5 block">
-                  Instagram Caption
+                  {detailEntry.contentType === "x_post" ? "Tweet Text" : "Instagram Caption"}
                 </label>
                 <Textarea
-                  placeholder="Write the Instagram caption for this Reel..."
+                  placeholder={
+                    detailEntry.contentType === "x_post"
+                      ? "Write your tweet..."
+                      : "Write the Instagram caption for this Reel..."
+                  }
                   value={captionText}
                   onChange={(e) => setCaptionText(e.target.value)}
-                  rows={4}
+                  rows={detailEntry.contentType === "x_post" ? 6 : 4}
+                  maxLength={detailEntry.contentType === "x_post" ? 280 : undefined}
                 />
+                {detailEntry.contentType === "x_post" && (
+                  <p className="text-xs text-muted-foreground mt-1 text-right">
+                    {captionText.length}/280
+                  </p>
+                )}
                 <div className="flex justify-end mt-2">
                   <Button
                     variant="outline"
@@ -558,7 +595,7 @@ export default function EditorialCalendar() {
                     }}
                     disabled={saveCaption.isPending}
                   >
-                    {saveCaption.isPending ? "Saving..." : "Save Caption"}
+                    {saveCaption.isPending ? "Saving..." : "Save"}
                   </Button>
                 </div>
               </div>
@@ -579,56 +616,85 @@ export default function EditorialCalendar() {
 
               {/* Post Buttons */}
               <div className="flex gap-3 pt-2 border-t">
-                <Button
-                  onClick={() => {
-                    if (detailEntry) {
-                      // Pass caption directly — backend saves it and posts in one call (no race condition)
-                      postToInstagram.mutate({
-                        id: detailEntry.id,
-                        caption: captionText || undefined,
-                      });
+                {detailEntry.contentType === "x_post" ? (
+                  /* X Post — single Post to X button */
+                  <Button
+                    className="flex-1"
+                    onClick={() => {
+                      if (detailEntry) {
+                        postXText.mutate({
+                          id: detailEntry.id,
+                          text: captionText || undefined,
+                        });
+                      }
+                    }}
+                    disabled={
+                      !captionText.trim() ||
+                      postXText.isPending ||
+                      detailEntry.postStatus === "posted_x"
                     }
-                  }}
-                  disabled={
-                    !detailEntry.uploadedVideoUrl ||
-                    postToInstagram.isPending ||
-                    detailEntry.postStatus === "posted_ig" ||
-                    detailEntry.postStatus === "posted_both"
-                  }
-                  className="flex-1"
-                >
-                  <Instagram className="h-4 w-4 mr-2" />
-                  {postToInstagram.isPending
-                    ? "Posting..."
-                    : detailEntry.postStatus === "posted_ig"
-                    ? "Posted to Instagram"
-                    : "Post to Instagram"}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    if (detailEntry) {
-                      postToTwitter.mutate({
-                        id: detailEntry.id,
-                        caption: captionText || undefined,
-                      });
-                    }
-                  }}
-                  disabled={
-                    !detailEntry.uploadedVideoUrl ||
-                    postToTwitter.isPending ||
-                    detailEntry.postStatus === "posted_x" ||
-                    detailEntry.postStatus === "posted_both"
-                  }
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {postToTwitter.isPending
-                    ? "Posting..."
-                    : detailEntry.postStatus === "posted_x" || detailEntry.postStatus === "posted_both"
-                    ? "Posted to X"
-                    : "Post to X/Twitter"}
-                </Button>
+                  >
+                    <Twitter className="h-4 w-4 mr-2" />
+                    {postXText.isPending
+                      ? "Posting..."
+                      : detailEntry.postStatus === "posted_x"
+                      ? "Posted to X"
+                      : "Post to X"}
+                  </Button>
+                ) : (
+                  /* Reel — IG + X buttons */
+                  <>
+                    <Button
+                      onClick={() => {
+                        if (detailEntry) {
+                          postToInstagram.mutate({
+                            id: detailEntry.id,
+                            caption: captionText || undefined,
+                          });
+                        }
+                      }}
+                      disabled={
+                        !detailEntry.uploadedVideoUrl ||
+                        postToInstagram.isPending ||
+                        detailEntry.postStatus === "posted_ig" ||
+                        detailEntry.postStatus === "posted_both"
+                      }
+                      className="flex-1"
+                    >
+                      <Instagram className="h-4 w-4 mr-2" />
+                      {postToInstagram.isPending
+                        ? "Posting..."
+                        : detailEntry.postStatus === "posted_ig"
+                        ? "Posted to Instagram"
+                        : "Post to Instagram"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        if (detailEntry) {
+                          postToTwitter.mutate({
+                            id: detailEntry.id,
+                            caption: captionText || undefined,
+                          });
+                        }
+                      }}
+                      disabled={
+                        !detailEntry.uploadedVideoUrl ||
+                        postToTwitter.isPending ||
+                        detailEntry.postStatus === "posted_x" ||
+                        detailEntry.postStatus === "posted_both"
+                      }
+                    >
+                      <Send className="h-4 w-4 mr-2" />
+                      {postToTwitter.isPending
+                        ? "Posting..."
+                        : detailEntry.postStatus === "posted_x" || detailEntry.postStatus === "posted_both"
+                        ? "Posted to X"
+                        : "Post to X/Twitter"}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -711,6 +777,7 @@ function EntryCard({
   };
 
   const isReel = entry.contentType === "reel";
+  const isXPost = entry.contentType === "x_post";
   const hasVideo = !!entry.uploadedVideoUrl;
   const postInfo = entry.postStatus
     ? POST_STATUS_CONFIG[entry.postStatus]
@@ -725,11 +792,15 @@ function EntryCard({
           className={`text-[10px] px-1.5 py-0 ${
             entry.contentType === "carousel"
               ? "bg-blue-500/10 text-blue-600 border-blue-500/20"
+              : entry.contentType === "x_post"
+              ? "bg-slate-500/10 text-slate-600 border-slate-500/20"
               : "bg-purple-500/10 text-purple-600 border-purple-500/20"
           }`}
         >
           {entry.contentType === "carousel" ? (
             <><Instagram className="h-2.5 w-2.5 mr-0.5" /> Carousel</>
+          ) : entry.contentType === "x_post" ? (
+            <><Twitter className="h-2.5 w-2.5 mr-0.5" /> X Post</>
           ) : (
             <><Video className="h-2.5 w-2.5 mr-0.5" /> Reel</>
           )}
@@ -739,7 +810,7 @@ function EntryCard({
         />
         <span className="text-muted-foreground truncate">{statusInfo.label}</span>
         {/* Post status badge for reels with video */}
-        {isReel && hasVideo && postInfo && (
+        {((isReel && hasVideo) || isXPost) && postInfo && (
           <>
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${postInfo.color}`} />
             <span className="text-muted-foreground truncate">{postInfo.label}</span>
@@ -805,6 +876,19 @@ function EntryCard({
             ) : (
               <><Upload className="h-2.5 w-2.5 mr-0.5" /> Upload</>
             )}
+          </Button>
+        )}
+
+        {/* X Post: Open detail to write/post tweet */}
+        {isXPost && (
+          <Button
+            variant={entry.postStatus === "posted_x" ? "outline" : "default"}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={onOpenDetail}
+          >
+            <Twitter className="h-2.5 w-2.5 mr-0.5" />
+            {entry.postStatus === "posted_x" ? "View" : "Write"}
           </Button>
         )}
 

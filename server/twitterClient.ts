@@ -71,6 +71,18 @@ export async function postTweet(
  * Downloads video from URL, uploads via chunked media upload, waits for processing, then posts.
  * Twitter v1.1 chunked upload supports videos up to 512MB.
  */
+/**
+ * Post a text-only tweet (no media).
+ */
+export async function postTextTweet(
+  text: string,
+): Promise<{ tweetId: string; success: boolean }> {
+  const client = getClient();
+  const tweet = await client.v2.tweet({ text });
+  console.log(`[Twitter] Text tweet posted: ${tweet.data.id}`);
+  return { tweetId: tweet.data.id, success: true };
+}
+
 export async function postTweetWithVideo(
   text: string,
   videoUrl: string,

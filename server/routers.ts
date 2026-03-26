@@ -1629,7 +1629,7 @@ export const appRouter = router({
     create: adminProcedure
       .input(z.object({
         scheduledDate: z.string(),
-        contentType: z.enum(["carousel", "reel"]),
+        contentType: z.enum(["carousel", "reel", "x_post"]),
         topicTitle: z.string().optional(),
         topicContext: z.string().optional(),
         notes: z.string().optional(),
@@ -1898,6 +1898,45 @@ export const appRouter = router({
         }).where(eq(calendarEntries.id, input.id));
 
         return { success: result.success, tweetId: result.tweetId, postStatus: newStatus };
+      }),
+
+    // Post a text-only tweet from an X Post calendar entry
+    postXText: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        text: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const { postTextTweet } = await import("./twitterClient");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!entry) throw new Error("Calendar entry not found");
+
+        const tweetText = input.text || entry.instagramCaption || entry.topicTitle || "";
+        if (!tweetText.trim()) throw new Error("No tweet text provided");
+
+        // Save text if provided
+        if (input.text) {
+          await db.update(calendarEntries).set({
+            instagramCaption: input.text,
+            updatedAt: new Date(),
+          }).where(eq(calendarEntries.id, input.id));
+        }
+
+        const result = await postTextTweet(tweetText);
+
+        await db.update(calendarEntries).set({
+          postStatus: "posted_x",
+          status: "posted",
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id));
+
+        return { success: result.success, tweetId: result.tweetId, postStatus: "posted_x" };
       }),
   }),
 });
