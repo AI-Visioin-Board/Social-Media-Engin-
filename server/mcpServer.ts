@@ -911,10 +911,8 @@ export function createMcpServer(): McpServer {
 // ─── Express Integration ────────────────────────────────────────────────────
 
 export function registerMcpEndpoint(app: Express): void {
-  const server = createMcpServer();
-
-  // Store transports by session ID for session management
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Each session gets its own McpServer + Transport pair
+  const sessions = new Map<string, { server: McpServer; transport: StreamableHTTPServerTransport }>();
 
   app.post("/mcp", async (req: Request, res: Response) => {
     if (!validateAuth(req)) {
@@ -923,30 +921,30 @@ export function registerMcpEndpoint(app: Express): void {
     }
 
     try {
-      // Check for existing session
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
-      let transport: StreamableHTTPServerTransport;
 
-      if (sessionId && transports.has(sessionId)) {
-        transport = transports.get(sessionId)!;
+      if (sessionId && sessions.has(sessionId)) {
+        // Existing session
+        const session = sessions.get(sessionId)!;
+        await session.transport.handleRequest(req, res, req.body);
       } else {
-        // New session
-        transport = new StreamableHTTPServerTransport({
+        // New session — create fresh McpServer + Transport
+        const server = createMcpServer();
+        const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => crypto.randomUUID(),
           onsessioninitialized: (id) => {
-            transports.set(id, transport);
+            sessions.set(id, { server, transport });
           },
         });
 
         transport.onclose = () => {
           const sid = (transport as any).sessionId;
-          if (sid) transports.delete(sid);
+          if (sid) sessions.delete(sid);
         };
 
         await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
       }
-
-      await transport.handleRequest(req, res, req.body);
     } catch (err: any) {
       console.error("[MCP] Error:", err?.message);
       if (!res.headersSent) {
@@ -963,22 +961,23 @@ export function registerMcpEndpoint(app: Express): void {
     }
 
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (!sessionId || !transports.has(sessionId)) {
+    if (!sessionId || !sessions.has(sessionId)) {
       res.status(400).json({ error: "No active session. Send a POST to /mcp first." });
       return;
     }
 
-    const transport = transports.get(sessionId)!;
-    await transport.handleRequest(req, res);
+    const session = sessions.get(sessionId)!;
+    await session.transport.handleRequest(req, res);
   });
 
   // DELETE for session cleanup
   app.delete("/mcp", async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId)!;
-      await transport.close();
-      transports.delete(sessionId);
+    if (sessionId && sessions.has(sessionId)) {
+      const session = sessions.get(sessionId)!;
+      await session.transport.close();
+      await session.server.close();
+      sessions.delete(sessionId);
     }
     res.status(200).json({ message: "Session closed" });
   });
