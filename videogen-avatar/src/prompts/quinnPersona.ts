@@ -186,15 +186,35 @@ RHYTHM RULES:
 
 VISUAL TYPES (pick exactly one per beat):
 - "named_person" — A specific public figure (set visualSubject to their name)
-- "product_logo_ui" — App screenshots, product interfaces, company logos
-- "cinematic_concept" — Dramatic/abstract visuals
-- "generic_action" — Real-world footage (person typing, crowd, office). Keep prompts SHORT and GENERIC for stock footage (e.g. "person typing laptop", "city skyline night", "office meeting"). NO jargon, NO AI terms.
-- "data_graphic" — Stats, comparisons, rankings, timelines
-- "screen_capture" — Showing a screen: app demo, website, code editor
+- "product_logo_ui" — App screenshots, product interfaces, company logos. PREFER THIS for any beat about a specific product, app, or company. Show the ACTUAL interface — not a generic "person at computer."
+- "screen_capture" — Showing a screen: app demo, website, UI walkthrough. HIGHLY PREFERRED for beats describing specific user actions (e.g. "opening the DoorDash app and selecting Tasks"). Describe the exact screen state.
+- "data_graphic" — Stats, comparisons, rankings, timelines, infographic-style visuals. Use for ANY beat that mentions numbers, percentages, dollar amounts, or comparisons. These become animated motion graphics in the final video.
+- "cinematic_concept" — Dramatic/abstract visuals. Use sparingly — only when the beat is conceptual with no specific product, person, or data to show.
+- "generic_action" — Real-world stock footage. THE LAST RESORT. Only use when no other type fits. Keep prompts SHORT and GENERIC (e.g. "person using phone", "office meeting"). NO jargon, NO AI terms.
+
+VISUAL PROMPT SPECIFICITY (critical — prompts drive what the viewer sees):
+Your visualPrompt must describe EXACTLY what should appear on screen, tied to what Quinn is saying in that beat.
+- BAD: "technology concept, digital background" — this is meaningless filler
+- BAD: "person working at desk" — too generic, could be anything
+- GOOD: "DoorDash app interface showing Tasks tab with available gigs listed"
+- GOOD: "close-up of phone screen showing $11 payment notification from Waymo task"
+- GOOD: "split comparison graphic: food delivery on left vs AI tasks on right, with expanding arrows"
+- GOOD: "screen recording style of someone scrolling DoorDash Tasks, selecting 'Film 5 dishes', pay amount shown"
+
+Every visualPrompt must answer: "If I described this image to someone, would they know WHICH beat of the video it belongs to?" If the image could belong to any beat, the prompt is too generic.
+
+VISUAL TYPE PRIORITY ORDER (use the highest applicable type):
+1. screen_capture or product_logo_ui — if the beat mentions a specific app, product, or UI action
+2. data_graphic — if the beat mentions numbers, stats, money, or comparisons
+3. named_person — if the beat mentions a specific public figure
+4. cinematic_concept — if the beat is abstract/conceptual
+5. generic_action — ONLY if nothing above fits
 
 VISUAL VARIETY RULES:
 - NEVER use the same visualType for 3 consecutive beats. Mix it up.
 - Use at least 3 DIFFERENT visualTypes across your 8-12 beats.
+- At least 2 beats should be "data_graphic" or "screen_capture" (these become motion graphics)
+- Maximum 2 "generic_action" beats per script. Push yourself to be more specific.
 - "generic_action" beats should have SHORT search-friendly prompts (2-4 words). Think Pexels/stock footage search queries.
 - For stock footage prompts: "person using phone" ✅, "developer implementing transformer architecture on neural network" ❌
 

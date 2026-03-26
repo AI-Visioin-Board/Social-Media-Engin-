@@ -60,7 +60,7 @@ export function routeAssets(script: VideoScript): AssetManifest {
   const parallelGroups = buildParallelGroups(requests);
 
   console.log(`[AssetRouter] ${requests.length} asset requests from ${script.beats.length} beats`);
-  const sources = [...new Set(requests.map(r => r.source))];
+  const sources = Array.from(new Set(requests.map(r => r.source)));
   console.log(`[AssetRouter] Sources: ${sources.join(", ")}`);
 
   return { requests, parallelGroups };
@@ -190,7 +190,7 @@ function buildCinematicPrompt(beat: Beat): string {
 
 function buildDataGraphicPrompt(beat: Beat): string {
   const format = beat.layout === "pip" ? "Square 1:1 format" : "Vertical 9:16 format";
-  return `Infographic style image: ${beat.visualPrompt}. Clean design, bold numbers, high contrast. Dark background with bright accent colors (#00E5FF, #FF6B00). ${format}.`;
+  return `Motion graphic style infographic: ${beat.visualPrompt}. Clean modern design, bold numbers, high contrast. Dark background (#0a0a0a) with gold accent (#e89b06) and coral (#D97B6A) highlights. Sharp text, no blur. ${format}. Professional broadcast news style.`;
 }
 
 function buildStockQuery(beat: Beat): string {
