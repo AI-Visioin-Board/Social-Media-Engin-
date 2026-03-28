@@ -56,7 +56,8 @@ export type AssetSource =
   | "kling_t2v"
   | "kling_i2v"
   | "pexels"
-  | "puppeteer_graphic";
+  | "puppeteer_graphic"
+  | "headless_capture";
 
 export interface AssetRequest {
   beatId: number;

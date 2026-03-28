@@ -28,6 +28,7 @@ import {
   PanelLeft,
   Sparkles,
   Video,
+  BookOpen,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -38,6 +39,7 @@ const menuItems = [
   { icon: Instagram, label: "Carousel", path: "/" },
   { icon: CalendarDays, label: "Calendar", path: "/calendar" },
   { icon: Video, label: "Avatar Reels", path: "/avatar-reels" },
+  { icon: BookOpen, label: "AI News You Can Use", path: "/ainycu" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

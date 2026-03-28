@@ -411,6 +411,98 @@ export type SuggestedTopic = typeof suggestedTopics.$inferSelect;
 export type InsertSuggestedTopic = typeof suggestedTopics.$inferInsert;
 
 // ─────────────────────────────────────────────
+// AI NEWS YOU CAN USE — Educational Reel Series
+// ─────────────────────────────────────────────
+
+/**
+ * AINYCU run statuses — same state machine as avatar_run_status
+ * but kept separate so pipeline evolution doesn't clash.
+ */
+export const ainycuRunStatusEnum = pgEnum("ainycu_run_status", [
+  "pending", "topic_discovery", "topic_review",
+  "scripting", "generating_assets", "generating_avatar",
+  "assembling", "video_review", "revision",
+  "posting", "completed", "failed", "cancelled",
+]);
+
+/**
+ * AI News You Can Use run — one run = one educational reel episode.
+ * Tracks all intermediate pipeline state, day counter, and review status.
+ */
+export const ainycuRuns = pgTable("ainycu_runs", {
+  id: serial("id").primaryKey(),
+  /** Pipeline status state machine */
+  status: ainycuRunStatusEnum("status").default("pending").notNull(),
+  /** Granular progress detail */
+  statusDetail: text("statusDetail"),
+  /** Approved topic headline */
+  topic: text("topic"),
+  /** JSON array of scored topic candidates */
+  topicCandidates: text("topicCandidates"),
+  /** JSON array of verified source articles */
+  sourceArticles: text("sourceArticles"),
+  /** JSON array of extracted facts */
+  extractedFacts: text("extractedFacts"),
+  /** Verification status */
+  verificationStatus: varchar("verificationStatus", { length: 32 }),
+  /** Weighted virality score */
+  viralityScore: integer("viralityScore"),
+  /** Full VideoScript JSON */
+  scriptJson: text("scriptJson"),
+  /** JSON AssetMap */
+  assetMap: text("assetMap"),
+  /** JSON MultiAssetMap — multiple clips per beat */
+  multiAssetMap: text("multiAssetMap"),
+  /** Creatomate/Shotstack Edit JSON */
+  shotstackEditJson: text("shotstackEditJson"),
+  /** HeyGen avatar video URL */
+  avatarVideoUrl: varchar("avatarVideoUrl", { length: 1000 }),
+  /** Avatar video duration in seconds */
+  avatarDurationSec: integer("avatarDurationSec"),
+  /** Assembled video URL */
+  assembledVideoUrl: varchar("assembledVideoUrl", { length: 1000 }),
+  /** Final video URL */
+  finalVideoUrl: varchar("finalVideoUrl", { length: 1000 }),
+  /** Instagram caption + hashtags */
+  instagramCaption: text("instagramCaption"),
+  /** JSON feedback history */
+  feedbackHistory: text("feedbackHistory"),
+  /** Number of revision cycles */
+  revisionCount: integer("revisionCount").default(0).notNull(),
+  /** Day number in the 30-episode series (1-30) */
+  dayNumber: integer("dayNumber"),
+  /** Draft day — assigned at generation, before approval */
+  draftDay: integer("draftDay"),
+  /** Final day — confirmed after successful post */
+  finalDay: integer("finalDay"),
+  /** The "here's what you can do" angle for this topic */
+  topicAngle: text("topicAngle"),
+  /** Source URL for the tool/feature being covered */
+  topicSourceUrl: varchar("topicSourceUrl", { length: 1000 }),
+  /** HeyGen outfit/look ID */
+  outfitId: varchar("outfitId", { length: 128 }),
+  /** Instagram post ID after posting */
+  instagramPostId: varchar("instagramPostId", { length: 255 }),
+  /** Error message if failed */
+  errorMessage: text("errorMessage"),
+  /** HeyGen credits used */
+  heygenCreditsUsed: integer("heygenCreditsUsed").default(0).notNull(),
+  /** Relative folder path for local B-roll output */
+  brollOutputDir: text("broll_output_dir"),
+  /** Number of B-roll files saved to folder */
+  brollImageCount: integer("broll_image_count"),
+  /** B-roll asset manifest JSON (descriptive filenames) */
+  brollManifest: text("brollManifest"),
+  /** Motion graphic specs JSON */
+  motionGraphicSpecs: text("motionGraphicSpecs"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type AinycuRun = typeof ainycuRuns.$inferSelect;
+export type InsertAinycuRun = typeof ainycuRuns.$inferInsert;
+
+// ─────────────────────────────────────────────
 // EDITORIAL CALENDAR
 // ─────────────────────────────────────────────
 

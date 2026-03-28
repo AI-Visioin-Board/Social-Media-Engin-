@@ -1603,6 +1603,168 @@ export const appRouter = router({
       }),
   }),
 
+  // ─── AI News You Can Use ─────────────────────────────────
+  ainycuReels: router({
+    // Get the next day number from appSettings
+    getNextDayNumber: adminProcedure
+      .query(async () => {
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return 1;
+        const rows = await db.select().from(appSettings).where(eq(appSettings.key, "ainycu_next_day_number")).limit(1);
+        return parseInt(rows[0]?.value ?? "1", 10);
+      }),
+
+    // Trigger a new AINYCU episode
+    triggerRun: adminProcedure
+      .input(z.object({
+        suggestedTopic: z.string().optional(),
+      }).optional())
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { ainycuRuns, appSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        // Read current day number
+        const dayRows = await db.select().from(appSettings).where(eq(appSettings.key, "ainycu_next_day_number")).limit(1);
+        const dayNumber = parseInt(dayRows[0]?.value ?? "1", 10);
+
+        const [row] = await db.insert(ainycuRuns).values({
+          status: "pending",
+          dayNumber,
+          draftDay: dayNumber,
+        }).returning({ id: ainycuRuns.id });
+
+        // Fire pipeline async
+        import("./ainycuPipeline").then(m => m.runAinycuPipeline(row.id, input?.suggestedTopic)).catch(console.error);
+        return { runId: row.id, dayNumber };
+      }),
+
+    // Get all runs
+    getRuns: adminProcedure
+      .input(z.object({ limit: z.number().default(20) }).optional())
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { ainycuRuns } = await import("../drizzle/schema");
+        const { desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return db.select().from(ainycuRuns).orderBy(desc(ainycuRuns.createdAt)).limit(input?.limit ?? 20);
+      }),
+
+    // Get single run
+    getRun: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { ainycuRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+        const [run] = await db.select().from(ainycuRuns).where(eq(ainycuRuns.id, input.runId));
+        return run ?? null;
+      }),
+
+    // Approve topic
+    approveTopic: adminProcedure
+      .input(z.object({ runId: z.number(), topicIndex: z.number() }))
+      .mutation(async ({ input }) => {
+        const { continueAfterTopicApproval } = await import("./ainycuPipeline");
+        continueAfterTopicApproval(input.runId, input.topicIndex).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Re-discover topics
+    reselectTopics: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { runAinycuPipeline } = await import("./ainycuPipeline");
+        runAinycuPipeline(input.runId).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Approve & post (increments day counter)
+    approvePost: adminProcedure
+      .input(z.object({ runId: z.number(), caption: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const { continueAfterVideoApproval } = await import("./ainycuPipeline");
+        await continueAfterVideoApproval(input.runId, input.caption);
+        return { ok: true };
+      }),
+
+    // Reject video (day counter stays)
+    rejectVideo: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { rejectVideo } = await import("./ainycuPipeline");
+        await rejectVideo(input.runId);
+        return { ok: true };
+      }),
+
+    // Submit feedback for revision
+    submitFeedback: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        feedback: z.string(),
+        fromStt: z.boolean().default(false),
+      }))
+      .mutation(async ({ input }) => {
+        const { handleFeedback } = await import("./ainycuPipeline");
+        handleFeedback(input.runId, input.feedback, input.fromStt).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Surgical B-roll swap
+    swapBroll: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        beatIndex: z.number(),
+        newPrompt: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { swapBroll } = await import("./ainycuPipeline");
+        swapBroll(input.runId, input.beatIndex, input.newPrompt).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Edit narration
+    editNarration: adminProcedure
+      .input(z.object({
+        runId: z.number(),
+        beatIndex: z.number(),
+        newText: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const { editNarration } = await import("./ainycuPipeline");
+        editNarration(input.runId, input.beatIndex, input.newText).catch(console.error);
+        return { ok: true };
+      }),
+
+    // Cancel running pipeline
+    cancelRun: adminProcedure
+      .input(z.object({ runId: z.number() }))
+      .mutation(async ({ input }) => {
+        const { cancelPipeline } = await import("./ainycuPipeline");
+        const { getDb } = await import("./db");
+        const { ainycuRuns } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const cancelled = cancelPipeline(input.runId);
+        if (!cancelled) {
+          const db = await getDb();
+          if (db) {
+            await db.update(ainycuRuns)
+              .set({ status: "cancelled", statusDetail: "Cancelled by user", updatedAt: new Date() })
+              .where(eq(ainycuRuns.id, input.runId));
+          }
+        }
+        return { ok: true };
+      }),
+  }),
+
   // ─── Editorial Calendar ────────────────────────────────────
   calendar: router({
     getWeek: adminProcedure

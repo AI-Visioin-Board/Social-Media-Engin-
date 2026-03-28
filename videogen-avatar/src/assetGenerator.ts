@@ -345,6 +345,32 @@ async function generateSingleAsset(
       };
     }
 
+    case "headless_capture": {
+      // Real website screenshot via Puppeteer headless browser
+      const { extractUrlFromPrompt, captureScreenshot } = await import("../../server/headlessBroll.js");
+      const url = extractUrlFromPrompt(req.prompt);
+      if (!url) {
+        throw new Error(`No URL found in visualPrompt for headless capture: "${req.prompt.slice(0, 80)}..."`);
+      }
+
+      const layout: "pip" | "fullscreen_broll" = req.aspectRatio === "1:1" ? "pip" : "fullscreen_broll";
+      const capture = await captureScreenshot(url, req.beatId, layout, req.prompt, signal);
+
+      // Upload screenshot to server storage for public URL access
+      const publicUrl = await uploadBufferToStorage(capture.buffer, "image/png", req.beatId, "png");
+      console.log(`[AssetGen] Beat ${req.beatId}: Headless capture SUCCESS from ${url} (${capture.width}x${capture.height})`);
+
+      return {
+        beatId: req.beatId,
+        source: "headless_capture",
+        mediaType: "image",
+        url: publicUrl,
+        width: capture.width,
+        height: capture.height,
+        fallbackUsed: false,
+      };
+    }
+
     case "puppeteer_graphic": {
       throw new Error("Puppeteer graphic rendering not yet implemented");
     }

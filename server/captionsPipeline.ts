@@ -134,6 +134,12 @@ export async function continueAfterTopicApprovalCaptions(
     const outputDir = join(OUTPUT_BASE, folderName);
     const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, ac.signal);
 
+    // Close headless browser if it was used during asset generation
+    try {
+      const { closeBrowser } = await import("./headlessBroll.js");
+      await closeBrowser();
+    } catch { /* browser may not have been started */ }
+
     // Mark complete — only store the folder name, not full server path
     await updateRun(runId, {
       status: "completed",

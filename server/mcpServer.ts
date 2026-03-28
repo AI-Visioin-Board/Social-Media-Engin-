@@ -949,6 +949,132 @@ export function createMcpServer(): McpServer {
     },
   );
 
+  // ─── AI News You Can Use (AINYCU) Pipeline ─────────────────────────────────
+
+  server.tool(
+    "trigger_ainycu_episode",
+    "Start a new 'AI News You Can Use' educational reel episode. Reads the current day number automatically.",
+    {
+      suggested_topic: z.string().optional().describe("Optional topic to research — skips discovery if provided"),
+    },
+    async ({ suggested_topic }) => {
+      const db = await getDb();
+      if (!db) return { content: [{ type: "text" as const, text: "DB not available" }] };
+      const { ainycuRuns, appSettings } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const dayRows = await db.select().from(appSettings).where(eq(appSettings.key, "ainycu_next_day_number")).limit(1);
+      const dayNumber = parseInt(dayRows[0]?.value ?? "1", 10);
+
+      const [row] = await db.insert(ainycuRuns).values({
+        status: "pending",
+        dayNumber,
+        draftDay: dayNumber,
+      }).returning({ id: ainycuRuns.id });
+
+      import("./ainycuPipeline").then(m => m.runAinycuPipeline(row.id, suggested_topic)).catch(console.error);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ run_id: row.id, day_number: dayNumber, status: "started" }) }] };
+    },
+  );
+
+  server.tool(
+    "get_ainycu_runs",
+    "List AI News You Can Use episode runs.",
+    {
+      limit: z.number().default(10).describe("Max runs to return"),
+      status: z.string().optional().describe("Filter by status"),
+    },
+    async ({ limit, status }) => {
+      const db = await getDb();
+      if (!db) return { content: [{ type: "text" as const, text: "[]" }] };
+      const { ainycuRuns } = await import("../drizzle/schema");
+      const { desc, eq } = await import("drizzle-orm");
+
+      let query = db.select().from(ainycuRuns).orderBy(desc(ainycuRuns.createdAt)).limit(limit);
+      if (status) {
+        query = db.select().from(ainycuRuns).where(eq(ainycuRuns.status, status as any)).orderBy(desc(ainycuRuns.createdAt)).limit(limit);
+      }
+      const runs = await query;
+      const summary = runs.map(r => ({
+        id: r.id, status: r.status, draft_day: r.draftDay, final_day: r.finalDay,
+        topic: r.topic, angle: r.topicAngle, detail: r.statusDetail,
+      }));
+      return { content: [{ type: "text" as const, text: JSON.stringify(summary) }] };
+    },
+  );
+
+  server.tool(
+    "get_ainycu_run",
+    "Get full details of a single AINYCU episode run.",
+    { run_id: z.number().describe("Run ID") },
+    async ({ run_id }) => {
+      const db = await getDb();
+      if (!db) return { content: [{ type: "text" as const, text: "DB not available" }] };
+      const { ainycuRuns } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const [run] = await db.select().from(ainycuRuns).where(eq(ainycuRuns.id, run_id));
+      if (!run) return { content: [{ type: "text" as const, text: "Run not found" }] };
+
+      const result: any = { ...run };
+      try { result.topicCandidates = JSON.parse(run.topicCandidates ?? "[]"); } catch {}
+      try { result.scriptJson = JSON.parse(run.scriptJson ?? "null"); } catch {}
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    },
+  );
+
+  server.tool(
+    "select_ainycu_topic",
+    "Select a topic for an AINYCU episode and continue the pipeline.",
+    {
+      run_id: z.number().describe("Run ID"),
+      topic_index: z.number().describe("Index of topic to select (0-based)"),
+    },
+    async ({ run_id, topic_index }) => {
+      const { continueAfterTopicApproval } = await import("./ainycuPipeline");
+      continueAfterTopicApproval(run_id, topic_index).catch(console.error);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, run_id, topic_index }) }] };
+    },
+  );
+
+  server.tool(
+    "approve_ainycu_episode",
+    "Approve a completed AINYCU episode for posting. This advances the day counter.",
+    {
+      run_id: z.number().describe("Run ID"),
+      caption: z.string().optional().describe("Override Instagram caption"),
+    },
+    async ({ run_id, caption }) => {
+      const { continueAfterVideoApproval } = await import("./ainycuPipeline");
+      await continueAfterVideoApproval(run_id, caption);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, posted: true, day_counter_advanced: true }) }] };
+    },
+  );
+
+  server.tool(
+    "reject_ainycu_episode",
+    "Reject an AINYCU episode. Day counter stays unchanged — next run uses the same day number.",
+    { run_id: z.number().describe("Run ID") },
+    async ({ run_id }) => {
+      const { rejectVideo } = await import("./ainycuPipeline");
+      await rejectVideo(run_id);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ ok: true, rejected: true, day_counter_unchanged: true }) }] };
+    },
+  );
+
+  server.tool(
+    "get_ainycu_day_number",
+    "Get the current day number for the AINYCU series (what day the next episode will be).",
+    async () => {
+      const db = await getDb();
+      if (!db) return { content: [{ type: "text" as const, text: "1" }] };
+      const { appSettings } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const rows = await db.select().from(appSettings).where(eq(appSettings.key, "ainycu_next_day_number")).limit(1);
+      const day = parseInt(rows[0]?.value ?? "1", 10);
+      return { content: [{ type: "text" as const, text: JSON.stringify({ next_day_number: day, episodes_remaining: Math.max(0, 31 - day) }) }] };
+    },
+  );
+
   return server;
 }
 

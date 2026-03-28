@@ -39,6 +39,7 @@ const FALLBACK_CHAINS: Record<AssetSource, AssetSource[]> = {
   kling_i2v:         ["nano_banana"],             // kept for type safety, not routed to
   pexels:            ["nano_banana"],
   puppeteer_graphic: ["nano_banana", "pexels"],
+  headless_capture:  ["nano_banana", "pexels"],   // falls back to AI image if URL fails
 };
 
 const CONCURRENCY: Record<AssetSource, number> = {
@@ -47,6 +48,7 @@ const CONCURRENCY: Record<AssetSource, number> = {
   kling_i2v: 2,
   pexels: CONFIG.pexelsConcurrency,
   puppeteer_graphic: 3,
+  headless_capture: 2,  // sequential-ish to avoid overwhelming browser
 };
 
 export function routeAssets(script: VideoScript): AssetManifest {
@@ -89,8 +91,7 @@ function routeBeat(beat: Beat): AssetRequest[] {
       break;
     }
 
-    case "product_logo_ui":
-    case "screen_capture": {
+    case "product_logo_ui": {
       // Still image via Nano Banana — sharp text and logos
       requests.push({
         beatId: beat.id,
@@ -98,6 +99,19 @@ function routeBeat(beat: Beat): AssetRequest[] {
         prompt: buildProductPrompt(beat),
         aspectRatio: aspectRatioForLayout(beat.layout),
         fallbackChain: FALLBACK_CHAINS.nano_banana,
+      });
+      break;
+    }
+
+    case "screen_capture": {
+      // Headless browser captures real website screenshots
+      // Falls back to Nano Banana AI image if URL is unavailable
+      requests.push({
+        beatId: beat.id,
+        source: "headless_capture",
+        prompt: beat.visualPrompt,  // may contain URL + description
+        aspectRatio: aspectRatioForLayout(beat.layout),
+        fallbackChain: FALLBACK_CHAINS.headless_capture,
       });
       break;
     }

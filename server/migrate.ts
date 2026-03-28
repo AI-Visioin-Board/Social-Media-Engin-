@@ -410,6 +410,65 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    // ── AI News You Can Use pipeline ─────────────
+    await sql.unsafe(`
+      DO $$ BEGIN
+        CREATE TYPE ainycu_run_status AS ENUM (
+          'pending', 'topic_discovery', 'topic_review',
+          'scripting', 'generating_assets', 'generating_avatar',
+          'assembling', 'video_review', 'revision',
+          'posting', 'completed', 'failed', 'cancelled'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
+
+    await sql.unsafe(`
+      CREATE TABLE IF NOT EXISTS ainycu_runs (
+        id SERIAL PRIMARY KEY,
+        status ainycu_run_status NOT NULL DEFAULT 'pending',
+        "statusDetail" TEXT,
+        topic TEXT,
+        "topicCandidates" TEXT,
+        "sourceArticles" TEXT,
+        "extractedFacts" TEXT,
+        "verificationStatus" VARCHAR(32),
+        "viralityScore" INTEGER,
+        "scriptJson" TEXT,
+        "assetMap" TEXT,
+        "multiAssetMap" TEXT,
+        "shotstackEditJson" TEXT,
+        "avatarVideoUrl" VARCHAR(1000),
+        "avatarDurationSec" INTEGER,
+        "assembledVideoUrl" VARCHAR(1000),
+        "finalVideoUrl" VARCHAR(1000),
+        "instagramCaption" TEXT,
+        "feedbackHistory" TEXT,
+        "revisionCount" INTEGER NOT NULL DEFAULT 0,
+        "dayNumber" INTEGER,
+        "draftDay" INTEGER,
+        "finalDay" INTEGER,
+        "topicAngle" TEXT,
+        "topicSourceUrl" VARCHAR(1000),
+        "outfitId" VARCHAR(128),
+        "instagramPostId" VARCHAR(255),
+        "errorMessage" TEXT,
+        "heygenCreditsUsed" INTEGER NOT NULL DEFAULT 0,
+        "broll_output_dir" TEXT,
+        "broll_image_count" INTEGER,
+        "brollManifest" TEXT,
+        "motionGraphicSpecs" TEXT,
+        "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Seed the day counter (starts at 1)
+    await sql.unsafe(`
+      INSERT INTO "appSettings" (key, value, "updatedAt")
+      VALUES ('ainycu_next_day_number', '1', NOW())
+      ON CONFLICT (key) DO NOTHING;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);
