@@ -132,7 +132,7 @@ export async function continueAfterTopicApproval(
     const script = await generateScript({
       topic: approved.title,
       targetDurationSec: 60,
-      dayNumber: run.dayNumber ?? undefined,
+      // No dayNumber — API pipeline has no series
       contentBucket: (run.contentBucket as ContentBucket) ?? undefined,
       verifiedFacts: approved.facts,
       signal: ac.signal,
@@ -378,7 +378,7 @@ async function continueAfterTopicApprovalWithFacts(
     const script = await generateScript({
       topic,
       targetDurationSec: 60,
-      dayNumber: run.dayNumber ?? undefined,
+      // No dayNumber — API pipeline has no series
       contentBucket: (run.contentBucket as ContentBucket) ?? undefined,
       verifiedFacts: facts,
       feedback,

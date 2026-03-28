@@ -90,7 +90,7 @@ export async function continueAfterTopicApprovalCaptions(
     const script = await generateScript({
       topic: approved.title,
       targetDurationSec: 60,
-      dayNumber: run.dayNumber ?? undefined,
+      // No dayNumber — Captions pipeline has no series
       contentBucket: (run.contentBucket as ContentBucket) ?? undefined,
       verifiedFacts: approved.facts,
       signal: ac.signal,
@@ -204,7 +204,7 @@ async function rerunCaptionsPipeline(
     const script = await generateScript({
       topic,
       targetDurationSec: 60,
-      dayNumber: run.dayNumber ?? undefined,
+      // No dayNumber — Captions pipeline has no series
       contentBucket: (run.contentBucket as ContentBucket) ?? undefined,
       verifiedFacts: facts,
       feedback,
