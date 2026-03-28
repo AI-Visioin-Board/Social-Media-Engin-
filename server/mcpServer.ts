@@ -616,15 +616,9 @@ export function createMcpServer(): McpServer {
         topic: topic ?? null,
       }).returning();
 
-      // Fire pipeline async
-      if (pType === "api") {
-        const { runAvatarPipeline } = await import("./avatarPipeline");
-        runAvatarPipeline(run.id, topic ? { topic } : undefined).catch(console.error);
-      } else {
-        // Captions pipeline uses same entry point but with captions type
-        const { runAvatarPipeline } = await import("./avatarPipeline");
-        runAvatarPipeline(run.id, topic ? { topic } : undefined).catch(console.error);
-      }
+      // Fire pipeline async — both types share Stage 1 (discovery), split based on pipelineType in DB
+      const { runAvatarPipeline } = await import("./avatarPipeline");
+      runAvatarPipeline(run.id, topic || undefined).catch(console.error);
 
       return { content: [{ type: "text" as const, text: JSON.stringify({ run_id: run.id, pipeline_type: pType, status: "pending", message: "Reel pipeline started" }) }] };
     },
@@ -979,5 +973,5 @@ export function registerMcpEndpoint(app: Express): void {
     res.status(200).json({ message: "Session closed" });
   });
 
-  console.log("[MCP] Server registered at /mcp — 32 tools available");
+  console.log("[MCP] Server registered at /mcp — 30 tools available");
 }
