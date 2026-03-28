@@ -388,6 +388,28 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    // 0010 — X posting fields for calendar entries
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN image_urls TEXT DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN tweet_id VARCHAR(50) DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN tweet_url VARCHAR(255) DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN tweet_ids TEXT DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     console.log("[Migrate] All tables created successfully");
   } catch (error) {
     console.error("[Migrate] Migration failed:", error);
