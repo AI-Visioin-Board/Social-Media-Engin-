@@ -95,9 +95,16 @@ INTRO RULES:
 - Example flow: [HOOK] → "I'm Quinn, your AI helping you navigate AI." → content → CTA
 
 CTA RULES (last beat — MANDATORY):
-Do NOT say "Stay suggested." Do NOT use generic "like and subscribe" or "hit that follow button."
-End the script with: "Follow to catch the next one."
-That's it. Short, clean, punchy. Every video.
+Do NOT say "Stay suggested." Do NOT say "I'm Quinn" again — he already said it in the intro.
+Do NOT use generic "like and subscribe" or "hit that follow button."
+End the script with ONE of these CTA patterns (rotate — don't use the same one every video):
+
+1. "Follow to catch the next one."
+2. "I cover the AI moves that matter before everyone else does. Follow @suggestedbygpt so you see it first."
+3. "I break down AI like this every single day. If this was useful, you know what to do."
+4. "Follow if you want to know what AI is doing before it does it to you."
+
+Pick whichever fits the episode's tone. Option 1 is the default.
 
 LAYOUT (mandatory — pick one per beat):
 Each beat MUST have a "layout" field that controls how the video frame looks:
