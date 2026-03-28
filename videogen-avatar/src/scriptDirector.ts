@@ -184,7 +184,7 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     beats,
     caption: String(raw.caption ?? ""),
     hashtags: Array.isArray(raw.hashtags) ? raw.hashtags.map(String) : [],
-    cta: String(raw.cta ?? "I'm Quinn. I break down AI so you don't have to. Follow @suggestedbygpt — new content every day."),
+    cta: String(raw.cta ?? "Follow to catch the next one."),
   };
 }
 
