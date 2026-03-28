@@ -432,7 +432,11 @@ export const calendarEntries = pgTable("calendar_entries", {
   uploadedVideoName: text("uploaded_video_name"),
   instagramCaption: text("instagram_caption"),
   textContent: text("text_content"),  // tweet text, thread JSON, or caption draft
-  postStatus: varchar("post_status", { length: 30 }).default("draft"), // draft | ready | posted_ig | posted_yt | posted_both
+  imageUrls: text("image_urls"),  // JSON array of image URLs for x_post entries
+  tweetId: varchar("tweet_id", { length: 50 }),  // stored after successful X post
+  tweetUrl: varchar("tweet_url", { length: 255 }),  // stored after successful X post
+  tweetIds: text("tweet_ids"),  // JSON array of tweet IDs for x_thread entries
+  postStatus: varchar("post_status", { length: 30 }).default("draft"), // draft | ready | posted_ig | posted_yt | posted_x | posted_both
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

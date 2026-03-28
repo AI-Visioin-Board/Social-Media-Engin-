@@ -462,7 +462,8 @@ export function createMcpServer(): McpServer {
         id: e.id, scheduled_date: e.scheduledDate, content_type: e.contentType,
         topic_title: e.topicTitle, status: e.status, pipeline_run_id: e.pipelineRunId,
         notes: e.notes, text_content: e.textContent, instagram_caption: e.instagramCaption,
-        post_status: e.postStatus, created_at: e.createdAt,
+        image_urls: e.imageUrls, tweet_id: e.tweetId, tweet_url: e.tweetUrl,
+        tweet_ids: e.tweetIds, post_status: e.postStatus, created_at: e.createdAt,
       }))) }] };
     },
   );
@@ -476,10 +477,11 @@ export function createMcpServer(): McpServer {
       topic_title: z.string().optional().describe("Topic or headline."),
       topic_context: z.string().optional().describe("Background context."),
       text_content: z.string().optional().describe("Tweet text, thread JSON, or caption draft."),
+      image_urls: z.string().optional().describe("JSON array of image URLs (max 4) for x_post entries. e.g. '[\"https://...\"]'"),
       notes: z.string().optional().describe("Internal notes."),
       status: z.string().optional().describe("Status. Default: planned."),
     },
-    async ({ scheduled_date, content_type, topic_title, topic_context, text_content, notes, status }) => {
+    async ({ scheduled_date, content_type, topic_title, topic_context, text_content, image_urls, notes, status }) => {
       const db = await getDb();
       if (!db) throw new Error("DB not available");
       const { calendarEntries } = await getSchema();
@@ -491,9 +493,11 @@ export function createMcpServer(): McpServer {
         notes: notes ?? null,
         status: status ?? "planned",
       };
-      // text_content stored in instagramCaption column (shared text field) OR textContent if schema supports it
       if (text_content) {
         values.textContent = text_content;
+      }
+      if (image_urls) {
+        values.imageUrls = image_urls;
       }
       const [entry] = await db.insert(calendarEntries).values(values).returning();
       return { content: [{ type: "text" as const, text: JSON.stringify({
@@ -510,10 +514,11 @@ export function createMcpServer(): McpServer {
       id: z.number().describe("Entry ID."),
       scheduled_date: z.string().optional(), content_type: z.string().optional(),
       topic_title: z.string().optional(), text_content: z.string().optional(),
+      image_urls: z.string().optional().describe("JSON array of image URLs (max 4)."),
       notes: z.string().optional(), status: z.string().optional(),
       pipeline_run_id: z.number().optional(),
     },
-    async ({ id, scheduled_date, content_type, topic_title, text_content, notes, status, pipeline_run_id }) => {
+    async ({ id, scheduled_date, content_type, topic_title, text_content, image_urls, notes, status, pipeline_run_id }) => {
       const db = await getDb();
       if (!db) throw new Error("DB not available");
       const { calendarEntries } = await getSchema();
@@ -523,6 +528,7 @@ export function createMcpServer(): McpServer {
       if (content_type !== undefined) updates.contentType = content_type;
       if (topic_title !== undefined) updates.topicTitle = topic_title;
       if (text_content !== undefined) updates.textContent = text_content;
+      if (image_urls !== undefined) updates.imageUrls = image_urls;
       if (notes !== undefined) updates.notes = notes;
       if (status !== undefined) updates.status = status;
       if (pipeline_run_id !== undefined) updates.pipelineRunId = pipeline_run_id;
@@ -549,7 +555,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "trigger_calendar_entry",
-    "Trigger the pipeline run for a planned calendar entry.",
+    "Trigger a calendar entry — posts tweets/threads directly, kicks off carousel/reel pipelines. Works for all content types.",
     { id: z.number().describe("Calendar entry ID.") },
     async ({ id }) => {
       const db = await getDb();
@@ -558,9 +564,9 @@ export function createMcpServer(): McpServer {
       const { eq } = await getDrizzleOps();
       const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, id));
       if (!entry) throw new Error("Calendar entry not found");
-      if (entry.status !== "planned") throw new Error("Can only trigger planned entries");
 
       if (entry.contentType === "carousel") {
+        if (entry.status !== "planned") throw new Error("Can only trigger planned carousel entries");
         const { runContentPipeline } = await import("./contentPipeline");
         const { ENV } = await import("./_core/env");
         const day = new Date(entry.scheduledDate).getDay();
@@ -577,16 +583,63 @@ export function createMcpServer(): McpServer {
           status: "discovering", pipelineRunId: runId, pipelineType: "carousel", updatedAt: new Date(),
         }).where(eq(calendarEntries.id, id));
         return { content: [{ type: "text" as const, text: JSON.stringify({ id, pipeline_run_id: runId, status: "discovering", message: "Carousel pipeline triggered" }) }] };
+
       } else if (entry.contentType === "x_post") {
-        // For X posts, "triggering" means posting the text
         const text = (entry as any).textContent || entry.instagramCaption || entry.topicTitle || "";
         if (!text.trim()) throw new Error("No tweet text found on this entry");
-        const { postTextTweet } = await import("./twitterClient");
-        const result = await postTextTweet(text);
+
+        // Check for image URLs
+        const imageUrlsRaw = (entry as any).imageUrls;
+        const imageUrls: string[] = imageUrlsRaw ? JSON.parse(imageUrlsRaw) : [];
+
+        let result: { tweetId: string; success: boolean };
+        if (imageUrls.length > 0) {
+          const { postTweet } = await import("./twitterClient");
+          result = await postTweet(text, imageUrls);
+        } else {
+          const { postTextTweet } = await import("./twitterClient");
+          result = await postTextTweet(text);
+        }
+
+        const tweetUrl = `https://x.com/i/status/${result.tweetId}`;
         await db.update(calendarEntries).set({
-          status: "posted", postStatus: "posted_x", updatedAt: new Date(),
+          status: "posted", postStatus: "posted_x",
+          tweetId: result.tweetId, tweetUrl: tweetUrl,
+          updatedAt: new Date(),
         }).where(eq(calendarEntries.id, id));
-        return { content: [{ type: "text" as const, text: JSON.stringify({ id, tweet_id: result.tweetId, status: "posted", message: "X post published" }) }] };
+        return { content: [{ type: "text" as const, text: JSON.stringify({
+          id, tweet_id: result.tweetId, tweet_url: tweetUrl, status: "posted", message: "X post published",
+        }) }] };
+
+      } else if (entry.contentType === "x_thread") {
+        const textContent = (entry as any).textContent;
+        if (!textContent) throw new Error("No thread content found (text_content should be a JSON array of tweet objects)");
+
+        let tweets: Array<{ text: string; image_urls?: string[] }>;
+        try {
+          tweets = JSON.parse(textContent);
+        } catch {
+          throw new Error("text_content is not valid JSON. Expected: [{\"text\": \"Tweet 1\"}, {\"text\": \"Tweet 2\"}]");
+        }
+        if (!Array.isArray(tweets) || tweets.length === 0) {
+          throw new Error("Thread must contain at least one tweet");
+        }
+
+        const { postThread } = await import("./twitterClient");
+        const result = await postThread(tweets);
+
+        const tweetUrl = `https://x.com/i/status/${result.tweetIds[0]}`;
+        await db.update(calendarEntries).set({
+          status: "posted", postStatus: "posted_x",
+          tweetId: result.tweetIds[0], tweetUrl: tweetUrl,
+          tweetIds: JSON.stringify(result.tweetIds),
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, id));
+        return { content: [{ type: "text" as const, text: JSON.stringify({
+          id, tweet_ids: result.tweetIds, tweet_url: tweetUrl, status: "posted",
+          message: `Thread published (${result.tweetIds.length} tweets)`,
+        }) }] };
+
       } else {
         throw new Error(`Trigger not yet supported for content type: ${entry.contentType}`);
       }

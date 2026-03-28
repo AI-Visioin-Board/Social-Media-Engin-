@@ -1904,7 +1904,7 @@ export const appRouter = router({
         return { success: result.success, tweetId: result.tweetId, postStatus: newStatus };
       }),
 
-    // Post a text-only tweet from an X Post calendar entry
+    // Post a tweet (text + optional images) from an X Post calendar entry
     postXText: adminProcedure
       .input(z.object({
         id: z.number(),
@@ -1914,33 +1914,87 @@ export const appRouter = router({
         const { getDb } = await import("./db");
         const { calendarEntries } = await import("../drizzle/schema");
         const { eq } = await import("drizzle-orm");
-        const { postTextTweet } = await import("./twitterClient");
         const db = await getDb();
         if (!db) throw new Error("DB not available");
 
         const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
         if (!entry) throw new Error("Calendar entry not found");
 
-        const tweetText = input.text || entry.instagramCaption || entry.topicTitle || "";
+        const tweetText = input.text || (entry as any).textContent || entry.instagramCaption || entry.topicTitle || "";
         if (!tweetText.trim()) throw new Error("No tweet text provided");
 
         // Save text if provided
         if (input.text) {
           await db.update(calendarEntries).set({
-            instagramCaption: input.text,
+            textContent: input.text,
             updatedAt: new Date(),
           }).where(eq(calendarEntries.id, input.id));
         }
 
-        const result = await postTextTweet(tweetText);
+        // Check for image URLs on the entry
+        const imageUrlsRaw = (entry as any).imageUrls;
+        const imageUrls: string[] = imageUrlsRaw ? JSON.parse(imageUrlsRaw) : [];
+
+        let result: { tweetId: string; success: boolean };
+        if (imageUrls.length > 0) {
+          const { postTweet } = await import("./twitterClient");
+          result = await postTweet(tweetText, imageUrls);
+        } else {
+          const { postTextTweet } = await import("./twitterClient");
+          result = await postTextTweet(tweetText);
+        }
+
+        const tweetUrl = `https://x.com/i/status/${result.tweetId}`;
+        await db.update(calendarEntries).set({
+          postStatus: "posted_x",
+          status: "posted",
+          tweetId: result.tweetId,
+          tweetUrl: tweetUrl,
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id));
+
+        return { success: result.success, tweetId: result.tweetId, tweetUrl, postStatus: "posted_x" };
+      }),
+
+    // Post a thread from an X Thread calendar entry
+    postXThread: adminProcedure
+      .input(z.object({
+        id: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const { postThread } = await import("./twitterClient");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!entry) throw new Error("Calendar entry not found");
+
+        const textContent = (entry as any).textContent;
+        if (!textContent) throw new Error("No thread content found");
+
+        let tweets: Array<{ text: string; image_urls?: string[] }>;
+        try {
+          tweets = JSON.parse(textContent);
+        } catch {
+          throw new Error("text_content is not valid JSON for thread");
+        }
+
+        const result = await postThread(tweets);
+        const tweetUrl = `https://x.com/i/status/${result.tweetIds[0]}`;
 
         await db.update(calendarEntries).set({
           postStatus: "posted_x",
           status: "posted",
+          tweetId: result.tweetIds[0],
+          tweetUrl: tweetUrl,
+          tweetIds: JSON.stringify(result.tweetIds),
           updatedAt: new Date(),
         }).where(eq(calendarEntries.id, input.id));
 
-        return { success: result.success, tweetId: result.tweetId, postStatus: "posted_x" };
+        return { success: true, tweetIds: result.tweetIds, tweetUrl, postStatus: "posted_x" };
       }),
   }),
 });

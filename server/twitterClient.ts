@@ -114,3 +114,53 @@ export async function postTweetWithVideo(
 
   return { tweetId: tweet.data.id, success: true };
 }
+
+/**
+ * Post a thread — array of tweets chained via reply_to.
+ * Each tweet can optionally include image URLs.
+ * Returns all tweet IDs.
+ */
+export async function postThread(
+  tweets: Array<{ text: string; image_urls?: string[] }>,
+): Promise<{ tweetIds: string[]; success: boolean }> {
+  const client = getClient();
+  const tweetIds: string[] = [];
+  let previousTweetId: string | null = null;
+
+  for (const tweet of tweets) {
+    // Upload images if provided
+    const mediaIds: string[] = [];
+    if (tweet.image_urls && tweet.image_urls.length > 0) {
+      for (const url of tweet.image_urls.slice(0, 4)) {
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+          if (!res.ok) continue;
+          const buffer = Buffer.from(await res.arrayBuffer());
+          const mediaId = await client.v1.uploadMedia(buffer, {
+            mimeType: url.includes(".png") ? "image/png" : "image/jpeg",
+          });
+          mediaIds.push(mediaId);
+        } catch (err: any) {
+          console.warn(`[Twitter] Thread media upload failed for ${url}:`, err?.message);
+        }
+      }
+    }
+
+    // Build tweet payload
+    const payload: any = { text: tweet.text };
+    if (mediaIds.length > 0) {
+      payload.media = { media_ids: mediaIds };
+    }
+    if (previousTweetId) {
+      payload.reply = { in_reply_to_tweet_id: previousTweetId };
+    }
+
+    const result = await client.v2.tweet(payload);
+    const id = result.data.id;
+    tweetIds.push(id);
+    previousTweetId = id;
+    console.log(`[Twitter] Thread tweet ${tweetIds.length} posted: ${id}`);
+  }
+
+  return { tweetIds, success: true };
+}

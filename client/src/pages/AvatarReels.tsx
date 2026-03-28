@@ -1370,7 +1370,7 @@ function CaptionsCompletedPanel({ run }: { run: AvatarRun }) {
             <CardTitle className="text-sm">Script ({beats.length} beats, {script.totalDurationSec}s)</CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="max-h-[300px]">
+            <div className="max-h-[400px] overflow-y-auto">
               <div className="space-y-2">
                 {beats.map((beat, i) => (
                   <div key={i} className="p-2 rounded bg-accent/20 text-sm">
@@ -1384,7 +1384,7 @@ function CaptionsCompletedPanel({ run }: { run: AvatarRun }) {
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       )}

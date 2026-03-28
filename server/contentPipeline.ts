@@ -88,7 +88,7 @@ export interface ResearchedTopic {
  * Fetch trending AI topics from NewsAPI, Reddit, and GPT-4o web search simultaneously.
  * All sources run in parallel for speed.
  */
-export async function discoverTopics(runType: "monday" | "friday" = "monday"): Promise<RawTopic[]> {
+export async function discoverTopics(runType: "monday" | "friday" | "manual" = "monday"): Promise<RawTopic[]> {
   console.log(`[ContentPipeline] Starting multi-source topic discovery for ${runType} run...`);
   // Run all sources in parallel: NewsAPI + Reddit + 3x GPT-4o web search
   const [newsApiResult, redditResult, ...gptResults] = await Promise.allSettled([
@@ -121,14 +121,14 @@ export async function discoverTopics(runType: "monday" | "friday" = "monday"): P
   return topics;
 }
 
-async function discoverFromNewsAPI(runType: "monday" | "friday"): Promise<RawTopic[]> {
+async function discoverFromNewsAPI(runType: "monday" | "friday" | "manual"): Promise<RawTopic[]> {
   const apiKey = process.env.NEWS_API_KEY;
   if (!apiKey) {
     console.warn("[ContentPipeline] No NEWS_API_KEY — skipping NewsAPI");
     return [];
   }
-  // Monday: last 7 days. Friday: last 3 days (fresher content)
-  const daysBack = runType === "friday" ? 3 : 7;
+  // Manual: last 5 days. Friday: last 3 days. Monday: last 7 days.
+  const daysBack = runType === "friday" ? 3 : runType === "manual" ? 5 : 7;
   const from = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
   const queries = [
     "artificial intelligence",
@@ -163,12 +163,13 @@ async function discoverFromNewsAPI(runType: "monday" | "friday"): Promise<RawTop
 
 // 3 focused GPT-4o web search queries with dynamic date injection to prevent stale results
 // Date is injected at runtime so GPT knows exactly what "recent" means
-function buildGPT4oSearchQueries(runType: "monday" | "friday"): string[] {
+function buildGPT4oSearchQueries(runType: "monday" | "friday" | "manual"): string[] {
   const today = new Date();
   const todayStr = today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  const cutoffDate = new Date(today.getTime() - (runType === "friday" ? 3 : 7) * 24 * 60 * 60 * 1000);
+  const daysBack = runType === "friday" ? 3 : runType === "manual" ? 5 : 7;
+  const cutoffDate = new Date(today.getTime() - daysBack * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-  const window = runType === "friday" ? "last 48-72 hours" : "last 7 days";
+  const window = runType === "friday" ? "last 48-72 hours" : runType === "manual" ? "last 5 days" : "last 7 days";
   const focus = runType === "friday"
     ? "what just happened in AI this week — breaking news, just-released tools, announcements from the last 2-3 days"
     : "this week in AI — the most significant stories from the past 7 days";
@@ -1244,7 +1245,7 @@ export async function generateCaption(topics: ResearchedTopic[]): Promise<string
 // ─── Main Pipeline Orchestrator ───────────────────────────────────────────────
 
 export interface PipelineOptions {
-  runSlot: "monday" | "friday";
+  runSlot: "monday" | "friday" | "manual";
   perplexityApiKey?: string;
   klingAccessKey?: string;
   klingSecretKey?: string;

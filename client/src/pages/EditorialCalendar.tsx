@@ -207,14 +207,28 @@ export default function EditorialCalendar() {
   const postXText = trpc.calendar.postXText.useMutation({
     onSuccess: (data: any) => {
       if (data.success) {
-        toast.success(`Posted to X! Tweet ID: ${data.tweetId}`);
+        const url = data.tweetUrl ? ` — ${data.tweetUrl}` : "";
+        toast.success(`Posted to X!${url}`);
         if (detailEntry) {
-          setDetailEntry({ ...detailEntry, postStatus: "posted_x" });
+          setDetailEntry({ ...detailEntry, postStatus: "posted_x", tweetId: data.tweetId, tweetUrl: data.tweetUrl });
         }
       }
       refetch();
     },
     onError: (e: any) => toast.error(`X post failed: ${e.message}`),
+  });
+
+  const postXThread = trpc.calendar.postXThread.useMutation({
+    onSuccess: (data: any) => {
+      if (data.success) {
+        toast.success(`Thread posted to X! (${data.tweetIds.length} tweets)`);
+        if (detailEntry) {
+          setDetailEntry({ ...detailEntry, postStatus: "posted_x", tweetUrl: data.tweetUrl });
+        }
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(`Thread post failed: ${e.message}`),
   });
 
   function resetForm() {
@@ -616,31 +630,50 @@ export default function EditorialCalendar() {
 
               {/* Post Buttons */}
               <div className="flex gap-3 pt-2 border-t">
-                {detailEntry.contentType === "x_post" ? (
-                  /* X Post — single Post to X button */
-                  <Button
-                    className="flex-1"
-                    onClick={() => {
-                      if (detailEntry) {
-                        postXText.mutate({
-                          id: detailEntry.id,
-                          text: captionText || undefined,
-                        });
+                {detailEntry.contentType === "x_post" || detailEntry.contentType === "x_thread" ? (
+                  /* X Post or Thread — Post to X button */
+                  <div className="flex flex-col gap-2 flex-1">
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        if (detailEntry) {
+                          if (detailEntry.contentType === "x_thread") {
+                            postXThread.mutate({ id: detailEntry.id });
+                          } else {
+                            postXText.mutate({
+                              id: detailEntry.id,
+                              text: captionText || undefined,
+                            });
+                          }
+                        }
+                      }}
+                      disabled={
+                        (detailEntry.contentType === "x_post" && !captionText.trim()) ||
+                        postXText.isPending ||
+                        postXThread.isPending ||
+                        detailEntry.postStatus === "posted_x"
                       }
-                    }}
-                    disabled={
-                      !captionText.trim() ||
-                      postXText.isPending ||
-                      detailEntry.postStatus === "posted_x"
-                    }
-                  >
-                    <Twitter className="h-4 w-4 mr-2" />
-                    {postXText.isPending
-                      ? "Posting..."
-                      : detailEntry.postStatus === "posted_x"
-                      ? "Posted to X"
-                      : "Post to X"}
-                  </Button>
+                    >
+                      <Twitter className="h-4 w-4 mr-2" />
+                      {postXText.isPending || postXThread.isPending
+                        ? "Posting..."
+                        : detailEntry.postStatus === "posted_x"
+                        ? "Posted to X"
+                        : detailEntry.contentType === "x_thread"
+                        ? "Post Thread to X"
+                        : "Post to X"}
+                    </Button>
+                    {(detailEntry as any).tweetUrl && (
+                      <a
+                        href={(detailEntry as any).tweetUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-500 hover:underline text-center"
+                      >
+                        View on X →
+                      </a>
+                    )}
+                  </div>
                 ) : (
                   /* Reel — IG + X buttons */
                   <>
