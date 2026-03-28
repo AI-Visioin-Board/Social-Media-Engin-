@@ -87,7 +87,29 @@ STORY ARC (spread across your 8-12 beats):
 - Beats 1-2: THE HOOK — Pattern interrupt. Bold claim or surprising fact that stops the scroll.
 - Beats 3-6: THE CONTEXT — What happened, why it matters, with a RE-HOOK around beat 4-5 ("But here's the thing...")
 - Beats 7-9: THE MONEY BEAT — "Here's what this means for YOU." Saves and shares happen here.
-- Beat 10-12: CTA — Contextual call-to-action + "I'm Quinn. Stay suggested."
+- Beat 10-12: CTA — Contextual call-to-action (see CTA RULES below)
+
+INTRO RULES:
+- The HOOK is always first (beat 1). Never open with the intro.
+- After the hook, Quinn introduces himself: "I'm Quinn." — then straight into the content.
+- Keep the intro SHORT. The identity tagline ("your AI helping you navigate AI") goes in the CTA at the END, not the intro.
+- Example flow: [HOOK] → "I'm Quinn." → content → CTA with identity tagline
+
+CTA RULES (last beat — MANDATORY):
+Do NOT say "Stay suggested." Do NOT use generic "like and subscribe" or "hit that follow button."
+End the script with ONE of these CTA patterns (rotate — don't use the same one every video):
+
+1. "I cover the AI moves that matter before everyone else does. Follow @suggestedbygpt so you see it first."
+2. "I break down AI like this every single day. If this was useful, you know what to do."
+3. "Follow if you want to know what AI is doing before it does it to you."
+
+If none of those fit the tone of this specific script, write a custom CTA that:
+- Tells the viewer what they GET by following (not just "follow for more")
+- Creates a reason to follow NOW (urgency, FOMO, or value promise)
+- Stays in Quinn's voice (punchy, direct, no corporate fluff)
+- Does NOT say "Stay suggested"
+
+Default fallback CTA: "I'm Quinn. I break down AI so you don't have to. Follow @suggestedbygpt — new content every day."
 
 LAYOUT (mandatory — pick one per beat):
 Each beat MUST have a "layout" field that controls how the video frame looks:

@@ -74,7 +74,11 @@ Beat 8 — SO WHAT (2-3 sec): Why this matters to THEM personally. Concrete, not
 
 Beat 9-10 — SIGN-OFF (2-3 sec): Series closer + CTA.
   Layout: "avatar_closeup"
-  Narration MUST end with: "I'm Quinn. Your AI helping you navigate AI. For more AI news you can use, give us a follow."
+  End with ONE of these CTA patterns (rotate across episodes — Option A is the default):
+  A) "I'm Quinn, your AI helping you navigate AI. I drop a new tool you can use every Tuesday and Thursday. Follow so you don't miss one."
+  B) "That's Day [X]. [30 minus X] more to go. Follow @suggestedbygpt — I'll see you [next Tue/Thu]."
+  C) "That's how [tool] can [benefit]. Follow for more AI you can actually use."
+  Do NOT say "Stay suggested." Do NOT use generic "like and subscribe."
 
 SECTION MARKERS (mandatory — add these inline in narration):
 Insert section markers at the START of the relevant beat's narration:
@@ -168,7 +172,7 @@ export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<V
     userPrompt += `ANGLE (the "here's what you can do"): ${angle}\n\n`;
   }
 
-  userPrompt += `Sign-off: "I'm Quinn. Your AI helping you navigate AI. For more AI news you can use, give us a follow."\n\n`;
+  userPrompt += `Sign-off CTA: Pick one of the rotating CTA options from the system prompt (Option A is the default). Do NOT say "Stay suggested." Do NOT say "give us a follow."\n\n`;
 
   if (verifiedFacts && verifiedFacts.length > 0) {
     userPrompt += "VERIFIED FACTS (narration MUST be based on these — do NOT add claims not listed here):\n";
@@ -298,7 +302,7 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
     hashtags: Array.isArray(raw.hashtags)
       ? raw.hashtags.map(String)
       : ["ainewsyoucanuse", "ai", "aitools"],
-    cta: "I'm Quinn. Your AI helping you navigate AI. For more AI news you can use, give us a follow.",
+    cta: String(raw.cta ?? "I'm Quinn, your AI helping you navigate AI. I drop a new tool you can use every Tuesday and Thursday. Follow so you don't miss one."),
   };
 }
 

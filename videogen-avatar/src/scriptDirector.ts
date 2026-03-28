@@ -6,7 +6,7 @@
 // ============================================================
 
 import { CONFIG } from "./config.js";
-import { QUINN_SYSTEM_PROMPT, getSeriesCTA, type ContentBucket } from "./prompts/quinnPersona.js";
+import { QUINN_SYSTEM_PROMPT, type ContentBucket } from "./prompts/quinnPersona.js";
 import type { VideoScript, Beat, VisualType, MotionStyle, TransitionType, LayoutMode } from "./types.js";
 
 // ─── Verified Fact (from research pipeline) ─────────────────
@@ -41,15 +41,8 @@ export async function generateScript(opts: ScriptOptions): Promise<VideoScript> 
   // Build the user prompt with verified facts and context
   let userPrompt = `Create a ${targetDurationSec}-second video script about this topic:\n\n${topic}\n\n`;
 
-  // Inject day number for 30-day series
-  if (dayNumber && dayNumber >= 1 && dayNumber <= 30) {
-    const seriesCTA = getSeriesCTA(dayNumber);
-    userPrompt += `SERIES CONTEXT: This is Day ${dayNumber} of "30 Days of AI News You Can Actually Use."\n`;
-    userPrompt += `Start with: "Day ${dayNumber}." then immediately into the hook.\n`;
-    userPrompt += `End CTA: "${seriesCTA} I'm Quinn. Stay suggested."\n\n`;
-  } else {
-    userPrompt += `End with: "I'm Quinn. Stay suggested."\n\n`;
-  }
+  // CTA — use rotating CTAs from the intro/outro framework (never "Stay suggested")
+  userPrompt += `End with a CTA from the rotation list in your system prompt. Do NOT say "Stay suggested."\n\n`;
 
   // Inject content bucket guidance
   if (contentBucket) {
@@ -191,7 +184,7 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     beats,
     caption: String(raw.caption ?? ""),
     hashtags: Array.isArray(raw.hashtags) ? raw.hashtags.map(String) : [],
-    cta: String(raw.cta ?? "I'm Quinn. Stay suggested."),
+    cta: String(raw.cta ?? "I'm Quinn. I break down AI so you don't have to. Follow @suggestedbygpt — new content every day."),
   };
 }
 
