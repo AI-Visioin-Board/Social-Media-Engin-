@@ -155,17 +155,9 @@ export default function AvatarReels() {
     { enabled: !!selectedRunId, refetchInterval: 3000 },
   );
 
-  const triggerApiMut = trpc.avatarReels.triggerRun.useMutation({
-    onSuccess: (data) => {
-      toast.success(`API pipeline started (Run #${data.runId})`);
-      runsQuery.refetch();
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
   const triggerCaptionsMut = trpc.avatarReels.triggerRun.useMutation({
     onSuccess: (data) => {
-      toast.success(`Captions pipeline started (Run #${data.runId})`);
+      toast.success(`Pipeline started (Run #${data.runId})`);
       runsQuery.refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -199,19 +191,11 @@ export default function AvatarReels() {
         </div>
         <div className="flex gap-2">
           <Button
-            onClick={() => triggerApiMut.mutate({ pipelineType: "api" })}
-            disabled={triggerApiMut.isPending || triggerCaptionsMut.isPending}
-          >
-            {triggerApiMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Video className="w-4 h-4 mr-2" />}
-            New Reel (API Pipeline)
-          </Button>
-          <Button
-            variant="secondary"
             onClick={() => triggerCaptionsMut.mutate({ pipelineType: "captions" })}
-            disabled={triggerApiMut.isPending || triggerCaptionsMut.isPending}
+            disabled={triggerCaptionsMut.isPending}
           >
-            {triggerCaptionsMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImageIcon className="w-4 h-4 mr-2" />}
-            New Reel (Captions Pipeline)
+            {triggerCaptionsMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Video className="w-4 h-4 mr-2" />}
+            New Reel
           </Button>
         </div>
       </div>
@@ -226,9 +210,8 @@ export default function AvatarReels() {
 
       {/* Suggested Topics Bank */}
       <TopicBank
-        onRunTopicApi={(id) => triggerApiMut.mutate({ suggestedTopicId: id, pipelineType: "api" })}
         onRunTopicCaptions={(id) => triggerCaptionsMut.mutate({ suggestedTopicId: id, pipelineType: "captions" })}
-        isRunning={triggerApiMut.isPending || triggerCaptionsMut.isPending}
+        isRunning={triggerCaptionsMut.isPending}
       />
 
       {/* Script Lab — preview scripts + test voice */}
@@ -288,7 +271,7 @@ function StatsCard({ title, value, icon, color }: { title: string; value: number
 
 // ─── Topic Bank ─────────────────────────────────────────────
 
-function TopicBank({ onRunTopicApi, onRunTopicCaptions, isRunning: parentRunning }: { onRunTopicApi: (id: number) => void; onRunTopicCaptions: (id: number) => void; isRunning: boolean }) {
+function TopicBank({ onRunTopicCaptions, isRunning: parentRunning }: { onRunTopicCaptions: (id: number) => void; isRunning: boolean }) {
   const [newTopic, setNewTopic] = useState("");
   const [newNotes, setNewNotes] = useState("");
   const [showNotes, setShowNotes] = useState(false);
@@ -406,26 +389,12 @@ function TopicBank({ onRunTopicApi, onRunTopicCaptions, isRunning: parentRunning
                           size="icon"
                           className="h-7 w-7"
                           disabled={parentRunning}
-                          onClick={() => onRunTopicApi(topic.id)}
+                          onClick={() => onRunTopicCaptions(topic.id)}
                         >
                           <Rocket className="w-3.5 h-3.5 text-green-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Run with API pipeline (HeyGen + Creatomate)</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          disabled={parentRunning}
-                          onClick={() => onRunTopicCaptions(topic.id)}
-                        >
-                          <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Run with Captions pipeline (b-roll images only)</TooltipContent>
+                      <TooltipContent>Run pipeline</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
