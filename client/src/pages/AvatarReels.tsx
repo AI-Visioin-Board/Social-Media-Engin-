@@ -1350,9 +1350,22 @@ function CaptionsCompletedPanel({ run }: { run: AvatarRun }) {
             </div>
           </div>
 
+          {/* Download Assets Button */}
+          {run.assetMap && run.scriptJson && (
+            <a
+              href={`/api/download-assets/avatar/${run.id}`}
+              download
+              className="flex items-center justify-center gap-2 w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download B-Roll + Script (.zip)
+            </a>
+          )}
+
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 space-y-2">
             <p className="text-sm font-medium text-blue-600">Next Steps (Marketing Manager):</p>
             <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+              <li>Download the zip above → extract to <span className="font-medium text-foreground">AVATAR PIPELINE</span> folder</li>
               <li>Open <span className="font-medium text-foreground">script.txt</span> from the output folder</li>
               <li>Go to <span className="font-medium text-foreground">HeyGen</span> → paste the script → generate avatar video</li>
               <li>Open <span className="font-medium text-foreground">Captions/Mirage</span> → upload avatar video</li>

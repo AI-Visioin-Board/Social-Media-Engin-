@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerStripeWebhook } from "../stripeWebhook";
 import { migrateDatabase } from "../migrate";
 import { registerMcpEndpoint } from "../mcpServer";
+import { registerAssetDownloadEndpoints } from "../assetDownload";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -225,6 +226,8 @@ async function startServer() {
   app.use("/uploads", express.static(path.resolve(process.env.UPLOADS_DIR || "./public/uploads")));
   // MCP Server (AI agent interface)
   registerMcpEndpoint(app);
+  // Asset download endpoints (zip b-roll + script from DB)
+  registerAssetDownloadEndpoints(app);
   // tRPC API
   app.use(
     "/api/trpc",

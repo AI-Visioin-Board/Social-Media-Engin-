@@ -525,10 +525,20 @@ function RunDetailDialog({ run, open, onClose, onRefresh }: {
             {/* Completed */}
             {run.status === "completed" && (
               <Card className="border-green-600">
-                <CardContent className="p-4">
+                <CardContent className="p-4 space-y-3">
                   <p className="text-green-600 font-semibold">
-                    ✅ Day {run.finalDay ?? run.draftDay} — Posted!
+                    ✅ Day {run.finalDay ?? run.draftDay} — Ready!
                   </p>
+                  {run.assetMap && run.scriptJson && (
+                    <a
+                      href={`/api/download-assets/ainycu/${run.id}`}
+                      download
+                      className="flex items-center justify-center gap-2 w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      Download B-Roll + Script (.zip)
+                    </a>
+                  )}
                   {run.instagramCaption && (
                     <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">{run.instagramCaption}</p>
                   )}

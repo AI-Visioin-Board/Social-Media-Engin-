@@ -214,7 +214,7 @@ export async function continueAfterTopicApproval(
       brollImageCount: savedFiles.length,
     });
 
-    console.log(`[AINYCU Pipeline] Run ${runId}: Day ${dayNumber} — ${totalFiles} files saved to ${outputDir}`);
+    console.log(`[AINYCU Pipeline] Run ${runId}: Day ${dayNumber} — ${savedFiles.length} files saved to ${outputDir}`);
   } catch (err: any) {
     if (err.message === "Pipeline cancelled") {
       await updateRun(runId, { status: "cancelled", statusDetail: "Cancelled by user" });
