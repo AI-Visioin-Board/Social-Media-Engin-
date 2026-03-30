@@ -1075,6 +1075,59 @@ export function createMcpServer(): McpServer {
     },
   );
 
+  // ─── Asset Download Tools ──────────────────────────────────────────────────
+
+  server.tool(
+    "get_reel_download_url",
+    "Get the download URL for a completed captions reel's B-roll + script zip. Agent can provide this URL to the user or fetch it directly.",
+    { run_id: z.number() },
+    async ({ run_id }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB not available");
+      const { avatarRuns } = await getSchema();
+      const { eq } = await getDrizzleOps();
+      const [run] = await db.select().from(avatarRuns).where(eq(avatarRuns.id, run_id));
+      if (!run) throw new Error(`Run ${run_id} not found`);
+      if (!run.assetMap || !run.scriptJson) throw new Error("Run has no assets or script yet");
+      const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : `http://localhost:${process.env.PORT || 3000}`;
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        download_url: `${baseUrl}/api/download-assets/avatar/${run_id}`,
+        run_id,
+        topic: run.topic,
+        status: run.status,
+        broll_count: run.brollImageCount,
+      }) }] };
+    },
+  );
+
+  server.tool(
+    "get_ainycu_download_url",
+    "Get the download URL for a completed AINYCU episode's B-roll + script zip. Agent can provide this URL to the user or fetch it directly.",
+    { run_id: z.number() },
+    async ({ run_id }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB not available");
+      const { ainycuRuns } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const [run] = await db.select().from(ainycuRuns).where(eq(ainycuRuns.id, run_id));
+      if (!run) throw new Error(`Run ${run_id} not found`);
+      if (!run.assetMap || !run.scriptJson) throw new Error("Run has no assets or script yet");
+      const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : `http://localhost:${process.env.PORT || 3000}`;
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        download_url: `${baseUrl}/api/download-assets/ainycu/${run_id}`,
+        run_id,
+        topic: run.topic,
+        day_number: run.dayNumber,
+        status: run.status,
+        broll_count: run.brollImageCount,
+      }) }] };
+    },
+  );
+
   return server;
 }
 
