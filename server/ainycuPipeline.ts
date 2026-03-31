@@ -184,6 +184,53 @@ export async function continueAfterTopicApproval(
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
+    // ─── Minimum B-Roll Enforcement ────────────────────────────
+    // Require at least 5 usable B-roll assets. If headless captures failed
+    // (captcha, blocked, etc.), the fallback chain should have kicked in.
+    // But if we STILL don't have enough, generate more with AI images.
+    const MIN_BROLL = 5;
+    const assetCount = Object.keys(assets).length;
+    const beatsNeedingAssets = script.beats.filter(b => b.layout !== "text_card");
+
+    if (assetCount < MIN_BROLL && beatsNeedingAssets.length >= MIN_BROLL) {
+      console.warn(`[AINYCU Pipeline] Only ${assetCount} assets — below minimum ${MIN_BROLL}. Backfilling with AI images...`);
+      await updateRun(runId, {
+        statusDetail: `Only ${assetCount}/${MIN_BROLL} assets. Generating AI backfill images...`,
+      });
+
+      const { generateImage } = await import("../videogen-avatar/src/utils/nanoBananaClient.js");
+      const missingBeats = beatsNeedingAssets.filter(b => !assets[b.id]);
+      for (const beat of missingBeats.slice(0, MIN_BROLL - assetCount)) {
+        try {
+          const aspectRatio = beat.layout === "pip" ? "1:1" as const : "9:16" as const;
+          const result = await generateImage(beat.visualPrompt, ac.signal, aspectRatio);
+          const buffer = Buffer.from(result.imageBase64, "base64");
+          const { storagePut } = await import("./storage.js");
+          const ext = result.mimeType.includes("png") ? "png" : "jpg";
+          const key = `avatar-broll/backfill-beat-${beat.id}-${Date.now()}.${ext}`;
+          const { url: localPath } = await storagePut(key, buffer, result.mimeType);
+          const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+            ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+            : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
+          const publicUrl = `${baseUrl}${localPath}`;
+          assets[beat.id] = {
+            beatId: beat.id,
+            source: "nano_banana" as any,
+            mediaType: "image",
+            url: publicUrl,
+            width: 1080,
+            height: aspectRatio === "1:1" ? 1080 : 1920,
+            fallbackUsed: true,
+          };
+          multiAssets[beat.id] = [assets[beat.id]];
+          console.log(`[AINYCU Pipeline] Backfilled beat ${beat.id} with AI image`);
+        } catch (err: any) {
+          console.warn(`[AINYCU Pipeline] Backfill for beat ${beat.id} failed: ${err.message}`);
+        }
+      }
+      console.log(`[AINYCU Pipeline] After backfill: ${Object.keys(assets).length} assets`);
+    }
+
     await updateRun(runId, {
       assetMap: JSON.stringify(assets),
       multiAssetMap: JSON.stringify(multiAssets),

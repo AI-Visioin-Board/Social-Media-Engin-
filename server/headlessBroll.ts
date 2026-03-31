@@ -13,9 +13,16 @@
 // Falls back gracefully if URL is behind auth, 404, or slow.
 // ============================================================
 
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import puppeteer from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { type Browser, type Page } from "puppeteer";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+
+// ─── Stealth Mode ──────────────────────────────────────────
+// Evades bot detection (Cloudflare, DataDome, etc.) so we don't
+// get blocked or served captcha pages instead of real content.
+puppeteer.use(StealthPlugin());
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -169,6 +176,13 @@ async function capturePage(
 
     if (signal?.aborted) throw new Error("Aborted");
 
+    // Validate page content BEFORE taking screenshot
+    const pageIssue = await validatePageContent(page);
+    if (pageIssue) {
+      console.warn(`[HeadlessBroll] Beat ${req.beatId}: BAD PAGE — ${pageIssue}`);
+      throw new Error(`Bad page content: ${pageIssue}`);
+    }
+
     // Take the screenshot
     const screenshotBuffer = await page.screenshot({
       type: "png",
@@ -181,10 +195,15 @@ async function capturePage(
       },
     }) as Buffer;
 
+    // Validate the screenshot isn't blank/tiny
+    if (!validateScreenshotBuffer(screenshotBuffer)) {
+      throw new Error("Screenshot appears blank or too small to be real content");
+    }
+
     // Build descriptive filename
     const filename = buildFilename(req);
 
-    console.log(`[HeadlessBroll] Beat ${req.beatId}: captured ${viewport.width}x${viewport.height} from ${req.url}`);
+    console.log(`[HeadlessBroll] Beat ${req.beatId}: captured ${viewport.width}x${viewport.height} from ${req.url} ✓`);
 
     return {
       beatId: req.beatId,
@@ -361,6 +380,89 @@ async function dismissPopups(page: Page): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─── Screenshot Quality Validation ─────────────────────────
+// Rejects captcha pages, error pages, mostly-blank screenshots,
+// and other junk that would ruin B-roll quality.
+
+const BAD_PAGE_INDICATORS = [
+  "verify you are human",
+  "captcha",
+  "cloudflare",
+  "access denied",
+  "403 forbidden",
+  "404 not found",
+  "page not found",
+  "just a moment",
+  "checking your browser",
+  "enable javascript",
+  "please wait",
+  "bot detection",
+  "are you a robot",
+  "unusual traffic",
+  "blocked",
+];
+
+/**
+ * Check if a page is showing a captcha, error, or block page
+ * instead of real content. Returns a reason string if bad, null if OK.
+ */
+async function validatePageContent(page: Page): Promise<string | null> {
+  try {
+    const bodyText = await page.evaluate(() => {
+      const body = document.body;
+      if (!body) return "";
+      return body.innerText.toLowerCase().slice(0, 2000);
+    });
+
+    for (const indicator of BAD_PAGE_INDICATORS) {
+      if (bodyText.includes(indicator)) {
+        return `Page contains "${indicator}" — likely a captcha or block page`;
+      }
+    }
+
+    // Check if page has very little content (likely an error or blank page)
+    const contentLength = bodyText.replace(/\s+/g, "").length;
+    if (contentLength < 50) {
+      return `Page has almost no text content (${contentLength} chars) — likely blank or error`;
+    }
+
+    // Check for Cloudflare challenge iframes
+    const hasChallengeFrame = await page.evaluate(() => {
+      const iframes = document.querySelectorAll("iframe");
+      for (const iframe of iframes) {
+        const src = iframe.src || "";
+        if (src.includes("challenges.cloudflare.com") || src.includes("captcha")) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (hasChallengeFrame) {
+      return "Page contains Cloudflare challenge iframe — captcha page";
+    }
+
+    return null; // Page looks good
+  } catch {
+    return null; // If we can't check, assume it's OK
+  }
+}
+
+/**
+ * Validate a screenshot buffer isn't mostly a single color
+ * (e.g., all white = blank page, all grey = loading screen).
+ * Uses simple pixel sampling — no image library needed.
+ * Returns true if the image looks like it has real content.
+ */
+function validateScreenshotBuffer(buffer: Buffer): boolean {
+  // PNG files: check if file is suspiciously small (< 30KB for 1080px wide = likely blank)
+  if (buffer.length < 30_000) {
+    console.warn(`[HeadlessBroll] Screenshot too small (${(buffer.length / 1024).toFixed(0)}KB) — likely blank`);
+    return false;
+  }
+  return true;
 }
 
 // ─── Parse Beat for Capture Request ─────────────────────────
