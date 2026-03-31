@@ -93,11 +93,6 @@ Insert section markers at the START of the relevant beat's narration:
 
 These markers are stripped before TTS but used for B-roll matching.
 
-DELIVERY TONE MARKERS:
-Include 3-5 [tone] markers at energy shifts:
-[excited], [serious], [curious], [surprised], [calm], [confident]
-Place at START of sentence. Tone carries until next marker.
-
 VOICE RULES:
 - Talk like you're showing a friend something cool on your phone
 - No corporate language, no "in today's rapidly evolving landscape"
