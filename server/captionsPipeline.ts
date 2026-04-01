@@ -114,7 +114,7 @@ export async function continueAfterTopicApprovalCaptions(
     const { generateAllAssetsMulti } = await import("../videogen-avatar/src/assetGenerator.js");
 
     const manifest = routeAssets(script);
-    const { primary: assets, multi: multiAssets } = await generateAllAssetsMulti(manifest, ac.signal);
+    const { primary: assets, multi: multiAssets } = await generateAllAssetsMulti(manifest, ac.signal, { imagesOnly: true });
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
@@ -267,7 +267,7 @@ async function rerunCaptionsPipeline(
     const { generateAllAssetsMulti } = await import("../videogen-avatar/src/assetGenerator.js");
 
     const manifest = routeAssets(script);
-    const { primary: assets, multi: multiAssets } = await generateAllAssetsMulti(manifest, ac.signal);
+    const { primary: assets, multi: multiAssets } = await generateAllAssetsMulti(manifest, ac.signal, { imagesOnly: true });
 
     await updateRun(runId, {
       assetMap: JSON.stringify(assets),
@@ -357,8 +357,12 @@ async function saveAssetsToFolder(
       if (!response.ok) throw new Error(`HTTP ${response.status} downloading ${asset.url}`);
       const buffer = Buffer.from(await response.arrayBuffer());
 
-      const ext = asset.mediaType === "video" ? "mp4"
-        : asset.url.includes(".jpg") || asset.url.includes(".jpeg") ? "jpg" : "png";
+      // Captions app only supports images — skip any video assets
+      if (asset.mediaType === "video") {
+        console.warn(`[CaptionsPipeline] Beat ${beat.id}: skipping video asset (Captions app = images only)`);
+        continue;
+      }
+      const ext = asset.url.includes(".jpg") || asset.url.includes(".jpeg") ? "jpg" : "png";
       const filename = `${imageNumber}.${ext}`;
       await writeFile(join(outputDir, filename), buffer);
       savedFiles.push(filename);

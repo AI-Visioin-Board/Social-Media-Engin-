@@ -115,6 +115,7 @@ export async function generateAllAssets(
 export async function generateAllAssetsMulti(
   manifest: AssetManifest,
   signal?: AbortSignal,
+  options?: { imagesOnly?: boolean },
 ): Promise<{ primary: AssetMap; multi: MultiAssetMap }> {
   // Reset Pexels deduplication for this video generation
   resetUsedVideos();
@@ -124,10 +125,15 @@ export async function generateAllAssetsMulti(
 
   console.log(`[AssetGen] Generating ${manifest.requests.length} assets (multi-clip mode)...`);
 
+  const imagesOnly = options?.imagesOnly ?? false;
+  if (imagesOnly) {
+    console.log(`[AssetGen] Images-only mode — skipping Veo animation, using Pexels photos instead of videos`);
+  }
+
   // Phase 1: Generate independent assets
   const independentResults = await Promise.allSettled(
     manifest.parallelGroups.map(group =>
-      processGroupMulti(group, manifest.requests, primary, multi, signal)
+      processGroupMulti(group, manifest.requests, primary, multi, signal, imagesOnly)
     ),
   );
 
@@ -192,6 +198,7 @@ async function processGroupMulti(
   primary: AssetMap,
   multi: MultiAssetMap,
   signal?: AbortSignal,
+  imagesOnly?: boolean,
 ): Promise<void> {
   const requests = allRequests.filter(
     r => group.beatIds.includes(r.beatId) && r.dependsOn === undefined && r.source === group.source,
@@ -202,32 +209,56 @@ async function processGroupMulti(
   for (const chunk of chunks) {
     const results = await Promise.allSettled(
       chunk.map(async (req) => {
-        // For Pexels, fetch multiple clips
+        // For Pexels — fetch photos if imagesOnly, otherwise video clips
         if (req.source === "pexels") {
-          const clips = await searchStockVideoBatch(req.prompt, PEXELS_CLIPS_PER_BEAT, signal);
-          if (clips.length > 0) {
-            const assets: GeneratedAsset[] = clips.map((clip, i) => ({
-              beatId: req.beatId,
-              source: "pexels" as const,
-              mediaType: "video" as const,
-              url: clip.url,
-              durationSec: clip.duration,
-              width: clip.width,
-              height: clip.height,
-              fallbackUsed: false,
-            }));
-            primary[req.beatId] = assets[0];
-            multi[req.beatId] = assets;
-          } else {
-            // Fallback to single generation
-            const asset = await generateWithFallback(req, signal);
-            if (asset) {
+          if (imagesOnly) {
+            // Images-only mode: use Pexels Photos API instead of Videos
+            const { searchStockPhoto } = await import("./utils/pexelsClient.js");
+            const photo = await searchStockPhoto(req.prompt, signal);
+            if (photo) {
+              const asset: GeneratedAsset = {
+                beatId: req.beatId,
+                source: "pexels" as const,
+                mediaType: "image" as const,
+                url: photo.url,
+                width: photo.width,
+                height: photo.height,
+                fallbackUsed: false,
+              };
               primary[req.beatId] = asset;
               multi[req.beatId] = [asset];
+            } else {
+              const asset = await generateWithFallback(req, signal, undefined, imagesOnly);
+              if (asset) {
+                primary[req.beatId] = asset;
+                multi[req.beatId] = [asset];
+              }
+            }
+          } else {
+            const clips = await searchStockVideoBatch(req.prompt, PEXELS_CLIPS_PER_BEAT, signal);
+            if (clips.length > 0) {
+              const assets: GeneratedAsset[] = clips.map((clip) => ({
+                beatId: req.beatId,
+                source: "pexels" as const,
+                mediaType: "video" as const,
+                url: clip.url,
+                durationSec: clip.duration,
+                width: clip.width,
+                height: clip.height,
+                fallbackUsed: false,
+              }));
+              primary[req.beatId] = assets[0];
+              multi[req.beatId] = assets;
+            } else {
+              const asset = await generateWithFallback(req, signal);
+              if (asset) {
+                primary[req.beatId] = asset;
+                multi[req.beatId] = [asset];
+              }
             }
           }
         } else {
-          const asset = await generateWithFallback(req, signal);
+          const asset = await generateWithFallback(req, signal, undefined, imagesOnly);
           if (asset) {
             primary[req.beatId] = asset;
             multi[req.beatId] = [asset];
@@ -247,11 +278,13 @@ async function processGroupMulti(
 async function generateWithFallback(
   req: AssetRequest,
   signal?: AbortSignal,
+  _sourceImageUrl?: string,
+  imagesOnly?: boolean,
 ): Promise<GeneratedAsset | null> {
   // Try primary source
   try {
     return await retry(
-      () => generateSingleAsset(req, signal),
+      () => generateSingleAsset(req, signal, undefined, imagesOnly),
       `${req.source}:beat${req.beatId}`,
       2,
       signal,
@@ -265,7 +298,7 @@ async function generateWithFallback(
     try {
       console.log(`[AssetGen] Beat ${req.beatId}: trying fallback ${fallbackSource}...`);
       const fallbackReq = { ...req, source: fallbackSource };
-      const asset = await generateSingleAsset(fallbackReq, signal);
+      const asset = await generateSingleAsset(fallbackReq, signal, undefined, imagesOnly);
       return { ...asset, fallbackUsed: true, fallbackSource };
     } catch (fallbackErr: any) {
       console.warn(`[AssetGen] Beat ${req.beatId}: fallback ${fallbackSource} also failed: ${fallbackErr.message}`);
@@ -280,13 +313,27 @@ async function generateSingleAsset(
   req: AssetRequest,
   signal?: AbortSignal,
   sourceImageUrl?: string,
+  imagesOnly?: boolean,
 ): Promise<GeneratedAsset> {
   switch (req.source) {
     case "nano_banana": {
       // Step 1: Generate sharp still image via Nano Banana
-      // Aspect ratio matches the beat's layout: 1:1 for PIP TV frame, 9:16 for fullscreen
       const result = await generateImage(req.prompt, signal, req.aspectRatio);
       const imagePublicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
+
+      // Images-only mode: skip Veo animation, return still image directly
+      if (imagesOnly) {
+        console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana still (images-only mode)`);
+        return {
+          beatId: req.beatId,
+          source: "nano_banana",
+          mediaType: "image",
+          url: imagePublicUrl,
+          width: result.width,
+          height: result.height,
+          fallbackUsed: false,
+        };
+      }
 
       // Dimensions depend on aspect ratio
       const videoWidth = 1080;
@@ -294,7 +341,6 @@ async function generateSingleAsset(
 
       // Step 2: Animate the still with Veo 3.1 (image-to-video)
       // If Veo fails, we gracefully fall back to the still image
-      // (Creatomate assembler will apply Ken Burns motion to stills)
       try {
         const motionPrompt = `Subtle cinematic motion: gentle camera movement, atmospheric lighting shifts. ${req.prompt}`;
         const veoResult = await animateImage(result.imageBase64, result.mimeType, motionPrompt, signal, req.aspectRatio);

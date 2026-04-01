@@ -171,10 +171,30 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     return beat;
   });
 
-  // Warn if way over/under target, but don't fail
-  const totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
-  if (totalDuration < 20 || totalDuration > 120) {
-    console.warn(`[ScriptDirector] Script duration ${totalDuration}s is outside normal range (20-120s)`);
+  // Hard cap: trim beats from the end if total exceeds target duration
+  let totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
+  if (totalDuration > targetDurationSec) {
+    console.warn(`[ScriptDirector] Script ${totalDuration}s exceeds target ${targetDurationSec}s — trimming beats`);
+    while (totalDuration > targetDurationSec && beats.length > 3) {
+      // Remove second-to-last beat (keep last beat = CTA/signoff)
+      const removeIdx = beats.length - 2;
+      const removed = beats.splice(removeIdx, 1)[0];
+      totalDuration -= removed.durationSec;
+      console.warn(`[ScriptDirector] Removed beat ${removed.id} (${removed.durationSec}s) — now ${totalDuration}s`);
+    }
+    // Recalculate startSec for remaining beats
+    let time = 0;
+    for (const b of beats) {
+      b.startSec = time;
+      time += b.durationSec;
+    }
+    // Re-number beat IDs
+    beats.forEach((b, i) => { b.id = i + 1; });
+    totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
+  }
+
+  if (totalDuration < 20) {
+    console.warn(`[ScriptDirector] Script duration ${totalDuration}s is unusually short`);
   }
 
   return {
