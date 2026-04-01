@@ -1809,6 +1809,8 @@ export const appRouter = router({
           topicContext: input.topicContext ?? null,
           textContent: input.textContent ?? null,
           notes: input.notes ?? null,
+          status: "planned",
+          postStatus: "draft",
         }).returning();
         return entry;
       }),
