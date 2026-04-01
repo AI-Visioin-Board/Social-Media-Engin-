@@ -184,23 +184,22 @@ export async function continueAfterTopicApproval(
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
-    // ─── Minimum B-Roll Enforcement ────────────────────────────
-    // Require at least 5 usable B-roll assets. If headless captures failed
-    // (captcha, blocked, etc.), the fallback chain should have kicked in.
-    // But if we STILL don't have enough, generate more with AI images.
-    const MIN_BROLL = 5;
-    const assetCount = Object.keys(assets).length;
-    const beatsNeedingAssets = script.beats.filter(b => b.layout !== "text_card");
+    // ─── Targeted B-Roll Backfill ───────────────────────────────
+    // Only backfill beats that NEED B-roll (pip/fullscreen_broll) but are missing it.
+    // No artificial minimum — trust the script structure. Avatar closeups, text cards,
+    // and graphic scenes don't need B-roll and will be filled by Remotion components.
+    const beatsNeedingBroll = script.beats.filter(
+      (b: any) => (b.layout === "pip" || b.layout === "fullscreen_broll") && !assets[b.id]
+    );
 
-    if (assetCount < MIN_BROLL && beatsNeedingAssets.length >= MIN_BROLL) {
-      console.warn(`[AINYCU Pipeline] Only ${assetCount} assets — below minimum ${MIN_BROLL}. Backfilling with AI images...`);
+    if (beatsNeedingBroll.length > 0) {
+      console.warn(`[AINYCU Pipeline] ${beatsNeedingBroll.length} beats need B-roll but are missing assets. Backfilling...`);
       await updateRun(runId, {
-        statusDetail: `Only ${assetCount}/${MIN_BROLL} assets. Generating AI backfill images...`,
+        statusDetail: `${beatsNeedingBroll.length} B-roll beats missing assets. Generating AI backfill...`,
       });
 
       const { generateImage } = await import("../videogen-avatar/src/utils/nanoBananaClient.js");
-      const missingBeats = beatsNeedingAssets.filter(b => !assets[b.id]);
-      for (const beat of missingBeats.slice(0, MIN_BROLL - assetCount)) {
+      for (const beat of beatsNeedingBroll) {
         try {
           const aspectRatio = beat.layout === "pip" ? "1:1" as const : "9:16" as const;
           const result = await generateImage(beat.visualPrompt, ac.signal, aspectRatio);
@@ -228,7 +227,6 @@ export async function continueAfterTopicApproval(
           console.warn(`[AINYCU Pipeline] Backfill for beat ${beat.id} failed: ${err.message}`);
         }
       }
-      console.log(`[AINYCU Pipeline] After backfill: ${Object.keys(assets).length} assets`);
     }
 
     await updateRun(runId, {
