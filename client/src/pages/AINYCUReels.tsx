@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   CheckCircle2, Clock, AlertCircle, Loader2,
   Video, RefreshCw, Send, Eye, X,
-  Zap, BookOpen,
+  Zap, BookOpen, ThumbsUp,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -526,9 +526,33 @@ function RunDetailDialog({ run, open, onClose, onRefresh }: {
             {run.status === "completed" && (
               <Card className="border-green-600">
                 <CardContent className="p-4 space-y-3">
-                  <p className="text-green-600 font-semibold">
-                    ✅ Day {run.finalDay ?? run.draftDay} — Ready!
-                  </p>
+                  {run.finalDay ? (
+                    <p className="text-green-600 font-semibold">
+                      ✅ Day {run.finalDay} — Approved & Posted
+                    </p>
+                  ) : (
+                    <p className="font-semibold" style={{ color: "#e89b06" }}>
+                      Day {run.draftDay} — Assets Ready (not yet approved)
+                    </p>
+                  )}
+
+                  {/* Approve for Posting — only shows if NOT yet approved */}
+                  {!run.finalDay && (
+                    <Button
+                      onClick={() => approvePost.mutate({ runId: run.id })}
+                      disabled={approvePost.isPending}
+                      className="w-full text-white font-semibold py-3"
+                      style={{ backgroundColor: "#e89b06" }}
+                    >
+                      {approvePost.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <ThumbsUp className="w-4 h-4 mr-2" />
+                      )}
+                      Approve for Posting (Day {run.draftDay} → {(run.draftDay ?? 0) + 1})
+                    </Button>
+                  )}
+
                   {run.assetMap && run.scriptJson && (
                     <a
                       href={`/api/download-assets/ainycu/${run.id}`}
