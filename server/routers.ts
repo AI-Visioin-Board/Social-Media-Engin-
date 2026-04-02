@@ -1644,6 +1644,21 @@ export const appRouter = router({
         return { runId: row.id, dayNumber };
       }),
 
+    // Manually set the day counter
+    setDayNumber: adminProcedure
+      .input(z.object({ dayNumber: z.number().min(1) }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { appSettings } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        await db.update(appSettings)
+          .set({ value: String(input.dayNumber), updatedAt: new Date() })
+          .where(eq(appSettings.key, "ainycu_next_day_number"));
+        return { dayNumber: input.dayNumber };
+      }),
+
     // Get all runs
     getRuns: adminProcedure
       .input(z.object({ limit: z.number().default(20) }).optional())
