@@ -286,6 +286,20 @@ export async function continueAfterVideoApproval(runId: number, caption?: string
     });
 
     const { ENV } = await import("./_core/env.js");
+
+    // If no video URL, skip webhook — video was built manually in Remotion.
+    // Just increment day counter and mark approved.
+    if (!run.finalVideoUrl) {
+      await incrementDayNumber();
+      await updateRun(runId, {
+        status: "completed",
+        statusDetail: `Day ${run.draftDay} approved. Day counter advanced. (No video URL — post manually)`,
+        finalDay: run.draftDay,
+      });
+      console.log(`[AINYCU Pipeline] Run ${runId}: Day ${run.draftDay} approved (no videoUrl, skipping webhook)`);
+      return;
+    }
+
     if (!ENV.makeWebhookUrl) {
       // Still increment day counter even without webhook
       await incrementDayNumber();
