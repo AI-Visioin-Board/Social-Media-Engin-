@@ -217,6 +217,13 @@ export async function migrateDatabase(): Promise<void> {
       );
     `);
 
+    // ── Add 'manual' to run_slot enum (was missing) ──────
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TYPE run_slot ADD VALUE IF NOT EXISTS 'manual';
+      END $$;
+    `);
+
     // ── Schema evolution (safe additions) ──────
     // ADD COLUMN IF NOT EXISTS requires a DO block in Postgres
     await sql.unsafe(`
