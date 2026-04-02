@@ -395,6 +395,13 @@ export async function migrateDatabase(): Promise<void> {
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
 
+    // text_content column (tweets, threads, caption drafts)
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN text_content TEXT DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+
     // 0010 — X posting fields for calendar entries
     await sql.unsafe(`
       DO $$ BEGIN
