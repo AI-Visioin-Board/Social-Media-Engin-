@@ -30,6 +30,7 @@ async function streamRunAssets(
   assets: Record<string, AssetEntry>,
   folderName: string,
   pipelineType: "captions" | "ainycu",
+  avatarVideoUrl?: string | null,
 ) {
   res.setHeader("Content-Type", "application/zip");
   res.setHeader("Content-Disposition", `attachment; filename="${folderName}.zip"`);
@@ -84,6 +85,21 @@ async function streamRunAssets(
       imageNumber++;
     } catch (err: any) {
       console.error(`[AssetDownload] Beat ${beat.id}: download failed: ${err.message}`);
+    }
+  }
+
+  // Include avatar video if available (HeyGen template output)
+  if (avatarVideoUrl) {
+    try {
+      console.log(`[AssetDownload] Downloading avatar video from HeyGen...`);
+      const avResponse = await fetch(avatarVideoUrl);
+      if (avResponse.ok) {
+        const avBuffer = Buffer.from(await avResponse.arrayBuffer());
+        archive.append(avBuffer, { name: `${folderName}/avatar-video.mp4` });
+        console.log(`[AssetDownload] Avatar video added to ZIP (${Math.round(avBuffer.length / 1024 / 1024)}MB)`);
+      }
+    } catch (err: any) {
+      console.error(`[AssetDownload] Avatar video download failed: ${err.message}`);
     }
   }
 
@@ -148,12 +164,39 @@ export function registerAssetDownloadEndpoints(app: Express) {
       const assets = JSON.parse(run.assetMap);
       const folderName = sanitizeTopicName(run.topic ?? `run-${runId}`);
 
-      await streamRunAssets(res, script, assets, folderName, "ainycu");
+      await streamRunAssets(res, script, assets, folderName, "ainycu", run.finalVideoUrl);
     } catch (err: any) {
       console.error("[AssetDownload] AINYCU download failed:", err);
       if (!res.headersSent) res.status(500).json({ error: err.message });
     }
   });
 
-  console.log("[AssetDownload] Download endpoints registered: /api/download-assets/avatar/:runId, /api/download-assets/ainycu/:runId");
+  // ─── AINYCU completed runs status (for local auto-downloader) ──
+  // Returns recently completed runs so the local script knows what to download.
+  app.get("/api/ainycu/completed-runs", async (_req: Request, res: Response) => {
+    try {
+      const db = await getDb();
+      if (!db) { res.status(500).json({ error: "Database unavailable" }); return; }
+
+      const rows = await db.select({
+        id: ainycuRuns.id,
+        status: ainycuRuns.status,
+        topic: ainycuRuns.topic,
+        dayNumber: ainycuRuns.dayNumber,
+        finalVideoUrl: ainycuRuns.finalVideoUrl,
+        brollImageCount: ainycuRuns.brollImageCount,
+        updatedAt: ainycuRuns.updatedAt,
+      })
+        .from(ainycuRuns)
+        .where(eq(ainycuRuns.status, "completed"))
+        .orderBy(ainycuRuns.id)
+        .limit(50);
+
+      res.json({ runs: rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  console.log("[AssetDownload] Download endpoints registered: /api/download-assets/avatar/:runId, /api/download-assets/ainycu/:runId, /api/ainycu/completed-runs");
 }

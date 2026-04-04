@@ -240,6 +240,59 @@ async function pollVideoStatus(
   throw new Error(`[HeyGen] Timed out after ${CONFIG.heygenTimeoutMs / 1000}s`);
 }
 
+// ─── Template-Based Video Generation ──────────────────────
+// Uses a pre-built HeyGen template (configured in HeyGen UI).
+// Template has a single "script" variable for narration text.
+// Returns video_id for polling.
+
+export async function generateTemplateVideo(
+  templateId: string,
+  narrationText: string,
+  signal?: AbortSignal,
+): Promise<{ videoUrl: string; durationSec: number }> {
+  if (!CONFIG.heygenApiKey) {
+    throw new Error("[HeyGen] HEYGEN_API_KEY not configured.");
+  }
+
+  console.log(`[HeyGen] Generating from template ${templateId} (${narrationText.length} chars)...`);
+
+  const response = await fetch(`${BASE_URL}/v2/template/${templateId}/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": CONFIG.heygenApiKey,
+    },
+    body: JSON.stringify({
+      test: false,
+      caption: false,
+      variables: {
+        script: {
+          name: "script",
+          type: "text",
+          properties: {
+            content: narrationText,
+          },
+        },
+      },
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`[HeyGen] Template generate failed (${response.status}): ${err}`);
+  }
+
+  const data = await response.json() as any;
+  const videoId = data.data?.video_id;
+  if (!videoId) {
+    throw new Error(`[HeyGen] No video_id in template response: ${JSON.stringify(data)}`);
+  }
+
+  console.log(`[HeyGen] Template video created, id: ${videoId}. Polling for completion...`);
+  return pollVideoStatus(videoId, signal);
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, ms);

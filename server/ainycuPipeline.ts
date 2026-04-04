@@ -170,17 +170,49 @@ export async function continueAfterTopicApproval(
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
-    // Stage 3: Asset generation (headless captures + Nano Banana + Pexels)
+    // Stage 3: Asset generation + HeyGen avatar video (in parallel)
     await updateRun(runId, {
       status: "generating_assets",
-      statusDetail: "Generating B-roll assets (headless captures + AI images)...",
+      statusDetail: "Generating B-roll assets + firing HeyGen avatar video...",
     });
 
     const { routeAssets } = await import("../videogen-avatar/src/assetRouter.js");
     const { generateAllAssetsMulti } = await import("../videogen-avatar/src/assetGenerator.js");
 
     const manifest = routeAssets(script);
-    const { primary: assets, multi: multiAssets } = await generateAllAssetsMulti(manifest, ac.signal);
+
+    // Fire B-roll generation and HeyGen template in parallel
+    // Strip section markers [HOOK], [STEP1] AND tone markers [excited], [confident] etc.
+    // before sending to HeyGen — otherwise the avatar reads them as literal text.
+    const narrationText = script.beats
+      .map((b: any) => (b.narration ?? "").replace(/\[[^\]]+\]\s*/g, ""))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const { CONFIG: avatarConfig } = await import("../videogen-avatar/src/config.js");
+    const templateId = avatarConfig.heygenTemplateId;
+
+    const brollPromise = generateAllAssetsMulti(manifest, ac.signal);
+
+    let heygenPromise: Promise<{ videoUrl: string; durationSec: number } | null>;
+    if (hasKey("heygen") && templateId) {
+      console.log(`[AINYCU Pipeline] Run ${runId}: Firing HeyGen template ${templateId}...`);
+      await updateRun(runId, {
+        statusDetail: "Generating B-roll + HeyGen avatar video (this takes ~5 min)...",
+      });
+      const { generateTemplateVideo } = await import("../videogen-avatar/src/utils/heygenClient.js");
+      heygenPromise = generateTemplateVideo(templateId, narrationText, ac.signal)
+        .catch((err: Error) => {
+          console.error(`[AINYCU Pipeline] HeyGen template failed: ${err.message}`);
+          return null;
+        });
+    } else {
+      console.log(`[AINYCU Pipeline] Run ${runId}: No HeyGen template configured, skipping avatar video.`);
+      heygenPromise = Promise.resolve(null);
+    }
+
+    const [brollResult, heygenResult] = await Promise.all([brollPromise, heygenPromise]);
+    const { primary: assets, multi: multiAssets } = brollResult;
 
     if (ac.signal.aborted) throw new Error("Pipeline cancelled");
 
@@ -253,12 +285,38 @@ export async function continueAfterTopicApproval(
       await closeBrowser();
     } catch { /* browser may not have been started */ }
 
-    // Mark complete — pipeline ends here. User creates avatar video manually.
+    // Stage 5: Download HeyGen avatar video to folder (if generated)
+    let avatarVideoFile: string | null = null;
+    if (heygenResult?.videoUrl) {
+      try {
+        await updateRun(runId, {
+          statusDetail: "Downloading HeyGen avatar video to folder...",
+        });
+        const videoResponse = await fetch(heygenResult.videoUrl, { signal: ac.signal });
+        if (videoResponse.ok) {
+          const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+          avatarVideoFile = "avatar-video.mp4";
+          await writeFile(join(outputDir, avatarVideoFile), videoBuffer);
+          console.log(`[AINYCU Pipeline] Run ${runId}: Avatar video saved (${Math.round(videoBuffer.length / 1024 / 1024)}MB, ${heygenResult.durationSec}s)`);
+        }
+      } catch (dlErr: any) {
+        console.error(`[AINYCU Pipeline] Run ${runId}: Avatar video download failed: ${dlErr.message}`);
+      }
+    }
+
+    // Mark complete
+    const heygenStatus = avatarVideoFile
+      ? `Avatar video saved (${heygenResult!.durationSec}s).`
+      : heygenResult === null && templateId
+        ? "HeyGen avatar failed — create manually in HeyGen UI."
+        : "No HeyGen template configured — create avatar video in HeyGen UI.";
+
     await updateRun(runId, {
       status: "completed",
-      statusDetail: `Day ${dayNumber} ready! ${savedFiles.length} B-roll files + script saved to folder. Create avatar video in HeyGen UI.`,
+      statusDetail: `Day ${dayNumber} ready! ${savedFiles.length} B-roll files + script saved. ${heygenStatus}`,
       brollOutputDir: `AVATAR PIPELINE/AI News You Can Use/${folderName}`,
       brollImageCount: savedFiles.length,
+      finalVideoUrl: heygenResult?.videoUrl ?? null,
     });
 
     console.log(`[AINYCU Pipeline] Run ${runId}: Day ${dayNumber} — ${savedFiles.length} files saved to ${outputDir}`);
