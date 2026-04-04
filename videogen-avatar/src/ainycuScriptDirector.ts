@@ -65,10 +65,18 @@ Beats 4-10 — THE WALKTHROUGH (25-35 sec): 3-5 concrete steps, 2 beats per step
   Step intro beat (2 sec): avatar_closeup or text_card — set up what they'll do
   Step demo beat (3-4 sec): pip, device_mockup, or icon_grid — show it
   Use phrases: "All you have to do is..." "Step one..." "Now do this..."
-  Reference specific screens, buttons, menus
   Each step = 1-2 sentences max
   End each step with what the viewer will SEE, not what they'll "learn"
   MIX layouts across steps — never do 3 pips in a row.
+
+  CRITICAL — LEAD WITH FEATURES, NOT PROMPTING TIPS:
+  The walkthrough must showcase the tool's most impressive CAPABILITIES and FEATURES.
+  - What can it DO that surprises people? (integrations, automations, scheduled tasks, connections)
+  - What real tasks does it handle? (send emails, control apps, generate content, manage files)
+  - What makes it MORE than just a chatbot?
+  Do NOT waste walkthrough beats on "how to write a good prompt" or "give it a role."
+  The audience wants to know WHAT THE TOOL CAN DO, not how to talk to it.
+  Show the features that make someone say "wait, it can do THAT?"
 
 Beat 11 — SO WHAT (2-3 sec): Why this matters to THEM personally. Concrete, not abstract.
   Layout: "avatar_closeup" or "motion_graphic" (if comparing before/after)
@@ -219,7 +227,7 @@ OUTPUT FORMAT: Return valid JSON:
 export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<VideoScript> {
   const { topic, angle, dayNumber, verifiedFacts, feedback, signal } = opts;
 
-  let userPrompt = `Create a 28-40 second educational reel script about this topic:\n\n${topic}\n\n`;
+  let userPrompt = `Create a 45-65 second educational reel script about this topic:\n\n${topic}\n\n`;
 
   userPrompt += `SERIES: "AI News You Can Use" — Day ${dayNumber} of 30.\n`;
   userPrompt += `The Day Tag beat MUST say: "Welcome to Day ${dayNumber} of AI News You Can Use."\n`;
@@ -236,7 +244,7 @@ export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<V
     for (const f of verifiedFacts) {
       userPrompt += `- ${f.fact} [Source: ${f.sourceUrl}]\n`;
     }
-    userPrompt += "\nUse these facts for the walkthrough steps. You can add personality and commentary, but the INSTRUCTIONAL CONTENT must come from these facts.\n\n";
+    userPrompt += "\nUse these facts for the walkthrough steps. LEAD WITH THE MOST IMPRESSIVE FEATURES AND CAPABILITIES — the things that make people say 'wait, it can do THAT?' Do NOT waste beats on generic prompting advice. Show what the tool can DO. You can add personality and commentary, but the INSTRUCTIONAL CONTENT must come from these facts.\n\n";
   }
 
   if (feedback) {
