@@ -64,7 +64,7 @@ Beat 3 — BRIDGE (2-3 sec): Connect the topic to the viewer's life.
 Beats 4-10 — THE WALKTHROUGH (25-35 sec): 3-5 concrete steps, 2 beats per step.
   Step intro beat (2 sec): avatar_closeup or text_card — set up what they'll do
   Step demo beat (3-4 sec): pip, device_mockup, or icon_grid — show it
-  Use phrases: "All you have to do is..." "Step one..." "Here's the move..."
+  Use phrases: "All you have to do is..." "Step one..." "Now do this..."
   Reference specific screens, buttons, menus
   Each step = 1-2 sentences max
   End each step with what the viewer will SEE, not what they'll "learn"
@@ -114,6 +114,7 @@ BANNED PATTERNS:
 - No "In today's..." / "In an era where..."
 - No hedge words: "might," "could potentially"
 - No "game-changer" / "revolutionize"
+- No "Here's the move"
 
 LAYOUT OPTIONS (one per beat):
 - "pip" — Avatar bottom + B-roll top in TV frame. USE when showing an actual tool screen or video clip.
@@ -165,7 +166,7 @@ Format: "https://tool-url.com — description of what should be visible on scree
 
 ZOOM PUNCH (mark 2-4 beats per script):
 Set "zoomPunch": true on beats with emphatic moments — bold claims, step reveals, power words.
-Good candidates: "Step one...", "Here's the move...", "This is the fastest way...", SO WHAT beats.
+Good candidates: "Step one...", "This is the fastest way...", SO WHAT beats.
 Do NOT put zoomPunch on every beat — 2-4 per script max.
 
 WORD STYLES (multi-style captions):
