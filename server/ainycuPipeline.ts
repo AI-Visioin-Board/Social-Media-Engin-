@@ -188,8 +188,10 @@ export async function continueAfterTopicApproval(
     // Only backfill beats that NEED B-roll (pip/fullscreen_broll) but are missing it.
     // No artificial minimum — trust the script structure. Avatar closeups, text cards,
     // and graphic scenes don't need B-roll and will be filled by Remotion components.
+    // Layouts that need real b-roll assets (not Remotion-rendered components)
+    const BROLL_LAYOUTS = ["pip", "fullscreen_broll", "device_mockup"];
     const beatsNeedingBroll = script.beats.filter(
-      (b: any) => (b.layout === "pip" || b.layout === "fullscreen_broll") && !assets[b.id]
+      (b: any) => BROLL_LAYOUTS.includes(b.layout) && !assets[b.id]
     );
 
     if (beatsNeedingBroll.length > 0) {
@@ -604,8 +606,9 @@ async function saveAssetsToFolder(
   let imageNumber = 1;
   const savedFiles: string[] = [];
 
+  const skipLayouts = ["avatar_closeup", "text_card", "icon_grid", "motion_graphic"];
   for (const beat of script.beats) {
-    if (beat.layout === "avatar_closeup" || beat.layout === "text_card") continue;
+    if (skipLayouts.includes(beat.layout)) continue;
     const asset = assets[beat.id];
     if (!asset) {
       console.warn(`[AINYCU Pipeline] Beat ${beat.id}: no asset generated, skipping`);

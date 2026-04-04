@@ -1075,6 +1075,65 @@ export function createMcpServer(): McpServer {
     },
   );
 
+  server.tool(
+    "suggest_ainycu_topic",
+    "Submit a topic idea in natural language for the AINYCU series. The system will research it, verify real sources, extract facts, generate a script, and produce a full episode — all automatically. Use this when the user mentions a topic they heard about and want covered.",
+    {
+      topic: z.string().describe("The topic in natural language, e.g. 'Google just released a feature that lets you generate music from text in YouTube'"),
+      notes: z.string().optional().describe("Optional angle or context, e.g. 'focus on how creators can use this'"),
+    },
+    async ({ topic, notes }) => {
+      const db = await getDb();
+      if (!db) return { content: [{ type: "text" as const, text: "DB not available" }] };
+      const { ainycuRuns, appSettings } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const dayRows = await db.select().from(appSettings).where(eq(appSettings.key, "ainycu_next_day_number")).limit(1);
+      const dayNumber = parseInt(dayRows[0]?.value ?? "1", 10);
+
+      const fullTopic = notes ? `${topic} — Angle: ${notes}` : topic;
+
+      const [row] = await db.insert(ainycuRuns).values({
+        status: "pending",
+        dayNumber,
+        draftDay: dayNumber,
+      }).returning({ id: ainycuRuns.id });
+
+      import("./ainycuPipeline").then(m => m.runAinycuPipeline(row.id, fullTopic)).catch(console.error);
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        run_id: row.id,
+        day_number: dayNumber,
+        suggested_topic: fullTopic,
+        status: "started",
+        message: `Episode Day ${dayNumber} started with your suggested topic. The pipeline will research, verify sources, and generate a full episode automatically.`,
+      }) }] };
+    },
+  );
+
+  server.tool(
+    "set_ainycu_day_number",
+    "Manually set the AINYCU day counter. Use this to correct the day number if it gets out of sync.",
+    {
+      day_number: z.number().min(1).describe("The day number to set (1-30)"),
+    },
+    async ({ day_number }) => {
+      const db = await getDb();
+      if (!db) return { content: [{ type: "text" as const, text: "DB not available" }] };
+      const { appSettings } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+
+      await db.update(appSettings)
+        .set({ value: String(day_number), updatedAt: new Date() })
+        .where(eq(appSettings.key, "ainycu_next_day_number"));
+
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        ok: true,
+        day_number,
+        message: `Day counter set to ${day_number}. Next episode will be Day ${day_number}.`,
+      }) }] };
+    },
+  );
+
   // ─── Asset Download Tools ──────────────────────────────────────────────────
 
   server.tool(

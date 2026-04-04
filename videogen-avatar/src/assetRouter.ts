@@ -24,12 +24,12 @@ import type {
 
 /**
  * Pick the right generation aspect ratio based on how the beat will be displayed:
- * - "pip" → b-roll sits in a roughly square "TV frame" (top 55%, 92% width) → 1:1
+ * - "pip" / "device_mockup" → b-roll sits in a frame (top portion) → 1:1
  * - "fullscreen_broll" → fills the entire 1080×1920 canvas → 9:16
- * - "avatar_closeup" / "text_card" → no b-roll generated, but default to 9:16
+ * - "avatar_closeup" / "text_card" / "icon_grid" / "motion_graphic" → no b-roll, default 9:16
  */
 function aspectRatioForLayout(layout: LayoutMode): "9:16" | "1:1" {
-  return layout === "pip" ? "1:1" : "9:16";
+  return (layout === "pip" || layout === "device_mockup") ? "1:1" : "9:16";
 }
 
 // Fallback chains — Kling removed, everything degrades to Nano Banana → Pexels
@@ -71,8 +71,25 @@ export function routeAssets(script: VideoScript): AssetManifest {
 function routeBeat(beat: Beat): AssetRequest[] {
   const requests: AssetRequest[] = [];
 
-  // Text card beats render as pure Creatomate text — no asset needed
-  if (beat.layout === "text_card") {
+  // Layouts rendered entirely by Remotion components — no external asset needed
+  if (beat.layout === "text_card" || beat.layout === "icon_grid" || beat.layout === "motion_graphic") {
+    return requests;
+  }
+
+  // Avatar closeup — no b-roll needed
+  if (beat.layout === "avatar_closeup") {
+    return requests;
+  }
+
+  // device_mockup with non-screen-capture visual → use Nano Banana for a clean AI image
+  if (beat.layout === "device_mockup" && beat.visualType !== "screen_capture") {
+    requests.push({
+      beatId: beat.id,
+      source: "nano_banana",
+      prompt: buildProductPrompt(beat),
+      aspectRatio: "1:1",
+      fallbackChain: FALLBACK_CHAINS.nano_banana,
+    });
     return requests;
   }
 

@@ -6,10 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 import {
   CheckCircle2, Clock, AlertCircle, Loader2,
   Video, RefreshCw, Send, Eye, X,
-  Zap, BookOpen, ThumbsUp,
+  Zap, BookOpen, ThumbsUp, Rocket,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -131,6 +132,7 @@ function getProgress(status: RunStatus): number {
 export default function AINYCUReels() {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("all");
+  const [suggestedTopic, setSuggestedTopic] = useState("");
 
   const runsQuery = trpc.ainycuReels.getRuns.useQuery(undefined, { refetchInterval: 5000 });
   const dayQuery = trpc.ainycuReels.getNextDayNumber.useQuery(undefined, { refetchInterval: 10000 });
@@ -189,6 +191,45 @@ export default function AINYCUReels() {
           New Episode (Day {nextDay ?? "?"})
         </Button>
       </div>
+
+      {/* Suggest a Topic */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <Input
+                value={suggestedTopic}
+                onChange={(e) => setSuggestedTopic(e.target.value)}
+                placeholder="Suggest a topic... e.g. &quot;Google just added AI music generation to YouTube&quot;"
+                className="text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && suggestedTopic.trim()) {
+                    triggerMut.mutate({ suggestedTopic: suggestedTopic.trim() });
+                    setSuggestedTopic("");
+                  }
+                }}
+              />
+            </div>
+            <Button
+              onClick={() => {
+                if (suggestedTopic.trim()) {
+                  triggerMut.mutate({ suggestedTopic: suggestedTopic.trim() });
+                  setSuggestedTopic("");
+                }
+              }}
+              disabled={!suggestedTopic.trim() || triggerMut.isPending}
+              style={{ backgroundColor: "#e89b06", color: "black" }}
+              className="hover:brightness-110 flex-shrink-0"
+            >
+              {triggerMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Rocket className="w-4 h-4 mr-2" />}
+              Research & Run
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Type any topic in your own words — the pipeline will research it, verify sources, and generate a full episode.
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">

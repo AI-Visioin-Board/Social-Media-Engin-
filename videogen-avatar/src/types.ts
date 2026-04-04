@@ -15,7 +15,9 @@ export interface VideoScript {
   cta: string;
 }
 
-export type LayoutMode = "pip" | "fullscreen_broll" | "avatar_closeup" | "text_card";
+export type LayoutMode =
+  | "pip" | "fullscreen_broll" | "avatar_closeup" | "text_card"
+  | "device_mockup" | "icon_grid" | "motion_graphic";
 
 export interface Beat {
   id: number;
@@ -31,6 +33,18 @@ export interface Beat {
   captionEmphasis?: string[];  // keywords to bold/highlight in captions
   textCardText?: string;       // large text for text_card layout (stat, claim, quote)
   textCardColor?: string;      // background color for text_card layout (e.g., "#FF0000")
+
+  // ─── Smart Visual Hints (Script Director → Remotion) ──────
+  // Multi-style caption word treatments (key = word, value = style name)
+  wordStyles?: Record<string, "hero" | "action" | "danger" | "pill">;
+  // Whether this beat should get a camera zoom punch (emphatic moment)
+  zoomPunch?: boolean;
+  // If true, rendered entirely by a Remotion component — no b-roll fetch needed
+  remotionOnly?: boolean;
+  // For icon_grid layout: list of emoji+label items (2-4 items)
+  iconGridItems?: Array<{ emoji: string; label: string }>;
+  // For device_mockup layout: which device frame to use
+  deviceType?: "macbook" | "iphone";
 }
 
 export type VisualType =
