@@ -114,7 +114,6 @@ BANNED PATTERNS:
 - No "In today's..." / "In an era where..."
 - No hedge words: "might," "could potentially"
 - No "game-changer" / "revolutionize"
-- No "Here's the move"
 
 LAYOUT OPTIONS (one per beat):
 - "pip" — Avatar bottom + B-roll top in TV frame. USE when showing an actual tool screen or video clip.
