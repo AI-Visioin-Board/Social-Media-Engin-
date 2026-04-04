@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   CheckCircle2, Clock, AlertCircle, Loader2,
   Video, RefreshCw, Send, Eye, X,
-  Zap, BookOpen, ThumbsUp, Rocket,
+  Zap, BookOpen, ThumbsUp, Rocket, Plus, Trash2,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -133,6 +133,29 @@ export default function AINYCUReels() {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("all");
   const [suggestedTopic, setSuggestedTopic] = useState("");
+  const [savedIdeas, setSavedIdeas] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("ainycu_ideas") ?? "[]"); } catch { return []; }
+  });
+
+  const persistIdeas = (ideas: string[]) => {
+    setSavedIdeas(ideas);
+    localStorage.setItem("ainycu_ideas", JSON.stringify(ideas));
+  };
+
+  const addIdea = (text: string) => {
+    if (!text.trim()) return;
+    persistIdeas([...savedIdeas, text.trim()]);
+  };
+
+  const removeIdea = (index: number) => {
+    persistIdeas(savedIdeas.filter((_, i) => i !== index));
+  };
+
+  const runIdea = (index: number) => {
+    const topic = savedIdeas[index];
+    triggerMut.mutate({ suggestedTopic: topic });
+    removeIdea(index);
+  };
 
   const runsQuery = trpc.ainycuReels.getRuns.useQuery(undefined, { refetchInterval: 5000 });
   const dayQuery = trpc.ainycuReels.getNextDayNumber.useQuery(undefined, { refetchInterval: 10000 });
@@ -192,19 +215,19 @@ export default function AINYCUReels() {
         </Button>
       </div>
 
-      {/* Suggest a Topic */}
+      {/* Topic Ideas */}
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-3">
             <div className="flex-1">
               <Input
                 value={suggestedTopic}
                 onChange={(e) => setSuggestedTopic(e.target.value)}
-                placeholder="Suggest a topic... e.g. &quot;Google just added AI music generation to YouTube&quot;"
+                placeholder="Add a topic idea... e.g. &quot;Google just added AI music generation to YouTube&quot;"
                 className="text-sm"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && suggestedTopic.trim()) {
-                    triggerMut.mutate({ suggestedTopic: suggestedTopic.trim() });
+                    addIdea(suggestedTopic);
                     setSuggestedTopic("");
                   }
                 }}
@@ -213,21 +236,52 @@ export default function AINYCUReels() {
             <Button
               onClick={() => {
                 if (suggestedTopic.trim()) {
-                  triggerMut.mutate({ suggestedTopic: suggestedTopic.trim() });
+                  addIdea(suggestedTopic);
                   setSuggestedTopic("");
                 }
               }}
-              disabled={!suggestedTopic.trim() || triggerMut.isPending}
-              style={{ backgroundColor: "#e89b06", color: "black" }}
-              className="hover:brightness-110 flex-shrink-0"
+              disabled={!suggestedTopic.trim()}
+              variant="outline"
+              className="flex-shrink-0"
             >
-              {triggerMut.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Rocket className="w-4 h-4 mr-2" />}
-              Research & Run
+              <Plus className="w-4 h-4 mr-1" />
+              Add Idea
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Type any topic in your own words — the pipeline will research it, verify sources, and generate a full episode.
-          </p>
+
+          {savedIdeas.length > 0 && (
+            <div className="space-y-1.5">
+              {savedIdeas.map((idea, i) => (
+                <div key={i} className="flex items-center gap-2 p-2 rounded-md bg-accent/30 group">
+                  <p className="flex-1 text-sm truncate">{idea}</p>
+                  <Button
+                    size="sm"
+                    onClick={() => runIdea(i)}
+                    disabled={triggerMut.isPending}
+                    style={{ backgroundColor: "#e89b06", color: "black" }}
+                    className="hover:brightness-110 flex-shrink-0 h-7 px-3 text-xs"
+                  >
+                    {triggerMut.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Rocket className="w-3 h-3 mr-1" />}
+                    Run
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => removeIdea(i)}
+                    className="flex-shrink-0 h-7 w-7 p-0 opacity-50 hover:opacity-100 hover:text-red-500"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {savedIdeas.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Add topic ideas as they come to mind — hit Run when you're ready to generate an episode.
+            </p>
+          )}
         </CardContent>
       </Card>
 
