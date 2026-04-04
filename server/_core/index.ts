@@ -222,10 +222,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "200mb", extended: true }));
   // Auth routes (login endpoint)
   registerAuthRoutes(app);
-  // Serve uploaded files — check volume first, then fall back to bundled repo assets
+  // Serve uploaded files (local filesystem storage)
   app.use("/uploads", express.static(path.resolve(process.env.UPLOADS_DIR || "./public/uploads")));
-  // Also serve bundled assets from the repo (e.g. portal welcome video)
-  app.use("/uploads", express.static(path.resolve("./public/uploads")));
   // MCP Server (AI agent interface)
   registerMcpEndpoint(app);
   // Asset download endpoints (zip b-roll + script from DB)

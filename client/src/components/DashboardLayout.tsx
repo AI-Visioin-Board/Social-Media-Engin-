@@ -34,7 +34,6 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
-import { WelcomeVideoModal } from "./WelcomeVideoModal";
 
 const menuItems = [
   { icon: Instagram, label: "Carousel", path: "/" },
@@ -97,20 +96,17 @@ export default function DashboardLayout({
   }
 
   return (
-    <>
-      <WelcomeVideoModal />
-      <SidebarProvider
-        style={
-          {
-            "--sidebar-width": `${sidebarWidth}px`,
-          } as CSSProperties
-        }
-      >
-        <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-          {children}
-        </DashboardLayoutContent>
-      </SidebarProvider>
-    </>
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": `${sidebarWidth}px`,
+        } as CSSProperties
+      }
+    >
+      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
+        {children}
+      </DashboardLayoutContent>
+    </SidebarProvider>
   );
 }
 
