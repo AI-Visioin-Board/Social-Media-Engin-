@@ -204,6 +204,10 @@ export async function continueAfterTopicApproval(
       heygenPromise = generateTemplateVideo(templateId, narrationText, ac.signal)
         .catch((err: Error) => {
           console.error(`[AINYCU Pipeline] HeyGen template failed: ${err.message}`);
+          // Surface the error so it shows in the dashboard status
+          updateRun(runId, {
+            statusDetail: `B-roll generating... HeyGen FAILED: ${err.message.slice(0, 200)}`,
+          }).catch(() => {});
           return null;
         });
     } else {
@@ -308,7 +312,7 @@ export async function continueAfterTopicApproval(
     const heygenStatus = avatarVideoFile
       ? `Avatar video saved (${heygenResult!.durationSec}s).`
       : heygenResult === null && templateId
-        ? "HeyGen avatar failed — create manually in HeyGen UI."
+        ? "⚠️ HeyGen avatar FAILED (check credits at app.heygen.com) — create manually."
         : "No HeyGen template configured — create avatar video in HeyGen UI.";
 
     await updateRun(runId, {

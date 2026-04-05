@@ -188,18 +188,26 @@ function launchClaudeCode(run, outputDir) {
     `  1. ${outputDir}/script.json — the beat structure (layouts, narration, visual prompts, durations)`,
     `  2. /Users/test/Documents/remotion-test/REEL_PRODUCTION_PROTOCOL.md — the single source of truth for ALL reel creation rules`,
     ``,
-    `Then execute the protocol:`,
+    `Then execute the protocol IN ORDER:`,
     `  1. Copy all b-roll assets from the assets folder into remotion-test/public/ with a short topic prefix`,
-    `  2. If avatar-video.mp4 exists, run the 3-step green screen pipeline (Section 2 of protocol): ffmpeg chromakey → Python edge despill → VP8 WebM encode`,
-    `  3. Extract audio from avatar video → WAV, then run Whisper for word-level captions JSON`,
-    `  4. Create a new Remotion composition in remotion-test/src/ following the protocol exactly`,
+    `  2. Visually inspect every b-roll image (Section 4) — reject captcha pages, blank images, error pages`,
+    `  3. If avatar-video.mp4 exists, run the 3-step green screen pipeline (Section 2): ffmpeg chromakey → Python edge despill → VP8 WebM encode`,
+    `  4. Extract audio from avatar video → WAV, then run Whisper for word-level captions JSON (Section 3)`,
+    `  5. MANDATORY: Execute Creative Director visual planning (Section 6) BEFORE writing any code:`,
+    `     a. Extract Power Noun from each beat (the single most important word)`,
+    `     b. Look up each Power Noun's exact startMs in the captions JSON`,
+    `     c. Assign visual triggers using the decision tree (Section 6.4)`,
+    `     d. Run asset gap analysis — can existing b-roll serve each trigger?`,
+    `     e. Negative space check — max 2 visual layers at once`,
+    `     f. Output the Visual Trigger Schema as a SCENES array`,
+    `  6. Create a new Remotion composition in remotion-test/src/ following the protocol exactly`,
     `     - Use shared components: GlassTVFrame.tsx, DeviceMockup.tsx, IconGrid.tsx, AinycuIntro.tsx`,
     `     - Use brand constants from brand.ts and spring presets`,
-    `     - Use useVisualTrigger hook for syllabic sync`,
+    `     - Use useVisualTrigger hook for syllabic sync — animations fire on Power Noun startMs, NOT scene boundaries`,
     `     - Layout sequence from script.json beats (avatar_closeup, pip, device_mockup, icon_grid, text_card, motion_graphic)`,
-    `  5. Register the new composition in Root.tsx (1080x1920, 30fps)`,
-    `  6. Type-check: npx tsc --noEmit`,
-    `  7. Start Remotion Studio for preview: npx remotion studio`,
+    `  7. Register the new composition in Root.tsx (1080x1920, 30fps)`,
+    `  8. Type-check: npx tsc --noEmit`,
+    `  9. Start Remotion Studio for preview: npx remotion studio`,
   ].join("\n");
 
   console.log(`[${ts()}] Launching Claude Code for Remotion assembly...`);
@@ -215,7 +223,7 @@ function launchClaudeCode(run, outputDir) {
   const appleScript = [
     'tell application "Terminal"',
     '  activate',
-    `  do script "cd '${escapedProject}' && export PATH=\\"/usr/local/Cellar/node/25.6.1_1/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\" && echo 'Starting Remotion assembly for: ${topicClean.replace(/'/g, "")}' && npx @anthropic-ai/claude-code < '${escapedPromptFile}'"`,
+    `  do script "cd '${escapedProject}' && export PATH=\\"/usr/local/Cellar/node/25.6.1_1/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\" && echo 'Starting Remotion assembly for: ${topicClean.replace(/'/g, "")}' && npx @anthropic-ai/claude-code \\"$(cat '${escapedPromptFile}')\\""`,
     'end tell',
   ].join("\n");
 
