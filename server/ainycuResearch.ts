@@ -354,8 +354,16 @@ export async function scoreAndSelectTopics(topics: RawTopic[], count: number = 3
 export async function verifyTopic(topic: ScoredTopic): Promise<VerifiedTopic> {
   console.log(`[AINYCU Research] Verifying: "${topic.title.slice(0, 60)}..."`);
 
-  const serpResults = await searchSERP(topic.title);
-  const sources = await fetchArticleBodies(serpResults);
+  // Run SERP + official docs deep dive in parallel
+  const [serpResults, docsSources] = await Promise.all([
+    searchSERP(topic.title),
+    fetchOfficialDocs(topic.title),
+  ]);
+
+  const sources = [
+    ...(await fetchArticleBodies(serpResults)),
+    ...docsSources,
+  ];
 
   const tier1Count = sources.filter(s => s.credibilityTier === "tier1").length;
   const verificationStatus = tier1Count >= 3 ? "verified_3plus" as const
@@ -373,6 +381,76 @@ export async function verifyTopic(topic: ScoredTopic): Promise<VerifiedTopic> {
     facts,
     verificationStatus,
   };
+}
+
+// ─── Official Docs Deep Dive ───────────────────────────────
+// Uses GPT web search to find the tool's official product/feature page,
+// changelog, or docs — where specific feature names live.
+
+async function fetchOfficialDocs(topic: string): Promise<SourceArticle[]> {
+  if (!ENV.openaiApiKey) return [];
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ENV.openaiApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: ENV.openaiModel,
+        tools: [{ type: "web_search_preview" }],
+        input: `Find the OFFICIAL product page, feature list, or documentation for this AI tool/feature: "${topic}". I need the page that lists SPECIFIC named features, capabilities, integrations, and pricing tiers. Look for: the tool's official website feature page, changelog, release blog post from the company itself, or developer docs. Return ONLY a JSON array of up to 4 URLs with titles: [{"url": "https://...", "title": "page title"}]`,
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!response.ok) return [];
+    const data = await response.json() as any;
+    const textItem = (data?.output ?? []).find((o: any) => o.type === "message");
+    const rawText: string = textItem?.content?.[0]?.text ?? "[]";
+    const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const sources: SourceArticle[] = [];
+
+    await Promise.allSettled(
+      parsed.slice(0, 4).map(async (item: any) => {
+        if (!item?.url) return;
+        try {
+          const res = await fetch(item.url, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (compatible; SuggestedByGPT/1.0; +https://suggestedbygpt.com)",
+              Accept: "text/html",
+            },
+            signal: AbortSignal.timeout(10_000),
+            redirect: "follow",
+          });
+          if (!res.ok) return;
+          const html = await res.text();
+          const dom = new JSDOM(html, { url: item.url });
+          const reader = new Readability(dom.window.document);
+          const article = reader.parse();
+          if (article?.textContent && article.textContent.length > 100) {
+            sources.push({
+              url: item.url,
+              domain: extractDomain(item.url),
+              title: article.title || item.title || "",
+              publishedAt: null,
+              bodyExcerpt: article.textContent.slice(0, 3000), // longer excerpt for docs
+              credibilityTier: isTier1Source(item.url) ? "tier1" : "other",
+            });
+          }
+        } catch { /* skip */ }
+      })
+    );
+
+    console.log(`[AINYCU Research] Found ${sources.length} official doc pages for "${topic.slice(0, 40)}..."`);
+    return sources;
+  } catch {
+    return [];
+  }
 }
 
 async function searchSERP(query: string): Promise<Array<{ url: string; title: string; snippet: string; date?: string }>> {
@@ -481,7 +559,7 @@ async function extractFacts(topic: string, sources: SourceArticle[]): Promise<Ve
           },
           {
             role: "user",
-            content: `Topic: ${topic}\n\nExtract key facts, prioritizing the most IMPRESSIVE and USEFUL capabilities:\n\n1. FEATURES & CAPABILITIES (highest priority):\n   - What can this tool actually DO? List specific capabilities.\n   - What integrations, plugins, or connections does it have?\n   - What automations or workflows does it enable?\n   - What makes it different from just chatting with an AI?\n\n2. ACCESS & SETUP:\n   - How do you access it? (URL, app, extension, etc.)\n   - What account/plan is required?\n\n3. CONCRETE USE CASES:\n   - Real examples of what someone could accomplish with this\n   - Time saved, tasks automated, problems solved\n\nArticles:\n${articlesContext}\n\nReturn JSON: {"facts": [{"fact": "specific factual claim, feature, or capability", "sourceUrl": "article URL", "sourceIndex": 1}]}\n\nRULES:\n- Extract 8-15 facts\n- Lead with the WOW features — the capabilities that make someone say "wait, it can do THAT?"\n- Include specific integrations, plugins, tools, or services it connects to\n- Include specific automations or scheduled tasks it can handle\n- Each fact must be in at least one source\n- Do NOT add claims not in the articles\n- Do NOT waste facts on generic "AI is powerful" statements — be SPECIFIC`,
+            content: `Topic: ${topic}\n\nExtract key facts, prioritizing the most IMPRESSIVE and USEFUL capabilities:\n\n1. FEATURES & CAPABILITIES (highest priority):\n   - What can this tool actually DO? List specific NAMED features (proper nouns, menu items, branded feature names).\n   - What integrations, plugins, or connections does it have? Name each one.\n   - What automations or workflows does it enable?\n   - What makes it different from just chatting with an AI?\n\n2. ACCESS & SETUP:\n   - How do you access it? (URL, app, extension, etc.)\n   - What account/plan is required?\n\n3. CONCRETE USE CASES:\n   - Real examples of what someone could accomplish with this\n   - Time saved, tasks automated, problems solved\n\nArticles:\n${articlesContext}\n\nReturn JSON: {"facts": [{"fact": "specific factual claim, feature, or capability", "sourceUrl": "article URL", "sourceIndex": 1}]}\n\nRULES:\n- Extract 8-15 facts\n- CRITICAL: Each fact MUST describe a DIFFERENT capability or feature. No two facts should describe the same thing in different words. If "organize files" is fact #1, you cannot have "manage documents" as fact #5 — that's the same thing.\n- Use the tool's OFFICIAL feature names when available (e.g., "Tasks", "Scheduled Tasks", "Dispatch", "MCP connectors" — not vague descriptions like "it can do things automatically")\n- Lead with the WOW features — the capabilities that make someone say "wait, it can do THAT?"\n- Include specific integrations, plugins, tools, or services it connects to\n- Include specific automations or scheduled tasks it can handle\n- Each fact must be in at least one source\n- Do NOT add claims not in the articles\n- Do NOT waste facts on generic "AI is powerful" statements — be SPECIFIC\n- VARIETY CHECK: Before returning, verify that your 8-15 facts cover at least 5 DISTINCT feature categories. If you have 3 facts about the same category, cut 2 and find facts about other capabilities.`,
           },
         ],
         temperature: 0.2,

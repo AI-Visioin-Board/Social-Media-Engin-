@@ -78,6 +78,19 @@ Beats 4-10 — THE WALKTHROUGH (25-35 sec): 3-5 concrete steps, 2 beats per step
   The audience wants to know WHAT THE TOOL CAN DO, not how to talk to it.
   Show the features that make someone say "wait, it can do THAT?"
 
+  ANTI-REPETITION RULE (MANDATORY):
+  Each walkthrough step MUST cover a COMPLETELY DIFFERENT named feature or capability.
+  - Use the tool's OFFICIAL feature name as a proper noun (e.g., "Tasks", "Scheduled Tasks", "Dispatch", "Computer Use", "MCP Connectors")
+  - If Step 1 mentions file management, Steps 2-5 CANNOT mention file management again — even rephrased
+  - Before writing the walkthrough, mentally list 3-5 DISTINCT features, then assign ONE per step
+  - NEVER describe the same capability twice using different words
+  - Test: if you removed the feature name from two steps and they sound the same, one must be replaced
+
+  FEATURE DEPTH RULE:
+  Each step should name the specific feature AND show one concrete thing it does.
+  BAD: "It can also help with your work tasks" (vague, no feature name)
+  GOOD: "Step three — Scheduled Tasks. Set Claude to check your inbox every morning and flag anything urgent." (named feature + concrete action)
+
 Beat 11 — SO WHAT (2-3 sec): Why this matters to THEM personally. Concrete, not abstract.
   Layout: "avatar_closeup" or "motion_graphic" (if comparing before/after)
   Example: "This is the fastest way to update old graphics without starting from zero."
@@ -244,7 +257,7 @@ export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<V
     for (const f of verifiedFacts) {
       userPrompt += `- ${f.fact} [Source: ${f.sourceUrl}]\n`;
     }
-    userPrompt += "\nUse these facts for the walkthrough steps. LEAD WITH THE MOST IMPRESSIVE FEATURES AND CAPABILITIES — the things that make people say 'wait, it can do THAT?' Do NOT waste beats on generic prompting advice. Show what the tool can DO. You can add personality and commentary, but the INSTRUCTIONAL CONTENT must come from these facts.\n\n";
+    userPrompt += "\nUse these facts for the walkthrough steps. LEAD WITH THE MOST IMPRESSIVE FEATURES AND CAPABILITIES — the things that make people say 'wait, it can do THAT?' Do NOT waste beats on generic prompting advice. Show what the tool can DO. You can add personality and commentary, but the INSTRUCTIONAL CONTENT must come from these facts.\n\nCRITICAL: Each walkthrough step must cover a DIFFERENT fact/feature from the list above. Do NOT reuse or rephrase the same capability across multiple steps. If the facts mention 5 distinct features, your walkthrough should cover 3-5 of them — one per step. Name each feature explicitly.\n\n";
   }
 
   if (feedback) {
