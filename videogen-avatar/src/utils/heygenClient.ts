@@ -230,7 +230,11 @@ async function pollVideoStatus(
     }
 
     if (status === "failed") {
-      throw new Error(`[HeyGen] Video generation failed: ${data.data?.error ?? "unknown error"}`);
+      const err = data.data?.error;
+      const errMsg = typeof err === "object" && err !== null
+        ? (err.detail || err.message || JSON.stringify(err))
+        : (err ?? "unknown error");
+      throw new Error(`[HeyGen] Video generation failed: ${errMsg}`);
     }
 
     console.log(`[HeyGen] Status: ${status}, waiting...`);
