@@ -13,7 +13,7 @@
 // Usage: Double-click "Start AINYCU Downloader.command" on Desktop
 // ============================================================
 
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -172,38 +172,39 @@ async function downloadRun(run) {
 // ─── Launch Claude Code for Remotion Assembly ───────────────
 
 function launchClaudeCode(run, outputDir) {
-  const topicClean = (run.topic ?? "untitled").replace(/"/g, '\\"');
+  const topicClean = (run.topic ?? "untitled").replace(/[^a-zA-Z0-9 ]/g, "");
   const dayNum = run.dayNumber ?? "?";
   const hasAvatar = !!run.finalVideoUrl;
 
+  // ASCII-only prompt -- no em-dashes, arrows, or special chars that break osascript/Terminal
   const prompt = [
     `New AINYCU reel ready for Remotion assembly.`,
     ``,
     `Topic: "${topicClean}"`,
     `Day: ${dayNum}`,
     `Assets folder: ${outputDir}`,
-    `Avatar video: ${hasAvatar ? "avatar-video.mp4 is in the assets folder" : "NOT YET — needs green screen processing or HeyGen generation first"}`,
+    `Avatar video: ${hasAvatar ? "avatar-video.mp4 is in the assets folder" : "NOT YET -- needs green screen processing or HeyGen generation first"}`,
     ``,
     `IMPORTANT: Read these files first before doing anything:`,
-    `  1. ${outputDir}/script.json — the beat structure (layouts, narration, visual prompts, durations)`,
-    `  2. /Users/test/Documents/remotion-test/REEL_PRODUCTION_PROTOCOL.md — the single source of truth for ALL reel creation rules`,
+    `  1. ${outputDir}/script.json -- the beat structure (layouts, narration, visual prompts, durations)`,
+    `  2. ${REMOTION_PROJECT}/REEL_PRODUCTION_PROTOCOL.md -- the single source of truth for ALL reel creation rules`,
     ``,
     `Then execute the protocol IN ORDER:`,
     `  1. Copy all b-roll assets from the assets folder into remotion-test/public/ with a short topic prefix`,
-    `  2. Visually inspect every b-roll image (Section 4) — reject captcha pages, blank images, error pages`,
-    `  3. If avatar-video.mp4 exists, run the 3-step green screen pipeline (Section 2): ffmpeg chromakey → Python edge despill → VP8 WebM encode`,
-    `  4. Extract audio from avatar video → WAV, then run Whisper for word-level captions JSON (Section 3)`,
+    `  2. Visually inspect every b-roll image (Section 4) -- reject captcha pages, blank images, error pages`,
+    `  3. If avatar-video.mp4 exists, run the 3-step green screen pipeline (Section 2): ffmpeg chromakey -> Python edge despill -> VP8 WebM encode`,
+    `  4. Extract audio from avatar video -> WAV, then run Whisper for word-level captions JSON (Section 3)`,
     `  5. MANDATORY: Execute Creative Director visual planning (Section 6) BEFORE writing any code:`,
     `     a. Extract Power Noun from each beat (the single most important word)`,
-    `     b. Look up each Power Noun's exact startMs in the captions JSON`,
+    `     b. Look up each Power Noun exact startMs in the captions JSON`,
     `     c. Assign visual triggers using the decision tree (Section 6.4)`,
-    `     d. Run asset gap analysis — can existing b-roll serve each trigger?`,
-    `     e. Negative space check — max 2 visual layers at once`,
+    `     d. Run asset gap analysis -- can existing b-roll serve each trigger?`,
+    `     e. Negative space check -- max 2 visual layers at once`,
     `     f. Output the Visual Trigger Schema as a SCENES array`,
     `  6. Create a new Remotion composition in remotion-test/src/ following the protocol exactly`,
     `     - Use shared components: GlassTVFrame.tsx, DeviceMockup.tsx, IconGrid.tsx, AinycuIntro.tsx`,
     `     - Use brand constants from brand.ts and spring presets`,
-    `     - Use useVisualTrigger hook for syllabic sync — animations fire on Power Noun startMs, NOT scene boundaries`,
+    `     - Use useVisualTrigger hook for syllabic sync -- animations fire on Power Noun startMs, NOT scene boundaries`,
     `     - Layout sequence from script.json beats (avatar_closeup, pip, device_mockup, icon_grid, text_card, motion_graphic)`,
     `  7. Register the new composition in Root.tsx (1080x1920, 30fps)`,
     `  8. Type-check: npx tsc --noEmit`,
@@ -212,30 +213,74 @@ function launchClaudeCode(run, outputDir) {
 
   console.log(`[${ts()}] Launching Claude Code for Remotion assembly...`);
 
-  // Write prompt to a temp file to avoid shell escaping issues
+  // Write prompt file
   const promptFile = join(outputDir, ".claude-prompt.txt");
   writeFileSync(promptFile, prompt, "utf-8");
 
-  // Open interactive Claude Code session in a new Terminal window
-  const escapedProject = REMOTION_PROJECT.replace(/'/g, "'\\''");
-  const escapedPromptFile = promptFile.replace(/'/g, "'\\''");
+  // Step 1: Copy all assets into the Remotion project so Claude Code can access them
+  //         (Claude Code's working dir is remotion-test -- it can't read outside it)
+  const topicPrefix = sanitize(run.topic ?? "reel").slice(0, 30).toLowerCase();
+  const assetsInProject = join(REMOTION_PROJECT, "assets-input");
+  mkdirSync(assetsInProject, { recursive: true });
+  // Copy every file from outputDir into remotion-test/assets-input/
+  const assetFiles = execFileSync("ls", ["-1", outputDir]).toString().trim().split("\n")
+    .filter(f => !f.startsWith("."));
+  for (const f of assetFiles) {
+    execFileSync("cp", ["-f", join(outputDir, f), join(assetsInProject, f)]);
+  }
+  console.log(`[${ts()}] Copied ${assetFiles.length} assets to ${assetsInProject}`);
 
-  const appleScript = [
-    'tell application "Terminal"',
-    '  activate',
-    `  do script "cd '${escapedProject}' && export PATH=\\"/usr/local/Cellar/node/25.6.1_1/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\" && echo 'Starting Remotion assembly for: ${topicClean.replace(/'/g, "")}' && npx @anthropic-ai/claude-code \\"$(cat '${escapedPromptFile}')\\""`,
-    'end tell',
-  ].join("\n");
+  // Rewrite prompt to reference the local assets-input folder
+  const localPrompt = prompt
+    .replace(new RegExp(outputDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "g"), assetsInProject);
+  const promptFile2 = join(REMOTION_PROJECT, ".claude-prompt.txt");
+  writeFileSync(promptFile2, localPrompt, "utf-8");
+
+  // Write a self-contained shell script that:
+  //   1. Sets PATH so node/npx are found
+  //   2. cd to the Remotion project
+  //   3. Pipes the prompt into Claude Code in non-interactive mode
+  //   4. Logs output to a file AND to the terminal
+  const logFile = join(outputDir, ".claude-output.log");
+  const launchScript = join(REMOTION_PROJECT, ".run-claude.sh");
+  writeFileSync(launchScript, [
+    `#!/bin/bash`,
+    `export PATH="/usr/local/Cellar/node/25.6.1_1/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"`,
+    `cd "${REMOTION_PROJECT}"`,
+    `echo "============================================"`,
+    `echo "  AINYCU Remotion Assembly"`,
+    `echo "  Topic: ${topicClean}"`,
+    `echo "  Assets: ${assetsInProject}"`,
+    `echo "  Log: ${logFile}"`,
+    `echo "============================================"`,
+    `echo ""`,
+    `echo "Starting Claude Code (fully automated)..."`,
+    `echo ""`,
+    `cat "${promptFile2}" | npx -y @anthropic-ai/claude-code -- -p --dangerously-skip-permissions 2>&1 | tee "${logFile}"`,
+    `echo ""`,
+    `echo "============================================"`,
+    `echo "  Claude Code finished. Check output above."`,
+    `echo "  Log saved to: ${logFile}"`,
+    `echo "============================================"`,
+  ].join("\n"), "utf-8");
+  chmodSync(launchScript, 0o755);
+
+  // Launch in a new Terminal window via osascript
+  // Launch script is now inside remotion-test (no spaces in path)
+  const appleScript = `tell application "Terminal"
+  activate
+  do script "bash ${launchScript}"
+end tell`;
 
   execFile("osascript", ["-e", appleScript], (err) => {
     if (err) {
       console.error(`[${ts()}] Could not launch Claude Code: ${err.message}`);
-      console.log(`[${ts()}] Start manually:`);
-      console.log(`         cd ${REMOTION_PROJECT}`);
-      console.log(`         npx @anthropic-ai/claude-code`);
-      console.log(`         Then paste the prompt from: ${promptFile}`);
+      console.log(`[${ts()}] Run manually:`);
+      console.log(`         ${launchScript}`);
     } else {
       console.log(`[${ts()}] Claude Code launched in new Terminal window!`);
+      console.log(`         Prompt: ${promptFile}`);
+      console.log(`         Log:    ${logFile}`);
     }
   });
 }
