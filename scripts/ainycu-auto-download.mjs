@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // ============================================================
-// AINYCU Auto-Downloader + Remotion Auto-Trigger
+// AINYCU Auto-Downloader + Remotion Assembly Trigger
 //
 // Watches Railway for completed AINYCU pipeline runs.
-// When one finishes:
+// When a NEW one finishes:
 //   1. Downloads all assets (b-roll, script, avatar video) to local folder
-//   2. Opens a new Terminal with Claude Code to start assembling the Remotion video
+//   2. Opens Claude Code in a new Terminal to assemble the Remotion video
+//
+// First launch: seeds state with all existing runs so only FUTURE
+// completions trigger downloads. No historical backfill.
 //
 // Usage: Double-click "Start AINYCU Downloader.command" on Desktop
 // ============================================================
@@ -19,9 +22,9 @@ import { execFileSync, execFile } from "node:child_process";
 // ─── Configuration ──────────────────────────────────────────
 
 const RAILWAY_URL = "https://social-media-engin-production.up.railway.app";
-const OUTPUT_BASE = "/Users/test/Documents/AVATAR PIPELINE/AI News You Can Use";
+const OUTPUT_BASE = "/Users/test/Documents/Social-Media-Engin-/AVATAR PIPELINE/AI News You Can Use";
 const REMOTION_PROJECT = "/Users/test/Documents/remotion-test";
-const POLL_INTERVAL_MS = 30_000; // Check every 30 seconds
+const POLL_INTERVAL_MS = 30_000;
 const STATE_FILE = join(OUTPUT_BASE, ".downloaded-runs.json");
 
 // ─── State Management ───────────────────────────────────────
@@ -54,11 +57,30 @@ async function main() {
   console.log(`  Polling every : ${POLL_INTERVAL_MS / 1000}s`);
   console.log("");
 
-  const downloaded = loadDownloadedRuns();
-  if (downloaded.size > 0) {
-    console.log(`  Previously downloaded: ${downloaded.size} runs (skipping those)`);
+  let downloaded = loadDownloadedRuns();
+
+  // On first launch (no state file), seed with ALL existing completed runs
+  // so we only download truly new ones going forward.
+  if (downloaded.size === 0) {
+    console.log("  First launch — checking existing runs to skip...");
+    try {
+      const res = await fetch(`${RAILWAY_URL}/api/ainycu/completed-runs`, {
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (res.ok) {
+        const { runs } = await res.json();
+        for (const r of runs) downloaded.add(r.id);
+        saveDownloadedRuns(downloaded);
+        console.log(`  Seeded ${downloaded.size} existing runs (will NOT re-download these)`);
+      }
+    } catch (err) {
+      console.error(`  Could not seed existing runs: ${err.message}`);
+    }
+  } else {
+    console.log(`  Previously seen: ${downloaded.size} runs (skipping those)`);
   }
-  console.log("  Waiting for new completed runs...\n");
+
+  console.log("  Watching for new completed runs...\n");
 
   while (true) {
     try {
@@ -85,29 +107,33 @@ async function checkForNewRuns(downloaded) {
 
   if (newRuns.length === 0) return;
 
-  for (const run of newRuns) {
-    console.log(`[${ts()}] ────────────────────────────────────────────`);
-    console.log(`[${ts()}] NEW completed run #${run.id}`);
-    console.log(`         Topic: "${run.topic}"`);
-    console.log(`         Day: ${run.dayNumber}`);
-    console.log(`         B-roll files: ${run.brollImageCount ?? "?"}`);
-    console.log(`         Avatar video: ${run.finalVideoUrl ? "YES" : "NO (manual)"}`);
+  // Only download the latest new run (not a batch of old ones)
+  const latest = newRuns[newRuns.length - 1];
 
-    try {
-      const outputDir = await downloadRun(run);
-      downloaded.add(run.id);
-      saveDownloadedRuns(downloaded);
-      console.log(`[${ts()}] Download complete!`);
-
-      // macOS notification
-      notify(`Day ${run.dayNumber} assets ready`, run.topic ?? "New reel");
-
-      // Launch Claude Code in a new Terminal window to start Remotion assembly
-      launchClaudeCode(run, outputDir);
-
-    } catch (err) {
-      console.error(`[${ts()}] Failed to download run #${run.id}: ${err.message}`);
+  // Mark all others as seen without downloading
+  for (const r of newRuns) {
+    if (r.id !== latest.id) {
+      downloaded.add(r.id);
     }
+  }
+
+  console.log(`[${ts()}] ────────────────────────────────────────────`);
+  console.log(`[${ts()}] NEW completed run #${latest.id}`);
+  console.log(`         Topic: "${latest.topic}"`);
+  console.log(`         Day: ${latest.dayNumber}`);
+  console.log(`         B-roll files: ${latest.brollImageCount ?? "?"}`);
+  console.log(`         Avatar video: ${latest.finalVideoUrl ? "YES" : "NO (manual)"}`);
+
+  try {
+    const outputDir = await downloadRun(latest);
+    downloaded.add(latest.id);
+    saveDownloadedRuns(downloaded);
+    console.log(`[${ts()}] Download complete!`);
+
+    notify(`Day ${latest.dayNumber} assets ready`, latest.topic ?? "New reel");
+    launchClaudeCode(latest, outputDir);
+  } catch (err) {
+    console.error(`[${ts()}] Failed to download run #${latest.id}: ${err.message}`);
   }
 }
 
@@ -150,43 +176,56 @@ function launchClaudeCode(run, outputDir) {
   const dayNum = run.dayNumber ?? "?";
   const hasAvatar = !!run.finalVideoUrl;
 
-  // Build the prompt that Claude Code will receive
   const prompt = [
     `New AINYCU reel ready for Remotion assembly.`,
     ``,
     `Topic: "${topicClean}"`,
     `Day: ${dayNum}`,
     `Assets folder: ${outputDir}`,
-    `Avatar video: ${hasAvatar ? "avatar-video.mp4 (in folder)" : "NOT YET — create in HeyGen UI first"}`,
+    `Avatar video: ${hasAvatar ? "avatar-video.mp4 is in the assets folder" : "NOT YET — needs green screen processing or HeyGen generation first"}`,
     ``,
-    `Steps:`,
-    `1. Read script.json from the assets folder to understand the beat structure`,
-    `2. Copy all b-roll assets into remotion-test/public/ with a short prefix`,
-    `3. Create a new Remotion composition in remotion-test/src/ following the REEL_PRODUCTION_PROTOCOL.md`,
-    `4. Register it in Root.tsx`,
-    `5. Start Remotion Studio so I can preview`,
+    `IMPORTANT: Read these files first before doing anything:`,
+    `  1. ${outputDir}/script.json — the beat structure (layouts, narration, visual prompts, durations)`,
+    `  2. /Users/test/Documents/remotion-test/REEL_PRODUCTION_PROTOCOL.md — the single source of truth for ALL reel creation rules`,
     ``,
-    `Use the existing LayersReel or CanvaReel compositions as reference for the component structure.`,
-    `The composition should use the standard AINYCU layout: avatar closeups, PIP scenes, device mockups, icon grids, and text cards.`,
+    `Then execute the protocol:`,
+    `  1. Copy all b-roll assets from the assets folder into remotion-test/public/ with a short topic prefix`,
+    `  2. If avatar-video.mp4 exists, run the 3-step green screen pipeline (Section 2 of protocol): ffmpeg chromakey → Python edge despill → VP8 WebM encode`,
+    `  3. Extract audio from avatar video → WAV, then run Whisper for word-level captions JSON`,
+    `  4. Create a new Remotion composition in remotion-test/src/ following the protocol exactly`,
+    `     - Use shared components: GlassTVFrame.tsx, DeviceMockup.tsx, IconGrid.tsx, AinycuIntro.tsx`,
+    `     - Use brand constants from brand.ts and spring presets`,
+    `     - Use useVisualTrigger hook for syllabic sync`,
+    `     - Layout sequence from script.json beats (avatar_closeup, pip, device_mockup, icon_grid, text_card, motion_graphic)`,
+    `  5. Register the new composition in Root.tsx (1080x1920, 30fps)`,
+    `  6. Type-check: npx tsc --noEmit`,
+    `  7. Start Remotion Studio for preview: npx remotion studio`,
   ].join("\n");
 
   console.log(`[${ts()}] Launching Claude Code for Remotion assembly...`);
 
-  // Open a new Terminal window, cd to remotion project, and start Claude Code with the prompt
-  const appleScript = `
-tell application "Terminal"
-  activate
-  set newTab to do script "cd '${REMOTION_PROJECT}' && export PATH=\\"/usr/local/Cellar/node/25.6.1_1/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\" && echo 'Starting Claude Code for: ${topicClean.replace(/'/g, "")}...' && npx @anthropic-ai/claude-code --print '${prompt.replace(/'/g, "\\'")}'"
-end tell
-`;
+  // Write prompt to a temp file to avoid shell escaping issues
+  const promptFile = join(outputDir, ".claude-prompt.txt");
+  writeFileSync(promptFile, prompt, "utf-8");
 
-  // Fire and forget — don't block the downloader
+  // Open interactive Claude Code session in a new Terminal window
+  const escapedProject = REMOTION_PROJECT.replace(/'/g, "'\\''");
+  const escapedPromptFile = promptFile.replace(/'/g, "'\\''");
+
+  const appleScript = [
+    'tell application "Terminal"',
+    '  activate',
+    `  do script "cd '${escapedProject}' && export PATH=\\"/usr/local/Cellar/node/25.6.1_1/bin:/usr/local/bin:/opt/homebrew/bin:$PATH\\" && echo 'Starting Remotion assembly for: ${topicClean.replace(/'/g, "")}' && npx @anthropic-ai/claude-code < '${escapedPromptFile}'"`,
+    'end tell',
+  ].join("\n");
+
   execFile("osascript", ["-e", appleScript], (err) => {
     if (err) {
       console.error(`[${ts()}] Could not launch Claude Code: ${err.message}`);
-      console.log(`[${ts()}] You can start it manually:`);
+      console.log(`[${ts()}] Start manually:`);
       console.log(`         cd ${REMOTION_PROJECT}`);
       console.log(`         npx @anthropic-ai/claude-code`);
+      console.log(`         Then paste the prompt from: ${promptFile}`);
     } else {
       console.log(`[${ts()}] Claude Code launched in new Terminal window!`);
     }
