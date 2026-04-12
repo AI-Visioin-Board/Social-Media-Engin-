@@ -216,7 +216,7 @@ export async function geminiGenerateVideo(
       prompt,
       config: {
         numberOfVideos: 1,
-        durationSeconds: "6",
+        durationSeconds: 6,
         aspectRatio: "9:16",
       },
     });
@@ -352,7 +352,7 @@ export async function geminiImageToVideo(
       },
       config: {
         numberOfVideos: 1,
-        durationSeconds: "6",
+        durationSeconds: 6,
         aspectRatio: "9:16",
       },
     });
