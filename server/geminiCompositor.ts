@@ -85,6 +85,60 @@ export function getCoverHtml(bgBase64: string, headline: string): string {
   `;
 }
 
+// ─── Cover Video Overlay Template (Transparent Top, Cover Styling) ──────────
+
+export function getCoverVideoOverlayHtml(headline: string): string {
+  const { prefix, highlight } = splitHeadline(headline);
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { width: 1080px; height: 1350px; overflow: hidden; background: transparent; font-family: 'Inter', sans-serif; }
+      </style>
+    </head>
+    <body>
+      <div style="position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;">
+        <!-- Top 70% Transparent Zone (video shows through) -->
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 70%; z-index: 0;">
+          <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 192px; background: linear-gradient(to top, black, transparent);"></div>
+        </div>
+
+        <!-- Bottom 40% Solid Black Zone -->
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 40%; background: black; z-index: 10;"></div>
+
+        <!-- Text Content (matches getCoverHtml exactly) -->
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; z-index: 30; padding: 32px 64px 64px; display: flex; flex-direction: column; align-items: center; text-align: center;">
+
+          <div style="width: 100%; height: 2px; background: rgba(255,255,255,0.3); margin-bottom: 40px; position: relative;">
+             <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: black; padding: 0 16px; color: rgba(255,255,255,0.5); font-size: 20px; font-family: 'Inter', sans-serif; letter-spacing: 0.15em;">Ai</div>
+          </div>
+
+          <h1 style="color: white; font-size: 90px; line-height: 1.05; letter-spacing: 0.01em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+            ${prefix} <span style="color: #00E5FF;">${highlight}</span>
+          </h1>
+
+          <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 48px;">
+            <div style="display: flex; align-items: center;">
+               <span style="color: rgba(255,255,255,0.9); font-size: 28px; font-family: 'Inter', sans-serif; font-weight: 700; letter-spacing: 0.05em;">SuggestedByGPT.com</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); border-radius: 9999px; padding: 8px 8px 8px 24px; border: 1px solid rgba(255,255,255,0.1);">
+              <span style="color: white; font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; font-family: 'Inter', sans-serif;">Swipe For More</span>
+              <div style="width: 48px; height: 48px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 // ─── Content Slide Template ─────────────────────────────────────────────────
 
 export function getContentHtml(bgBase64: string, headline: string, summary: string): string {

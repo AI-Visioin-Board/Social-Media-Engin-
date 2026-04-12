@@ -1569,6 +1569,9 @@ async function _runPipelineStages(
 
     console.log(`[ContentPipeline] Phase 2: Converting slides [${videoIndices.join(", ")}] to video`);
 
+    // Fetch slide records once for DB updates
+    const slideRecords = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+
     for (const idx of videoIndices) {
       checkAbort();
       const media = generatedMedia[idx];
@@ -1577,6 +1580,13 @@ async function _runPipelineStages(
       const slidePrompt = idx === 0
         ? creativeBrief.coverImagePrompt
         : creativeBrief.slides[idx - 1].imagePrompt;
+
+      const markAsVideo = async () => {
+        const matchSlide = slideRecords.find(s => s.slideIndex === idx);
+        if (matchSlide) {
+          await db.update(generatedSlides).set({ isVideoSlide: 1 }).where(eq(generatedSlides.id, matchSlide.id));
+        }
+      };
 
       try {
         // Try Veo image-to-video first
@@ -1590,11 +1600,7 @@ async function _runPipelineStages(
 
         if (videoBuffer) {
           generatedMedia[idx] = { type: "video", data: videoBuffer };
-          const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
-          const matchSlide = slides.find(s => s.slideIndex === idx);
-          if (matchSlide) {
-            await db.update(generatedSlides).set({ isVideoSlide: 1 }).where(eq(generatedSlides.id, matchSlide.id));
-          }
+          await markAsVideo();
           console.log(`[ContentPipeline] Slide ${idx}: Veo img2vid SUCCESS`);
           continue;
         }
@@ -1622,11 +1628,7 @@ async function _runPipelineStages(
             if (videoRes.ok) {
               const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
               generatedMedia[idx] = { type: "video", data: videoBuffer };
-              const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
-              const matchSlide = slides.find(s => s.slideIndex === idx);
-              if (matchSlide) {
-                await db.update(generatedSlides).set({ isVideoSlide: 1 }).where(eq(generatedSlides.id, matchSlide.id));
-              }
+              await markAsVideo();
               console.log(`[ContentPipeline] Slide ${idx}: Kling img2vid SUCCESS`);
               continue;
             }
@@ -1684,12 +1686,10 @@ async function _runPipelineStages(
         let finalBase64: string;
 
         if (slideRecord.slideIndex === 0 && media.type === "video") {
-          // Cover slide with video — overlay cover text on video
+          // Cover slide with video — use cover-specific overlay (90px font, Ai divider, Swipe pill)
           logWithProgress(`Stage 6: Compositing video cover slide...`);
-          const overlayHtml = getVideoOverlayHtml(
-            slideRecord.headline ?? validCoverHeadline,
-            "",
-          );
+          const { getCoverVideoOverlayHtml } = await import("./geminiCompositor");
+          const overlayHtml = getCoverVideoOverlayHtml(slideRecord.headline ?? validCoverHeadline);
           finalBase64 = await compositeGeminiVideo(media.data as Buffer, overlayHtml);
         } else if (slideRecord.slideIndex === 0) {
           // Cover slide (static image)

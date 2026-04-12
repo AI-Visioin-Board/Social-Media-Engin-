@@ -209,8 +209,8 @@ export async function geminiGenerateVideo(
   const apiKey = ENV.geminiApiKey;
 
   try {
-    // Step 1: Generate initial 5s clip (use GA model, not deprecated preview)
-    log("Gemini Video: Generating initial 5s clip (Veo 3.1 Fast GA)...");
+    // Step 1: Generate initial 6s clip
+    log("Gemini Video: Generating 6s clip (Veo 3.1)...");
     let operation = await ai.models.generateVideos({
       model: "veo-3.1-generate-preview",
       prompt,
@@ -221,9 +221,11 @@ export async function geminiGenerateVideo(
       },
     });
 
-    // Poll until done
+    // Poll until done (max ~5 min)
+    let genPolls = 0;
     while (!operation.done) {
       checkAbort();
+      if (++genPolls > 30) throw new Error("Veo text2vid timed out after 5 min");
       await new Promise((resolve) => setTimeout(resolve, 10_000));
       operation = await ai.operations.getVideosOperation({ operation });
     }
@@ -248,20 +250,23 @@ export async function geminiGenerateVideo(
       throw new Error("No video returned from Veo API");
     }
 
-    // Step 2: Extend to 10s (use GA model, not deprecated preview)
-    log("Gemini Video: Extending video to 10s (Veo 3.1 GA)...");
+    // Step 2: Extend via Veo
+    log("Gemini Video: Extending video (Veo 3.1)...");
     let extendOp = await ai.models.generateVideos({
       model: "veo-3.1-generate-preview",
       prompt,
       video: firstVideo,
       config: {
         numberOfVideos: 1,
+        durationSeconds: 8,
         aspectRatio: "9:16",
       },
     });
 
+    let extPolls = 0;
     while (!extendOp.done) {
       checkAbort();
+      if (++extPolls > 30) throw new Error("Veo extension timed out after 5 min");
       await new Promise((resolve) => setTimeout(resolve, 10_000));
       extendOp = await ai.operations.getVideosOperation({ operation: extendOp });
     }
