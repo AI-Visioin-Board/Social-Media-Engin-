@@ -1559,13 +1559,15 @@ async function _runPipelineStages(
 
     logWithProgress(`Stage 5: Adding motion to 3 slides via image-to-video...`);
 
-    // Pick cover (0) + 2 random content slides for video
-    const contentIndices = creativeBrief.slides.map((_: any, i: number) => i + 1);
-    for (let i = contentIndices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [contentIndices[i], contentIndices[j]] = [contentIndices[j], contentIndices[i]];
-    }
-    const videoIndices = [0, ...contentIndices.slice(0, Math.min(2, contentIndices.length))];
+    // Always include cover (0) + pick top 2 content slides by cinematic score
+    const rankedContent = creativeBrief.slides
+      .map((s: any, i: number) => ({ idx: i + 1, score: s.cinematicScore ?? 5 }))
+      .sort((a: any, b: any) => b.score - a.score);
+    const topContent = rankedContent.slice(0, Math.min(2, rankedContent.length)).map((r: any) => r.idx);
+    const videoIndices = [0, ...topContent];
+
+    console.log(`[ContentPipeline] Cinematic scores: ${creativeBrief.slides.map((s: any, i: number) => `slide${i+1}=${s.cinematicScore ?? '?'}`).join(", ")}`);
+    console.log(`[ContentPipeline] Selected for video: cover + slides [${topContent.join(", ")}]`);
 
     console.log(`[ContentPipeline] Phase 2: Converting slides [${videoIndices.join(", ")}] to video`);
 

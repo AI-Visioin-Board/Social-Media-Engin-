@@ -25,6 +25,7 @@ export interface GeminiCreativeBrief {
     headline: string;
     summary: string;
     imagePrompt: string;
+    cinematicScore: number;
   }>;
 }
 
@@ -88,6 +89,7 @@ Task 3: For EACH of the ${topics.length} stories, write:
 - A punchy ALL-CAPS headline (max 10 words)
 - A 1-2 sentence summary for the slide text
 - An image prompt for that slide
+- A cinematicScore (1-10) rating how cinematic the image would look as a slow-motion video. Score HIGH (8-10) for: action shots, dramatic confrontations, physical movement, crowds, weather/particles, dynamic lighting. Score LOW (1-4) for: static portraits, logos, text-heavy concepts, abstract ideas.
 
 CRITICAL REQUIREMENT — The 10-Part PROMPTHIS Framework:
 EVERY single image prompt (Cover + Content slides) MUST be written as a single cohesive paragraph that explicitly includes ALL 10 of these elements:
@@ -119,8 +121,9 @@ ${JSON.stringify(topicSummary, null, 2)}`,
                 headline: { type: Type.STRING },
                 summary: { type: Type.STRING },
                 imagePrompt: { type: Type.STRING },
+                cinematicScore: { type: Type.NUMBER },
               },
-              required: ["headline", "summary", "imagePrompt"],
+              required: ["headline", "summary", "imagePrompt", "cinematicScore"],
             },
           },
         },
