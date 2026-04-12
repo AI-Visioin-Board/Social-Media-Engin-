@@ -216,7 +216,7 @@ export async function geminiGenerateVideo(
       prompt,
       config: {
         numberOfVideos: 1,
-        durationSeconds: 5,
+        durationSeconds: "6",
         aspectRatio: "9:16",
       },
     });
@@ -352,16 +352,16 @@ export async function geminiImageToVideo(
       },
       config: {
         numberOfVideos: 1,
-        durationSeconds: 5,
+        durationSeconds: "6",
         aspectRatio: "9:16",
       },
     });
 
-    // Poll until done (max ~4 min)
+    // Poll until done (max ~5 min)
     let polls = 0;
     while (!operation.done) {
       checkAbort();
-      if (++polls > 24) throw new Error("Veo img2vid timed out after 4 min");
+      if (++polls > 30) throw new Error("Veo img2vid timed out after 5 min");
       await new Promise((r) => setTimeout(r, 10_000));
       operation = await ai.operations.getVideosOperation({ operation });
     }
