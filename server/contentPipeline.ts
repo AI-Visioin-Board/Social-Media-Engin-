@@ -1509,10 +1509,7 @@ async function _runPipelineStages(
       status: "pending",
     });
 
-    // Pick one random content slide to be a video
-    const videoSlideIndex = Math.floor(Math.random() * creativeBrief.slides.length);
-
-    // Content slides (index 1-N)
+    // Content slides (index 1-N) — all start as images, video added later
     for (let i = 0; i < creativeBrief.slides.length; i++) {
       const slide = creativeBrief.slides[i];
       const slideIndex = i + 1;
@@ -1526,57 +1523,111 @@ async function _runPipelineStages(
         headline: validHeadline,
         summary: slide.summary,
         videoPrompt: slide.imagePrompt,
-        isVideoSlide: i === videoSlideIndex ? 1 : 0,
+        isVideoSlide: 0,
         status: "pending",
       });
     }
 
-    // ── Stage 5: Gemini Media Generation ──
+    // ── Stage 5: Gemini Media Generation (images first, then motion) ──
     checkAbort();
     await db.update(contentRuns).set({ status: "generating", statusDetail: "Starting Gemini media generation..." }).where(eq(contentRuns.id, runId));
     const stageStart = Date.now();
 
+    const totalSlides = creativeBrief.slides.length + 1; // +1 for cover
     console.log(`[ContentPipeline] ═══ Stage 5: Gemini Media Generation ═══`);
-    console.log(`[ContentPipeline] Cover image + ${creativeBrief.slides.length} content slides (1 video at index ${videoSlideIndex})`);
+    console.log(`[ContentPipeline] Phase 1: Generating ${totalSlides} images (cover + ${creativeBrief.slides.length} content)`);
 
-    // Generate cover image
+    // ── Phase 1: Generate ALL slides as images first ──
     logWithProgress("Stage 5: Generating cover image...");
     const coverBase64 = await geminiGenerateImage(creativeBrief.coverImagePrompt, logWithProgress);
 
-    // Generate content media (images + 1 video)
     const generatedMedia: Array<{ type: "image" | "video"; data: string | Buffer }> = [];
     generatedMedia.push({ type: "image", data: coverBase64 });
 
     for (let i = 0; i < creativeBrief.slides.length; i++) {
       checkAbort();
-      const slide = creativeBrief.slides[i];
-
-      if (i === videoSlideIndex) {
-        logWithProgress(`Stage 5: Generating video for slide ${i + 1} (this takes a moment)...`);
-        const videoResult = await geminiGenerateVideo(slide.imagePrompt, logWithProgress, checkAbort);
-        if (videoResult.type === "video") {
-          generatedMedia.push({ type: "video", data: videoResult.buffer });
-        } else {
-          // Fallback returned an image buffer
-          const base64Data = `data:image/png;base64,${videoResult.buffer.toString("base64")}`;
-          generatedMedia.push({ type: "image", data: base64Data });
-          // Update DB — this slide is no longer video
-          const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
-          const matchSlide = slides.find(s => s.slideIndex === i + 1);
-          if (matchSlide) {
-            await db.update(generatedSlides).set({ isVideoSlide: 0 }).where(eq(generatedSlides.id, matchSlide.id));
-          }
-        }
-      } else {
-        logWithProgress(`Stage 5: Generating image for slide ${i + 1}...`);
-        const slideBase64 = await geminiGenerateImage(slide.imagePrompt, logWithProgress);
-        generatedMedia.push({ type: "image", data: slideBase64 });
-      }
+      logWithProgress(`Stage 5: Generating image for slide ${i + 1}/${creativeBrief.slides.length}...`);
+      const slideBase64 = await geminiGenerateImage(creativeBrief.slides[i].imagePrompt, logWithProgress);
+      generatedMedia.push({ type: "image", data: slideBase64 });
     }
 
+    console.log(`[ContentPipeline] Phase 1 complete: ${generatedMedia.length} images generated`);
+
+    // ── Phase 2: Pick 3 slides for image-to-video motion ──
+    const MIN_VIDEO_SLIDES = 3;
+    const klingAK = ENV.klingAccessKey;
+    const klingSK = ENV.klingSecretKey;
+
+    if (klingAK && klingSK) {
+      logWithProgress(`Stage 5: Adding motion to ${MIN_VIDEO_SLIDES} slides via Kling image-to-video...`);
+
+      // Pick cover (0) + 2 random content slides for video
+      const contentIndices = creativeBrief.slides.map((_: any, i: number) => i + 1); // [1, 2, 3, ...]
+      // Shuffle and pick first 2 content slides
+      for (let i = contentIndices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [contentIndices[i], contentIndices[j]] = [contentIndices[j], contentIndices[i]];
+      }
+      const videoIndices = [0, ...contentIndices.slice(0, Math.min(2, contentIndices.length))];
+
+      console.log(`[ContentPipeline] Phase 2: Converting slides [${videoIndices.join(", ")}] to video via Kling img2vid`);
+
+      for (const idx of videoIndices) {
+        checkAbort();
+        const media = generatedMedia[idx];
+        if (media.type !== "image" || typeof media.data !== "string") continue;
+
+        try {
+          // Upload the image to get a public URL for Kling
+          const imgBase64 = (media.data as string).split(",")[1];
+          const imgBuf = Buffer.from(imgBase64, "base64");
+          const { url: imageUrl } = await storagePut(
+            `slides/${runId}/img2vid_source_${idx}.png`,
+            imgBuf,
+            "image/png"
+          );
+
+          const slidePrompt = idx === 0
+            ? creativeBrief.coverImagePrompt
+            : creativeBrief.slides[idx - 1].imagePrompt;
+          const motionPrompt = `Subtle cinematic motion, slow zoom and gentle parallax. ${slidePrompt}`;
+
+          logWithProgress(`Stage 5: Adding motion to slide ${idx} (Kling img2vid)...`);
+          const videoUrl = await generateKlingImageToVideo(motionPrompt, imageUrl, klingAK, klingSK);
+
+          if (videoUrl) {
+            // Download the video and store as Buffer
+            const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60_000) });
+            if (videoRes.ok) {
+              const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
+              generatedMedia[idx] = { type: "video", data: videoBuffer };
+
+              // Update DB to mark as video slide
+              const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+              const matchSlide = slides.find(s => s.slideIndex === idx);
+              if (matchSlide) {
+                await db.update(generatedSlides).set({ isVideoSlide: 1 }).where(eq(generatedSlides.id, matchSlide.id));
+              }
+              console.log(`[ContentPipeline] Slide ${idx}: image-to-video SUCCESS`);
+            } else {
+              console.warn(`[ContentPipeline] Slide ${idx}: failed to download Kling video, keeping static image`);
+            }
+          } else {
+            console.warn(`[ContentPipeline] Slide ${idx}: Kling img2vid returned null, keeping static image`);
+          }
+        } catch (err: any) {
+          console.warn(`[ContentPipeline] Slide ${idx}: img2vid failed (${err?.message}), keeping static image`);
+        }
+      }
+    } else {
+      console.warn(`[ContentPipeline] Kling API keys not set — skipping image-to-video, all slides will be static`);
+    }
+
+    const videoCount = generatedMedia.filter(m => m.type === "video").length;
+    const imageCount = generatedMedia.filter(m => m.type === "image").length;
     const stageElapsed = ((Date.now() - stageStart) / 1000).toFixed(1);
     console.log(`[ContentPipeline] ═══ Stage 5 Complete (${stageElapsed}s) ═══`);
-    console.log(`[ContentPipeline] Generated: ${generatedMedia.filter(m => m.type === "image").length} images, ${generatedMedia.filter(m => m.type === "video").length} videos`);
+    console.log(`[ContentPipeline] Generated: ${imageCount} images, ${videoCount} videos`);
 
     // ── Stage 6: HTML/CSS Compositing (Puppeteer + FFmpeg) ──
     checkAbort();
@@ -1616,8 +1667,16 @@ async function _runPipelineStages(
       try {
         let finalBase64: string;
 
-        if (slideRecord.slideIndex === 0) {
-          // Cover slide
+        if (slideRecord.slideIndex === 0 && media.type === "video") {
+          // Cover slide with video — overlay cover text on video
+          logWithProgress(`Stage 6: Compositing video cover slide...`);
+          const overlayHtml = getVideoOverlayHtml(
+            slideRecord.headline ?? validCoverHeadline,
+            "",
+          );
+          finalBase64 = await compositeGeminiVideo(media.data as Buffer, overlayHtml);
+        } else if (slideRecord.slideIndex === 0) {
+          // Cover slide (static image)
           logWithProgress(`Stage 6: Compositing cover slide...`);
           const coverHtml = getCoverHtml(media.data as string, slideRecord.headline ?? validCoverHeadline);
           finalBase64 = await compositeGeminiSlide(coverHtml);

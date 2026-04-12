@@ -63,7 +63,7 @@ export function getCoverHtml(bgBase64: string, headline: string): string {
              <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: black; padding: 0 16px; color: rgba(255,255,255,0.5); font-size: 20px; font-family: 'Inter', sans-serif; letter-spacing: 0.15em;">Ai</div>
           </div>
 
-          <h1 style="color: white; font-size: 90px; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+          <h1 style="color: white; font-size: 90px; line-height: 1.05; letter-spacing: 0.01em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; text-shadow: 0 4px 12px rgba(0,0,0,0.5);">
             ${prefix} <span style="color: #00E5FF;">${highlight}</span>
           </h1>
 
@@ -116,7 +116,7 @@ export function getContentHtml(bgBase64: string, headline: string, summary: stri
           <!-- Divider -->
           <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.2); margin-bottom: 32px;"></div>
 
-          <h1 style="color: white; font-size: 75px; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; margin-bottom: 24px;">
+          <h1 style="color: white; font-size: 75px; line-height: 1.05; letter-spacing: 0.01em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; margin-bottom: 24px;">
             ${prefix} <span style="color: #00E5FF;">${highlight}</span>
           </h1>
 
@@ -169,7 +169,7 @@ export function getVideoOverlayHtml(headline: string, summary: string): string {
           <!-- Divider -->
           <div style="width: 100%; height: 1px; background: rgba(255,255,255,0.2); margin-bottom: 32px;"></div>
 
-          <h1 style="color: white; font-size: 75px; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; margin-bottom: 24px;">
+          <h1 style="color: white; font-size: 75px; line-height: 1.05; letter-spacing: 0.01em; text-transform: uppercase; width: 100%; font-family: 'Anton', sans-serif; margin-bottom: 24px;">
             ${prefix} <span style="color: #00E5FF;">${highlight}</span>
           </h1>
 
