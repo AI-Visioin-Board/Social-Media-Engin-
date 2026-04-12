@@ -208,6 +208,18 @@ async function startServer() {
     if (Number(avatarResult.count) > 0) {
       console.log(`[Startup] Auto-failed ${avatarResult.count} orphaned avatar run(s)`);
     }
+    // Also recover orphaned ainycu_runs stuck in non-terminal states
+    const ainycuResult = await sql`
+      UPDATE ainycu_runs
+      SET status = 'failed',
+          "statusDetail" = 'Server restarted while pipeline was running',
+          "errorMessage" = 'Orphaned by server restart — please re-run',
+          "updatedAt" = NOW()
+      WHERE status NOT IN ('video_review','completed','failed','cancelled','topic_review')
+    `;
+    if (Number(ainycuResult.count) > 0) {
+      console.log(`[Startup] Auto-failed ${ainycuResult.count} orphaned AINYCU run(s)`);
+    }
     await sql.end();
   } catch (e) {
     console.warn("[Startup] Ghost-run recovery skipped:", e);
