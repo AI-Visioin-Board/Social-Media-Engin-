@@ -350,7 +350,7 @@ export async function geminiImageToVideo(
     // Strip data URI prefix if present
     const raw = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
 
-    log("Veo img2vid: Generating 5s video from image...");
+    log("Veo img2vid: Generating 6s video from image...");
     let operation = await ai.models.generateVideos({
       model: "veo-3.1-generate-preview",
       prompt: `Subtle cinematic motion, slow zoom and gentle parallax. ${prompt}`,

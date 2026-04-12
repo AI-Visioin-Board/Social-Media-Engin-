@@ -1533,9 +1533,8 @@ async function _runPipelineStages(
     await db.update(contentRuns).set({ status: "generating", statusDetail: "Starting Gemini media generation..." }).where(eq(contentRuns.id, runId));
     const stageStart = Date.now();
 
-    const totalSlides = creativeBrief.slides.length + 1; // +1 for cover
     console.log(`[ContentPipeline] ═══ Stage 5: Gemini Media Generation ═══`);
-    console.log(`[ContentPipeline] Phase 1: Generating ${totalSlides} images (cover + ${creativeBrief.slides.length} content)`);
+    console.log(`[ContentPipeline] Phase 1: Generating ${creativeBrief.slides.length + 1} images (cover + ${creativeBrief.slides.length} content)`);
 
     // ── Phase 1: Generate ALL slides as images first ──
     logWithProgress("Stage 5: Generating cover image...");
@@ -1561,7 +1560,7 @@ async function _runPipelineStages(
 
     // Always include cover (0) + pick top 2 content slides by cinematic score
     const rankedContent = creativeBrief.slides
-      .map((s: any, i: number) => ({ idx: i + 1, score: s.cinematicScore ?? 5 }))
+      .map((s: any, i: number) => ({ idx: i + 1, score: Math.min(10, Math.max(1, s.cinematicScore ?? 5)) }))
       .sort((a: any, b: any) => b.score - a.score);
     const topContent = rankedContent.slice(0, Math.min(2, rankedContent.length)).map((r: any) => r.idx);
     const videoIndices = [0, ...topContent];
@@ -1590,24 +1589,20 @@ async function _runPipelineStages(
         }
       };
 
-      try {
-        // Try Veo image-to-video first
-        logWithProgress(`Stage 5: Adding motion to slide ${idx} (Veo img2vid)...`);
-        const videoBuffer = await geminiImageToVideo(
-          slidePrompt,
-          media.data as string,
-          logWithProgress,
-          checkAbort,
-        );
+      // Try Veo image-to-video first (returns null on failure, never throws)
+      logWithProgress(`Stage 5: Adding motion to slide ${idx} (Veo img2vid)...`);
+      const videoBuffer = await geminiImageToVideo(
+        slidePrompt,
+        media.data as string,
+        logWithProgress,
+        checkAbort,
+      );
 
-        if (videoBuffer) {
-          generatedMedia[idx] = { type: "video", data: videoBuffer };
-          await markAsVideo();
-          console.log(`[ContentPipeline] Slide ${idx}: Veo img2vid SUCCESS`);
-          continue;
-        }
-      } catch (veoErr: any) {
-        console.warn(`[ContentPipeline] Slide ${idx}: Veo img2vid failed (${veoErr?.message})`);
+      if (videoBuffer) {
+        generatedMedia[idx] = { type: "video", data: videoBuffer };
+        await markAsVideo();
+        console.log(`[ContentPipeline] Slide ${idx}: Veo img2vid SUCCESS`);
+        continue;
       }
 
       // Fallback: Kling image-to-video
