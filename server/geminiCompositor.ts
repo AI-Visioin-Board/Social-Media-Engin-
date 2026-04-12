@@ -14,10 +14,21 @@
 import puppeteer from "puppeteer";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
+import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
-ffmpeg.setFfmpegPath(ffmpegStatic!);
+// Use ffmpeg-static if available, fall back to system ffmpeg
+const ffmpegPath = (() => {
+  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) return ffmpegStatic;
+  try {
+    return execFileSync("/usr/bin/which", ["ffmpeg"], { encoding: "utf-8" }).trim();
+  } catch {
+    console.warn("[GeminiCompositor] No ffmpeg found — video compositing will fail");
+    return "ffmpeg";
+  }
+})();
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
