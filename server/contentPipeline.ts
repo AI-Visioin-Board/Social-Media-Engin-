@@ -1554,73 +1554,89 @@ async function _runPipelineStages(
     console.log(`[ContentPipeline] Phase 1 complete: ${generatedMedia.length} images generated`);
 
     // ── Phase 2: Pick 3 slides for image-to-video motion ──
-    const MIN_VIDEO_SLIDES = 3;
-    const klingAK = ENV.klingAccessKey;
-    const klingSK = ENV.klingSecretKey;
+    // Primary: Veo 3.1 image-to-video | Fallback: Kling img2vid
+    const { geminiImageToVideo } = await import("./geminiEngine");
 
-    if (klingAK && klingSK) {
-      logWithProgress(`Stage 5: Adding motion to ${MIN_VIDEO_SLIDES} slides via Kling image-to-video...`);
+    logWithProgress(`Stage 5: Adding motion to 3 slides via image-to-video...`);
 
-      // Pick cover (0) + 2 random content slides for video
-      const contentIndices = creativeBrief.slides.map((_: any, i: number) => i + 1); // [1, 2, 3, ...]
-      // Shuffle and pick first 2 content slides
-      for (let i = contentIndices.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [contentIndices[i], contentIndices[j]] = [contentIndices[j], contentIndices[i]];
+    // Pick cover (0) + 2 random content slides for video
+    const contentIndices = creativeBrief.slides.map((_: any, i: number) => i + 1);
+    for (let i = contentIndices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [contentIndices[i], contentIndices[j]] = [contentIndices[j], contentIndices[i]];
+    }
+    const videoIndices = [0, ...contentIndices.slice(0, Math.min(2, contentIndices.length))];
+
+    console.log(`[ContentPipeline] Phase 2: Converting slides [${videoIndices.join(", ")}] to video`);
+
+    for (const idx of videoIndices) {
+      checkAbort();
+      const media = generatedMedia[idx];
+      if (media.type !== "image" || typeof media.data !== "string") continue;
+
+      const slidePrompt = idx === 0
+        ? creativeBrief.coverImagePrompt
+        : creativeBrief.slides[idx - 1].imagePrompt;
+
+      try {
+        // Try Veo image-to-video first
+        logWithProgress(`Stage 5: Adding motion to slide ${idx} (Veo img2vid)...`);
+        const videoBuffer = await geminiImageToVideo(
+          slidePrompt,
+          media.data as string,
+          logWithProgress,
+          checkAbort,
+        );
+
+        if (videoBuffer) {
+          generatedMedia[idx] = { type: "video", data: videoBuffer };
+          const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
+          const matchSlide = slides.find(s => s.slideIndex === idx);
+          if (matchSlide) {
+            await db.update(generatedSlides).set({ isVideoSlide: 1 }).where(eq(generatedSlides.id, matchSlide.id));
+          }
+          console.log(`[ContentPipeline] Slide ${idx}: Veo img2vid SUCCESS`);
+          continue;
+        }
+      } catch (veoErr: any) {
+        console.warn(`[ContentPipeline] Slide ${idx}: Veo img2vid failed (${veoErr?.message})`);
       }
-      const videoIndices = [0, ...contentIndices.slice(0, Math.min(2, contentIndices.length))];
 
-      console.log(`[ContentPipeline] Phase 2: Converting slides [${videoIndices.join(", ")}] to video via Kling img2vid`);
-
-      for (const idx of videoIndices) {
-        checkAbort();
-        const media = generatedMedia[idx];
-        if (media.type !== "image" || typeof media.data !== "string") continue;
-
+      // Fallback: Kling image-to-video
+      const klingAK = ENV.klingAccessKey;
+      const klingSK = ENV.klingSecretKey;
+      if (klingAK && klingSK) {
         try {
-          // Upload the image to get a public URL for Kling
+          logWithProgress(`Stage 5: Adding motion to slide ${idx} (Kling fallback)...`);
           const imgBase64 = (media.data as string).split(",")[1];
           const imgBuf = Buffer.from(imgBase64, "base64");
           const { url: imageUrl } = await storagePut(
-            `slides/${runId}/img2vid_source_${idx}.png`,
-            imgBuf,
-            "image/png"
+            `slides/${runId}/img2vid_source_${idx}.png`, imgBuf, "image/png"
           );
-
-          const slidePrompt = idx === 0
-            ? creativeBrief.coverImagePrompt
-            : creativeBrief.slides[idx - 1].imagePrompt;
-          const motionPrompt = `Subtle cinematic motion, slow zoom and gentle parallax. ${slidePrompt}`;
-
-          logWithProgress(`Stage 5: Adding motion to slide ${idx} (Kling img2vid)...`);
-          const videoUrl = await generateKlingImageToVideo(motionPrompt, imageUrl, klingAK, klingSK);
-
+          const videoUrl = await generateKlingImageToVideo(
+            `Subtle cinematic motion, slow zoom and gentle parallax. ${slidePrompt}`,
+            imageUrl, klingAK, klingSK,
+          );
           if (videoUrl) {
-            // Download the video and store as Buffer
             const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(60_000) });
             if (videoRes.ok) {
               const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
               generatedMedia[idx] = { type: "video", data: videoBuffer };
-
-              // Update DB to mark as video slide
               const slides = await db.select().from(generatedSlides).where(eq(generatedSlides.runId, runId));
               const matchSlide = slides.find(s => s.slideIndex === idx);
               if (matchSlide) {
                 await db.update(generatedSlides).set({ isVideoSlide: 1 }).where(eq(generatedSlides.id, matchSlide.id));
               }
-              console.log(`[ContentPipeline] Slide ${idx}: image-to-video SUCCESS`);
-            } else {
-              console.warn(`[ContentPipeline] Slide ${idx}: failed to download Kling video, keeping static image`);
+              console.log(`[ContentPipeline] Slide ${idx}: Kling img2vid SUCCESS`);
+              continue;
             }
-          } else {
-            console.warn(`[ContentPipeline] Slide ${idx}: Kling img2vid returned null, keeping static image`);
           }
-        } catch (err: any) {
-          console.warn(`[ContentPipeline] Slide ${idx}: img2vid failed (${err?.message}), keeping static image`);
+        } catch (klingErr: any) {
+          console.warn(`[ContentPipeline] Slide ${idx}: Kling img2vid also failed (${klingErr?.message})`);
         }
       }
-    } else {
-      console.warn(`[ContentPipeline] Kling API keys not set — skipping image-to-video, all slides will be static`);
+
+      console.warn(`[ContentPipeline] Slide ${idx}: all img2vid attempts failed, keeping static image`);
     }
 
     const videoCount = generatedMedia.filter(m => m.type === "video").length;

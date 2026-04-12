@@ -9,8 +9,7 @@
  * Models:
  *   - gemini-3.1-pro-preview: Creative Director (structured JSON output)
  *   - gemini-3.1-flash-image-preview: Image generation (Nano Banana)
- *   - veo-3.1-fast-generate-001: Video generation (5s clip, GA)
- *   - veo-3.1-generate-001: Video extension (5s → 10s, GA)
+ *   - veo-3.1-generate-preview: Video generation + extension (Gemini API)
  */
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -213,7 +212,7 @@ export async function geminiGenerateVideo(
     // Step 1: Generate initial 5s clip (use GA model, not deprecated preview)
     log("Gemini Video: Generating initial 5s clip (Veo 3.1 Fast GA)...");
     let operation = await ai.models.generateVideos({
-      model: "veo-3.1-fast-generate-001",
+      model: "veo-3.1-generate-preview",
       prompt,
       config: {
         numberOfVideos: 1,
@@ -252,7 +251,7 @@ export async function geminiGenerateVideo(
     // Step 2: Extend to 10s (use GA model, not deprecated preview)
     log("Gemini Video: Extending video to 10s (Veo 3.1 GA)...");
     let extendOp = await ai.models.generateVideos({
-      model: "veo-3.1-generate-001",
+      model: "veo-3.1-generate-preview",
       prompt,
       video: firstVideo,
       config: {
@@ -322,5 +321,69 @@ export async function geminiGenerateVideo(
     const imageBase64 = await geminiGenerateImage(prompt, log);
     const base64Data = imageBase64.split(",")[1];
     return { type: "image", buffer: Buffer.from(base64Data, "base64") };
+  }
+}
+
+/**
+ * Generate a 5s video from an existing image using Veo 3.1 image-to-video.
+ * The image provides the first frame; Veo adds cinematic motion.
+ * Returns the video as a Buffer on success, null on failure.
+ */
+export async function geminiImageToVideo(
+  prompt: string,
+  imageBase64: string,
+  log: (msg: string) => void,
+  checkAbort: () => void,
+): Promise<Buffer | null> {
+  const ai = getGeminiClient();
+  const apiKey = ENV.geminiApiKey;
+
+  try {
+    // Strip data URI prefix if present
+    const raw = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
+
+    log("Veo img2vid: Generating 5s video from image...");
+    let operation = await ai.models.generateVideos({
+      model: "veo-3.1-generate-preview",
+      prompt: `Subtle cinematic motion, slow zoom and gentle parallax. ${prompt}`,
+      image: {
+        imageBytes: raw,
+        mimeType: "image/png",
+      },
+      config: {
+        numberOfVideos: 1,
+        durationSeconds: 5,
+        aspectRatio: "9:16",
+      },
+    });
+
+    // Poll until done (max ~4 min)
+    let polls = 0;
+    while (!operation.done) {
+      checkAbort();
+      if (++polls > 24) throw new Error("Veo img2vid timed out after 4 min");
+      await new Promise((r) => setTimeout(r, 10_000));
+      operation = await ai.operations.getVideosOperation({ operation });
+    }
+
+    if (operation.error) {
+      throw new Error(`Veo img2vid failed: ${operation.error.message || JSON.stringify(operation.error)}`);
+    }
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error("No video URI returned from Veo img2vid");
+
+    const response = await fetch(videoUri, {
+      headers: { "x-goog-api-key": apiKey },
+    });
+    if (!response.ok) throw new Error(`Video download failed: HTTP ${response.status}`);
+
+    const arrayBuffer = await response.arrayBuffer();
+    log("Veo img2vid: Video generated successfully.");
+    return Buffer.from(arrayBuffer);
+  } catch (err: any) {
+    console.error("[GeminiEngine] Veo image-to-video failed:", err?.message);
+    log(`Veo img2vid failed: ${err?.message}`);
+    return null;
   }
 }
