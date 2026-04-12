@@ -45,7 +45,7 @@ YOUR AUDIENCE:
 - They know AI is important but don't know what to DO about it
 - Every episode must give them something they can actually try
 
-SCRIPT STRUCTURE (follow EXACTLY — 10-14 beats, 45-65 seconds total):
+SCRIPT STRUCTURE (follow EXACTLY — 8-10 beats, 35-50 seconds total — SHORTER IS BETTER, the avatar speaks slower than you think):
 
 Beat 1 — HOOK (2-3 sec): Bold statement about why this topic matters. Grab attention.
   Layout: "avatar_closeup"
@@ -61,7 +61,7 @@ Beat 3 — BRIDGE (2-3 sec): Connect the topic to the viewer's life.
   Layout: "avatar_closeup" or "icon_grid" (if listing what this helps with)
   Example: "If you have an old flyer, menu, or poster, this saves you from rebuilding the whole thing."
 
-Beats 4-10 — THE WALKTHROUGH (25-35 sec): 3-5 concrete steps, 2 beats per step.
+Beats 4-7 — THE WALKTHROUGH (15-25 sec): 2-3 concrete steps, 1-2 beats per step. Keep it tight — only the most impressive features.
   Step intro beat (2 sec): avatar_closeup or text_card — set up what they'll do
   Step demo beat (3-4 sec): pip, device_mockup, or icon_grid — show it
   Use phrases: "All you have to do is..." "Step one..." "Now do this..."
@@ -91,11 +91,11 @@ Beats 4-10 — THE WALKTHROUGH (25-35 sec): 3-5 concrete steps, 2 beats per step
   BAD: "It can also help with your work tasks" (vague, no feature name)
   GOOD: "Step three — Scheduled Tasks. Set Claude to check your inbox every morning and flag anything urgent." (named feature + concrete action)
 
-Beat 11 — SO WHAT (2-3 sec): Why this matters to THEM personally. Concrete, not abstract.
+Beat 8 — SO WHAT (2-3 sec): Why this matters to THEM personally. Concrete, not abstract.
   Layout: "avatar_closeup" or "motion_graphic" (if comparing before/after)
   Example: "This is the fastest way to update old graphics without starting from zero."
 
-Beats 12-14 — SIGN-OFF (3-4 sec): Series closer + CTA.
+Beats 9-10 — SIGN-OFF (3-4 sec): Series closer + CTA.
   Layout: "avatar_closeup"
   End with ONE of these CTA patterns (rotate across episodes — Option A is the default):
   A) "I'm Quinn, your AI helping you navigate AI. I drop a new tool you can use every Tuesday and Thursday. Follow to catch the next one."
@@ -413,9 +413,29 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
     return beat;
   });
 
-  const totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
-  if (totalDuration < 35 || totalDuration > 75) {
-    console.warn(`[AINYCU ScriptDirector] Duration ${totalDuration}s outside 35-75s range`);
+  // Hard trim: if over 50s estimated, remove walkthrough beats from the end
+  // until we're under budget. Avatar speaks ~1.5-2x slower than estimated,
+  // so 50s script → ~75-100s video. Target 40s → ~60-80s video.
+  const MAX_SCRIPT_SEC = 50;
+  let totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
+  while (totalDuration > MAX_SCRIPT_SEC && beats.length > 6) {
+    // Find last walkthrough beat (not hook, daytag, bridge, sowhat, or signoff)
+    const sections = ["hook", "daytag", "bridge", "sowhat", "signoff"];
+    let removeIdx = -1;
+    for (let i = beats.length - 1; i >= 0; i--) {
+      if (!sections.includes(beats[i].section ?? "")) {
+        removeIdx = i;
+        break;
+      }
+    }
+    if (removeIdx === -1) break;
+    const removed = beats.splice(removeIdx, 1)[0];
+    totalDuration -= removed.durationSec;
+    console.log(`[AINYCU ScriptDirector] Trimmed beat "${removed.narration?.slice(0, 40)}..." (${removed.durationSec}s) — now ${totalDuration}s`);
+  }
+
+  if (totalDuration < 25 || totalDuration > 55) {
+    console.warn(`[AINYCU ScriptDirector] Duration ${totalDuration}s outside 25-55s range (target ~40s for ~60s actual video)`);
   }
 
   return {
