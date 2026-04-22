@@ -20,7 +20,12 @@ import type {
   AssetRequest,
   AssetManifest,
   ParallelGroup,
+  ShotSpec,
+  HookArchetype,
 } from "./types.js";
+
+// V9 Law 0.6 — no single sub-shot is allowed to exceed this.
+const MAX_SHOT_SEC = 2.0;
 
 /**
  * Pick the right generation aspect ratio based on how the beat will be displayed:
@@ -71,6 +76,12 @@ export function routeAssets(script: VideoScript): AssetManifest {
 function routeBeat(beat: Beat): AssetRequest[] {
   const requests: AssetRequest[] = [];
 
+  // V9 Section 12a — cold-open hook fans out into one asset request per sub-shot.
+  // Each sub-shot carries its own cinematographer-grade assetPrompt (Law 0.4).
+  if (beat.layout === "cold_open_hook") {
+    return routeHookBeat(beat);
+  }
+
   // Layouts rendered entirely by Remotion components — no external asset needed
   if (beat.layout === "text_card" || beat.layout === "icon_grid" || beat.layout === "motion_graphic") {
     return requests;
@@ -79,6 +90,11 @@ function routeBeat(beat: Beat): AssetRequest[] {
   // Avatar closeup — no b-roll needed
   if (beat.layout === "avatar_closeup") {
     return requests;
+  }
+
+  // V9 Law 0.5 — non-closeup beats with an explicit subShots array fan out per sub-shot
+  if (beat.subShots && beat.subShots.length > 0) {
+    return routeSubShotBeat(beat);
   }
 
   // device_mockup with non-screen-capture visual → use Nano Banana for a clean AI image
@@ -173,6 +189,214 @@ function routeBeat(beat: Beat): AssetRequest[] {
   }
 
   return requests;
+}
+
+/**
+ * V9 Section 12a hook routing. Each sub-shot becomes its own AssetRequest so the
+ * asset generator produces a distinct clip/still per visual beat (not one 4-second
+ * blob). Archetype → source mapping:
+ *   - A1/A2/A3/A5/A6/A8 → Nano Banana → Veo img2vid (cinematic composited shots)
+ *   - A4 (cartoon reaction) → Nano Banana (flat vector / anime style), keep as still
+ *   - A7 (text as visual) → Remotion-rendered (no external asset needed, kinetic typography)
+ *
+ * We encode the sub-shot index into the beatId with a deterministic offset:
+ *   shotId = beatId * 1000 + shotIndex   (e.g. beat 1 shot 2 → 1002)
+ * This stays below JS integer safety and lets downstream code reverse-map.
+ */
+function routeHookBeat(beat: Beat): AssetRequest[] {
+  const requests: AssetRequest[] = [];
+  const arch = beat.hookArchetype;
+  const shots = beat.subShots ?? [];
+
+  // A7 (text-as-visual) renders entirely in Remotion — no external asset needed
+  if (arch === "A7_text_as_visual") {
+    return requests;
+  }
+
+  for (let idx = 0; idx < shots.length; idx++) {
+    const shot = shots[idx];
+    // V9 Law 0.6 enforcement — clamp any over-limit shot duration
+    if (shot.durationSec > MAX_SHOT_SEC) {
+      console.warn(`[AssetRouter] Hook beat ${beat.id} shot ${idx} durationSec=${shot.durationSec} > ${MAX_SHOT_SEC}s — will generate but render must clip to ${MAX_SHOT_SEC}s`);
+    }
+
+    // A4 cartoon reaction → Nano Banana still, stylised as vector/anime
+    // All other archetypes → Nano Banana → Veo img2vid for true motion
+    const source: AssetSource = "nano_banana";
+
+    requests.push({
+      beatId: encodeShotId(beat.id, idx),
+      source,
+      prompt: buildHookShotPrompt(beat, shot, arch),
+      aspectRatio: "9:16",
+      fallbackChain: ["pexels"],  // Pexels as last resort if Nano Banana fails
+    });
+  }
+
+  return requests;
+}
+
+/**
+ * V9 Law 0.5 — non-closeup beats with subShots fan out per shot so each gets its own
+ * cinematographer-grade prompt and its own generation. Falls back to legacy single-asset
+ * routing if the sub-shot uses a layout that doesn't need b-roll.
+ */
+function routeSubShotBeat(beat: Beat): AssetRequest[] {
+  const requests: AssetRequest[] = [];
+  const shots = beat.subShots ?? [];
+
+  // Determine the source based on the beat's visualType (keeps legacy behaviour)
+  const source: AssetSource =
+    beat.visualType === "screen_capture" ? "headless_capture"
+    : beat.visualType === "generic_action" ? "pexels"
+    : "nano_banana";
+
+  const aspectRatio = aspectRatioForLayout(beat.layout);
+
+  for (let idx = 0; idx < shots.length; idx++) {
+    const shot = shots[idx];
+    if (shot.durationSec > MAX_SHOT_SEC) {
+      console.warn(`[AssetRouter] Beat ${beat.id} shot ${idx} durationSec=${shot.durationSec} > ${MAX_SHOT_SEC}s (Law 0.6)`);
+    }
+
+    // Shot's assetPrompt is the cinematographer-grade prompt (Law 0.4) — use directly
+    const prompt = shot.assetPrompt || wrapWithCinematicPrompt(beat, shot.onScreenContent);
+
+    requests.push({
+      beatId: encodeShotId(beat.id, idx),
+      source,
+      prompt,
+      aspectRatio,
+      fallbackChain: FALLBACK_CHAINS[source],
+    });
+  }
+
+  return requests;
+}
+
+/**
+ * Encode (beatId, shotIndex) → unique integer for downstream asset map.
+ * Shot 0 stays at beatId (backwards compatible); shots 1+ use beatId*1000+idx.
+ */
+export function encodeShotId(beatId: number, shotIndex: number): number {
+  if (shotIndex === 0) return beatId;
+  return beatId * 1000 + shotIndex;
+}
+
+export function decodeShotId(shotId: number): { beatId: number; shotIndex: number } {
+  if (shotId < 1000) return { beatId: shotId, shotIndex: 0 };
+  return { beatId: Math.floor(shotId / 1000), shotIndex: shotId % 1000 };
+}
+
+/**
+ * V9 Section 12a.3 — builds the archetype-tailored assetPrompt when the script
+ * director didn't supply one for a hook sub-shot. Produces cinematographer-grade
+ * prompts aligned to the archetype's visual language.
+ */
+function buildHookShotPrompt(beat: Beat, shot: ShotSpec, archetype?: HookArchetype): string {
+  // Always honour a shot-level explicit prompt if present
+  if (shot.assetPrompt && shot.assetPrompt.trim().length > 50) {
+    return shot.assetPrompt;
+  }
+
+  const content = shot.onScreenContent || beat.narration || "";
+  const durSec = shot.durationSec.toFixed(1);
+  const styleForArchetype: Record<HookArchetype, { aesthetic: string; negatives: string }> = {
+    A1_object_collision: {
+      aesthetic: "high-contrast product photography, Wes Anderson symmetry, early Apple keynote, matte black background, single hero object",
+      negatives: "no hallucinated text, no watermarks, no motion blur on hero object, consistent lighting",
+    },
+    A2_villain_vs_hero: {
+      aesthetic: "dramatic up-light, comic-book slow-motion, cinematic lens flare, chrome surfaces, smoke and debris particles",
+      negatives: "no real company logos unless specified, no hallucinated text, no stock-photo look, consistent villain silhouette",
+    },
+    A3_before_after_jumpcut: {
+      aesthetic: "split-frame composition or hard jumpcut, clean white studio background, product photography",
+      negatives: "no hallucinated text, no watermarks, keep identical composition across before/after",
+    },
+    A4_cartoon_reaction: {
+      aesthetic: "flat vector illustration, anime-inspired exaggerated expression, cutout-animation bounce, saturated colors",
+      negatives: "no real-person faces, no watermarks, no stock-photo look, character style must be consistent",
+    },
+    A5_ui_gesture_macro: {
+      aesthetic: "macro closeup photography, 85mm-equiv lens feel, tack-sharp focus on UI detail, soft bokeh elsewhere, studio softbox lighting",
+      negatives: "no hallucinated UI text, no watermarks, cursor must not jitter, keep UI text consistent across clip",
+    },
+    A6_icon_storm: {
+      aesthetic: "dark radial gradient background, icons glowing, particle motion trails, cinematic lens flare on collisions",
+      negatives: "no real company logos unless specified, no watermarks, no hallucinated brand names",
+    },
+    A7_text_as_visual: {
+      aesthetic: "massive kinetic typography, Inter Black 900 + Playfair Display 900 italic, matte black background, gold underline accent",
+      negatives: "no hallucinated text, no watermarks, no stock-photo look",
+    },
+    A8_pov_first_person: {
+      aesthetic: "first-person POV photography, handheld feel, shallow depth of field, morning golden-hour or indoor practical lighting",
+      negatives: "no clearly-identifiable real faces, no watermarks, no stock-photo look",
+    },
+  };
+
+  const style = archetype ? styleForArchetype[archetype] : styleForArchetype.A7_text_as_visual;
+
+  return [
+    `Vertical 1080x1920, ${durSec} seconds at 30fps.`,
+    `Camera: ${humanizeCameraMove(shot.cameraMove)}.`,
+    `Scene: ${content}`,
+    shot.progressiveElements && shot.progressiveElements.length > 0
+      ? `Motion: ${shot.progressiveElements.map(p => `${p.what} ${humanizeHow(p.how)} at ${p.appearsAtMs}ms`).join("; ")}.`
+      : "Motion: subject enters with a clear directional motion over the first 400ms, then settles.",
+    `Lighting: editorial, hard key light with deliberate shadow; mood matches archetype.`,
+    `Focus: tack-sharp on hero subject; background falls off cleanly.`,
+    `Style: ${style.aesthetic}.`,
+    `Negative: ${style.negatives}.`,
+  ].join(" ");
+}
+
+function humanizeCameraMove(cm: ShotSpec["cameraMove"]): string {
+  const map: Record<ShotSpec["cameraMove"], string> = {
+    locked: "locked-off head-on shot, 85mm-equivalent lens feel",
+    slow_push_in: "slow 4% scale push-in over the full shot, 50mm lens feel",
+    slow_pull_out: "slow 4% scale pull-out over the full shot",
+    whip_pan: "whip pan entering from frame-right with motion-blur streak",
+    handheld_drift: "subtle handheld drift, 35mm lens feel, ±8px vertical micro-float",
+    macro_rack_focus: "macro composition with a rack-focus shift from foreground to background at mid-shot",
+    crane_down: "overhead crane descent, 24mm lens feel",
+    orbit: "slow orbit around subject, 50mm lens feel",
+  };
+  return map[cm];
+}
+
+function humanizeHow(how: NonNullable<ShotSpec["progressiveElements"]>[number]["how"]): string {
+  const map: Record<NonNullable<ShotSpec["progressiveElements"]>[number]["how"], string> = {
+    slide_left: "slides in from the right",
+    slide_right: "slides in from the left",
+    slide_up: "slides in from below",
+    slide_down: "slides in from above",
+    scale_up: "scales up from 0 with spring overshoot",
+    scale_down: "scales down from oversize to rest",
+    letter_by_letter: "types on letter by letter",
+    write_on: "writes on with a drawing stroke",
+    fade_in: "fades in",
+    wipe_in: "wipes in from left",
+  };
+  return map[how];
+}
+
+/**
+ * Generic cinematographer-grade wrapper when a sub-shot has no assetPrompt
+ * but we still need to produce a Law 0.4-compliant prompt.
+ */
+function wrapWithCinematicPrompt(beat: Beat, content: string): string {
+  return [
+    "Vertical 1080x1920, ~1.5 seconds at 30fps.",
+    "Camera: locked-off shot, 85mm-equivalent lens feel.",
+    `Scene: ${content || beat.visualPrompt}`,
+    "Motion: subject enters with a clear directional motion over the first 400ms, then settles.",
+    "Lighting: soft overhead studio light, practical ambient, deliberate shadow.",
+    "Focus: tack-sharp on hero subject; background falls off to gentle defocus.",
+    "Style: premium product demo, Apple keynote cinematography.",
+    "Negative: no hallucinated text, no watermarks, no cursor jitter, keep UI text consistent across the clip.",
+  ].join(" ");
 }
 
 function buildParallelGroups(requests: AssetRequest[]): ParallelGroup[] {

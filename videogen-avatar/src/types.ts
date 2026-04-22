@@ -17,7 +17,49 @@ export interface VideoScript {
 
 export type LayoutMode =
   | "pip" | "fullscreen_broll" | "avatar_closeup" | "text_card"
-  | "device_mockup" | "icon_grid" | "motion_graphic";
+  | "device_mockup" | "icon_grid" | "motion_graphic"
+  | "cold_open_hook";   // V9 — Section 12a pattern-interrupt opener (visuals only, Quinn VO optional)
+
+// V9 Section 12a — pattern-interrupt archetypes for cold-open hooks
+export type HookArchetype =
+  | "A1_object_collision"       // efficiency/time/reduction (clock + scissors)
+  | "A2_villain_vs_hero"        // competitive ("X killed Y")
+  | "A3_before_after_jumpcut"   // transformation/automation
+  | "A4_cartoon_reaction"       // shocking/surprising
+  | "A5_ui_gesture_macro"       // specific feature reveal
+  | "A6_icon_storm"             // tool overload / consolidation
+  | "A7_text_as_visual"         // quote/announcement/stat
+  | "A8_pov_first_person";      // workflow / new UX
+
+// V9 Section 0.5 — shot-level spec a Beat can fan out into (2-3 sub-shots)
+export interface ShotSpec {
+  durationSec: number;                 // 0.8–2.0 HARD CAP per Law 0.6
+  cameraMove:
+    | "locked" | "slow_push_in" | "slow_pull_out"
+    | "whip_pan" | "handheld_drift" | "macro_rack_focus"
+    | "crane_down" | "orbit";
+  onScreenContent: string;             // cinematographer-grade description (Law 0.4)
+  progressiveElements?: Array<{        // causal chain per Law 0.3
+    what: string;
+    appearsAtMs: number;               // relative to shot start
+    how:
+      | "slide_left" | "slide_right" | "slide_up" | "slide_down"
+      | "scale_up" | "scale_down"
+      | "letter_by_letter" | "write_on"
+      | "fade_in" | "wipe_in";
+  }>;
+  captionOverlay?: {
+    text: string;                      // ≤6 words for hook kickers per Section 12a.4
+    entryDirection:
+      | "slide_left" | "slide_right" | "slide_up" | "slide_down"
+      | "scale_up" | "letter_by_letter";
+    offsetMs: number;                  // relative to shot start
+  };
+  transitionOut:
+    | "cut" | "whip_pan" | "flash_cut" | "shader_wipe"
+    | "cross_dissolve" | "zoom_punch" | "jumbotron";
+  assetPrompt: string;                 // full Law 0.4 prompt sent to the generator
+}
 
 export interface Beat {
   id: number;
@@ -45,6 +87,17 @@ export interface Beat {
   iconGridItems?: Array<{ emoji: string; label: string }>;
   // For device_mockup layout: which device frame to use
   deviceType?: "macbook" | "iphone";
+
+  // ─── V9 additions ────────────────────────────────────────
+  // Section marker — used by asset router, ScriptDirector pruning logic, and B-roll matching.
+  // Values: "hook", "daytag", "bridge", "step1"…"step5", "sowhat", "signoff".
+  section?: string;
+  // V9 Section 12a — cold-open hook archetype (only set on layout === "cold_open_hook")
+  hookArchetype?: HookArchetype;
+  // V9 Law 0.5 — sub-shot list (2-3 entries) for non-closeup beats; hook uses this too
+  subShots?: ShotSpec[];
+  // Whether Quinn VO begins over this beat's visuals (hook-only — defaults true for cold_open_hook)
+  voOverVisuals?: boolean;
 }
 
 export type VisualType =

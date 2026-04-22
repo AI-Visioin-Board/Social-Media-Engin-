@@ -6,7 +6,14 @@
 // ============================================================
 
 import { CONFIG } from "./config.js";
-import type { VideoScript, Beat, VisualType, MotionStyle, TransitionType, LayoutMode } from "./types.js";
+import type { VideoScript, Beat, VisualType, MotionStyle, TransitionType, LayoutMode, ShotSpec, HookArchetype } from "./types.js";
+
+// V9 Law 0.6 — hard cap per shot duration (seconds).
+const MAX_SHOT_SEC = 2.0;
+// V9 Law 0.1 — script-stage spoken target (not runtime). Target is PROSE LENGTH;
+// avatar TTS runs ~1.4× that. 45s prose → ~60-63s reel after audio + hook + CRT TV.
+const MAX_SPOKEN_SEC = 45;
+const MIN_SPOKEN_SEC = 30;
 
 // ─── Verified Fact (from research pipeline) ─────────────────
 export interface VerifiedFact {
@@ -45,17 +52,45 @@ YOUR AUDIENCE:
 - They know AI is important but don't know what to DO about it
 - Every episode must give them something they can actually try
 
-SCRIPT STRUCTURE (follow EXACTLY — 8-10 beats, 35-50 seconds total — SHORTER IS BETTER, the avatar speaks slower than you think):
+V9 CORE LAWS (protocol-level, non-negotiable — see REEL_PRODUCTION_PROTOCOL.md Section 0):
+- Law 0.1 Duration: 30–45 seconds of SPOKEN prose. Never runtime-truncate. Quinn finishes her sentence.
+- Law 0.2 Density: every non-closeup beat fans into 2–3 sub-shots with varied transitions/entrances.
+- Law 0.3 Progressive Construction: every on-screen element enters with motion. Static appears are banned.
+- Law 0.4 Prompt Quality: cinematographer-grade visualPrompts (shot type, angle, lens, lighting, negatives).
+- Law 0.5 Sub-Shot Structure: each non-closeup beat emits a subShots array of 2–3 ShotSpec entries.
+- Law 0.6 Pace: no single sub-shot > 2.0s. Nothing on screen more than ~2s. Cut early.
 
-Beat 1 — HOOK (2-3 sec): Bold statement about why this topic matters. Grab attention.
-  Layout: "avatar_closeup"
-  Example: "Canva can turn a dead flat graphic into something you can actually edit."
+SCRIPT STRUCTURE (follow EXACTLY — 9-11 beats, 30-45 seconds total — SHORTER IS BETTER, the avatar speaks slower than you think):
 
-Beat 2 — DAY TAG (2 sec): Text card with the series identifier.
-  Layout: MUST be "text_card"
+Beat 1 — COLD-OPEN HOOK (3-6 sec, VISUAL PATTERN INTERRUPT — NOT Quinn's face):
+  Layout: MUST be "cold_open_hook" — replaces the old avatar_closeup opener. Quinn does NOT appear here.
+  The first frame on screen is an object / cartoon / UI gesture / kinetic typography that visually
+  renders the subject of the reel before any words are spoken. Quinn's VO may start at ~1.5s over
+  the visuals (set voOverVisuals: true — this is the default).
+
+  Pick ONE hookArchetype that matches the subject:
+    - "A1_object_collision" — efficiency/time ("cut work time in half" → clock + scissors)
+    - "A2_villain_vs_hero" — competition ("X killed Y", "X destroys Z")
+    - "A3_before_after_jumpcut" — transformation/automation
+    - "A4_cartoon_reaction" — surprising/shocking ("you won't believe…")
+    - "A5_ui_gesture_macro" — specific feature reveal (autonomous cursor, click cascade)
+    - "A6_icon_storm" — tool-overload / consolidation / "war" framing
+    - "A7_text_as_visual" — stat/quote/announcement (kinetic typography)
+    - "A8_pov_first_person" — workflow / new user experience
+
+  Emit a subShots array with 2–3 ShotSpec entries, each durationSec between 0.8 and 2.0 (HARD CAP).
+  Total hook duration is the sum of subShots[].durationSec — should land 3.0–6.0s.
+
+  Narration (if voOverVisuals true): punchy conflict-framed single sentence. Example (subject = Canva
+  editable layers): "Canva just wiped out a million design jobs — and made it this simple."
+  Ban boring educational openings ("Today we're going to talk about…", "Hey Quinn here…").
+  Ban "AI News You Can Use" as the opening words — brand moment is Beat 2, NOT Beat 1.
+
+Beat 2 — AINYCU BRAND MOMENT (DAY TAG, 2.5-3 sec): CRT TV drop + title reveal.
+  Layout: MUST be "text_card" (Remotion renders the CRT TV composition for this text_card content)
   textCardText: "DAY [X]\\nAI NEWS YOU CAN USE"
   textCardColor: "#000000"
-  Narration: "Welcome to Day [X] of AI News You Can Use."
+  Narration: "Welcome to Day [X] of AI News You Can Use." (Quinn still off-screen — TV is hero)
 
 Beat 3 — BRIDGE (2-3 sec): Connect the topic to the viewer's life.
   Layout: "avatar_closeup" or "icon_grid" (if listing what this helps with)
@@ -121,9 +156,9 @@ These markers are stripped before TTS but used for B-roll matching.
 VOICE RULES:
 - Talk like you're showing a friend something cool on your phone
 - No corporate language, no "in today's rapidly evolving landscape"
-- Total word count: 130-180 words (45-65 seconds at natural pace)
+- Total word count: 70–105 words (30–45 seconds of spoken prose at ~2.3 words/sec — final reel ~55–63s after hook + CRT + outro)
 - End every walkthrough step with what the viewer will SEE
-- Visual change MINIMUM every 3 seconds — never let a beat run longer than 5 sec
+- Visual change MINIMUM every 2 seconds — V9 Law 0.6. Hard cap per sub-shot 2.0s.
 
 BANNED WORDS: delve, landscape, tapestry, realm, paradigm, embark, beacon, robust, comprehensive,
 cutting-edge, leverage, pivotal, seamless, game-changer, utilize, holistic, actionable, impactful,
@@ -137,21 +172,24 @@ BANNED PATTERNS:
 - No "game-changer" / "revolutionize"
 
 LAYOUT OPTIONS (one per beat):
+- "cold_open_hook" — V9 Beat 1 ONLY. Visual pattern interrupt, no Quinn on screen. Uses hookArchetype + subShots.
 - "pip" — Avatar bottom + B-roll top in TV frame. USE when showing an actual tool screen or video clip.
 - "fullscreen_broll" — Full-screen B-roll with caption overlay. USE for dramatic/cinematic moments.
-- "avatar_closeup" — Full-screen Quinn. USE for hook, bridge, so-what, sign-off (personal connection).
-- "text_card" — Bold text on colored background. USE for day tags, stats, bold claims, pull quotes.
+- "avatar_closeup" — Full-screen Quinn. USE for bridge, so-what, sign-off (personal connection). NEVER beat 1.
+- "text_card" — Bold text on colored background. USE for day tags (beat 2), stats, bold claims, pull quotes.
 - "device_mockup" — B-roll inside a CSS MacBook or iPhone frame. USE when showing a website or app screenshot.
 - "icon_grid" — Animated emoji grid (2-4 items). USE for lists of features, categories, or options.
 - "motion_graphic" — Animated workflow/process diagram. USE for step-by-step concepts or before/after comparisons.
 
-LAYOUT RULES:
-- NEVER use the same layout 2 beats in a row (except avatar_closeup for hook→daytag transition)
-- Open with avatar_closeup (beat 1)
-- Close with avatar_closeup (last beat)
-- Beat 2 is ALWAYS text_card (day tag)
-- Include at least 1 icon_grid OR 1 motion_graphic per script (visual variety)
-- Walkthrough beats: mix pip + device_mockup + icon_grid — don't do 3 pips in a row
+LAYOUT RULES (V9):
+- Beat 1 is ALWAYS "cold_open_hook" — the pattern interrupt. Never avatar_closeup for beat 1. Never text_card.
+- Beat 2 is ALWAYS "text_card" (CRT TV day tag — brand moment AFTER the hook).
+- Beat 3 onward: avatar_closeup for bridge, then mix pip / device_mockup / icon_grid / motion_graphic for walkthrough.
+- NEVER use the same layout 2 beats in a row (except cold_open_hook → text_card, which is the required V9 opener sequence).
+- Close with avatar_closeup (last beat — signoff).
+- Include at least 1 icon_grid OR 1 motion_graphic per script (visual variety).
+- Walkthrough beats: mix pip + device_mockup + icon_grid — don't do 3 pips in a row.
+- Non-closeup beats MUST have a subShots array (2–3 ShotSpec entries, each 0.8–2.0s).
 
 VISUAL TYPES (one per beat):
 - "screen_capture" — Real screenshot of a website/app. ONLY use for PUBLIC pages (see rules below).
@@ -205,7 +243,8 @@ Example: [{"emoji": "📄", "label": "Flyers"}, {"emoji": "🍔", "label": "Menu
 DEVICE TYPE (for device_mockup layout beats only):
 Include "deviceType": "macbook" for desktop tools/websites, "iphone" for mobile apps.
 
-OUTPUT FORMAT: Return valid JSON:
+OUTPUT FORMAT: Return valid JSON. V9 additions are REQUIRED for every non-closeup beat (subShots), and REQUIRED for beat 1 (hookArchetype + subShots + layout="cold_open_hook").
+
 {
   "topic": "string",
   "hook": "string — beat 1 narration",
@@ -214,11 +253,11 @@ OUTPUT FORMAT: Return valid JSON:
     {
       "id": 1,
       "startSec": 0,
-      "durationSec": 3,
+      "durationSec": 4,
       "narration": "string with [SECTION] markers",
-      "layout": "pip|fullscreen_broll|avatar_closeup|text_card|device_mockup|icon_grid|motion_graphic",
+      "layout": "cold_open_hook|pip|fullscreen_broll|avatar_closeup|text_card|device_mockup|icon_grid|motion_graphic",
       "visualType": "screen_capture|product_logo_ui|data_graphic|cinematic_concept|generic_action|named_person",
-      "visualPrompt": "detailed prompt describing what to show on screen",
+      "visualPrompt": "detailed cinematographer-grade prompt (shot type + angle + lens + lighting + negatives)",
       "visualSubject": "string|null",
       "motionStyle": "ai_video|static_ken_burns|stock_clip|screen_capture",
       "transition": "cut|dissolve|zoom_in|slide_left",
@@ -229,18 +268,55 @@ OUTPUT FORMAT: Return valid JSON:
       "wordStyles": {"ToolName": "hero", "click": "action"},
       "zoomPunch": false,
       "iconGridItems": null,
-      "deviceType": null
+      "deviceType": null,
+
+      "hookArchetype": "A1_object_collision | ... | A8_pov_first_person (ONLY on beat 1, layout=cold_open_hook)",
+      "voOverVisuals": true,
+      "subShots": [
+        {
+          "durationSec": 1.4,
+          "cameraMove": "locked|slow_push_in|slow_pull_out|whip_pan|handheld_drift|macro_rack_focus|crane_down|orbit",
+          "onScreenContent": "cinematographer-grade description of what the viewer sees",
+          "progressiveElements": [
+            {"what": "second-hand ticks", "appearsAtMs": 0, "how": "write_on|slide_left|slide_right|slide_up|slide_down|scale_up|scale_down|letter_by_letter|fade_in|wipe_in"}
+          ],
+          "captionOverlay": {
+            "text": "WORK TIME, GONE.",
+            "entryDirection": "letter_by_letter|slide_left|slide_right|slide_up|slide_down|scale_up",
+            "offsetMs": 300
+          },
+          "transitionOut": "whip_pan|cut|flash_cut|shader_wipe|cross_dissolve|zoom_punch|jumbotron",
+          "assetPrompt": "full cinematographer-grade generation prompt — shot type, angle, lens feel, scene contents, motion spec, lighting, focus, reference aesthetic, negative prompts"
+        }
+      ]
     }
   ],
   "caption": "string — Instagram caption (educational angle, 3-5 hashtags)",
   "hashtags": ["ainewsyoucanuse", "ai", "tech"],
   "cta": "I'm Quinn. Your AI helping you navigate AI. For more AI news you can use, give us a follow."
-}`;
+}
+
+SUB-SHOTS RULES (V9 Laws 0.2 + 0.5 + 0.6):
+- Beat 1 (cold_open_hook): 2–3 subShots, each 0.8–2.0s, total 3.0–6.0s.
+- Non-closeup beats (pip/fullscreen_broll/device_mockup/icon_grid/motion_graphic): 2–3 subShots, each 0.8–2.0s.
+- avatar_closeup and text_card beats: subShots optional (Remotion renders them with motion-rich components).
+- Never more than 2.0s on any single sub-shot.
+- Vary transitionOut across the reel — no two consecutive sub-shots use the same transition.
+- Vary captionOverlay.entryDirection — ≥4 distinct styles per reel.
+
+HOOK PROMPT QUALITY (Law 0.4) — assetPrompt for Beat 1 sub-shots MUST include:
+- Shot type + camera angle + lens feel (e.g. "Macro closeup, 85mm-equivalent, locked-off head-on")
+- Aspect + duration + fps (e.g. "vertical 1080×1920, 1.4 seconds at 30fps")
+- Exact scene contents (what objects / UI / cartoon elements are visible, where they sit)
+- Motion spec (what moves, in what direction, at what pace, over how many ms)
+- Lighting + focus (quality, direction, mood, what's sharp, what falls off)
+- Reference aesthetic ("Apple keynote", "early 2000s Adult Swim bumper", "Wes Anderson macro")
+- Negative prompts ("no hallucinated text, no watermarks, no stock-photo look, no real-person faces, consistent style")`;
 
 export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<VideoScript> {
   const { topic, angle, dayNumber, verifiedFacts, feedback, signal } = opts;
 
-  let userPrompt = `Create a 45-65 second educational reel script about this topic:\n\n${topic}\n\n`;
+  let userPrompt = `Create a V9 educational reel script about this topic — target 30–45 seconds of SPOKEN prose (Quinn's TTS runs ~1.4× the prose length, so the final reel lands ~55–63s including the 4s cold-open hook, 2.6s CRT TV drop, and 4s outro). Write for MAX 45 spoken seconds — the pipeline prunes beats beyond that so your script gets shorter, not longer, in post.\n\n${topic}\n\n`;
 
   userPrompt += `SERIES: "AI News You Can Use" — Day ${dayNumber} of 30.\n`;
   userPrompt += `The Day Tag beat MUST say: "Welcome to Day ${dayNumber} of AI News You Can Use."\n`;
@@ -318,7 +394,12 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
   const validTransitions: TransitionType[] = ["cut", "dissolve", "zoom_in", "slide_left"];
   const validLayouts: LayoutMode[] = [
     "pip", "fullscreen_broll", "avatar_closeup", "text_card",
-    "device_mockup", "icon_grid", "motion_graphic",
+    "device_mockup", "icon_grid", "motion_graphic", "cold_open_hook",
+  ];
+  const validHookArchetypes: HookArchetype[] = [
+    "A1_object_collision", "A2_villain_vs_hero", "A3_before_after_jumpcut",
+    "A4_cartoon_reaction", "A5_ui_gesture_macro", "A6_icon_storm",
+    "A7_text_as_visual", "A8_pov_first_person",
   ];
 
   let runningTime = 0;
@@ -326,17 +407,25 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
     const duration = clamp(b.durationSec ?? 3, 2, 8);
     const isFirst = i === 0;
     const isLast = i === raw.beats.length - 1;
-    const isDayTag = i === 1; // Beat 2 is always the day tag
+    const isDayTag = i === 1; // Beat 2 is always the day tag (CRT TV brand moment)
     const defaultLayout: LayoutMode = isDayTag ? "text_card"
-      : (isFirst || isLast) ? "avatar_closeup"
+      : isFirst ? "cold_open_hook"
+      : isLast ? "avatar_closeup"
       : "pip";
+
+    // V9 Section 12a — beat 1 MUST be cold_open_hook regardless of what the LLM returned.
+    // Do NOT honor an LLM-returned avatar_closeup for beat 1 — that silently bypasses the
+    // pattern-interrupt protocol and degrades V9 quality.
+    const resolvedLayout: LayoutMode = isFirst
+      ? "cold_open_hook"
+      : validLayouts.includes(b.layout) ? b.layout : defaultLayout;
 
     const beat: Beat = {
       id: i + 1,
       startSec: runningTime,
       durationSec: duration,
       narration: String(b.narration ?? ""),
-      layout: validLayouts.includes(b.layout) ? b.layout : defaultLayout,
+      layout: resolvedLayout,
       visualType: validVisualTypes.includes(b.visualType) ? b.visualType : "screen_capture",
       visualPrompt: String(b.visualPrompt ?? b.narration ?? ""),
       visualSubject: b.visualSubject || undefined,
@@ -346,6 +435,42 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
       textCardText: b.textCardText ? String(b.textCardText) : undefined,
       textCardColor: b.textCardColor ? String(b.textCardColor) : undefined,
     };
+
+    // V9 — section marker (used by pruning logic + asset router)
+    const rawSection = (b.sectionMarker ?? b.section ?? "").toString().toLowerCase();
+    if (rawSection) beat.section = rawSection;
+    else if (isFirst) beat.section = "hook";
+    else if (isDayTag) beat.section = "daytag";
+    else if (isLast) beat.section = "signoff";
+
+    // V9 Section 12a — hook archetype + subShots (required on beat 1)
+    if (beat.layout === "cold_open_hook") {
+      if (validHookArchetypes.includes(b.hookArchetype)) {
+        beat.hookArchetype = b.hookArchetype as HookArchetype;
+      } else {
+        // Default to the most generically usable archetype; asset generator will still produce output.
+        beat.hookArchetype = "A7_text_as_visual";
+        console.warn(`[AINYCU ScriptDirector] Beat 1 hookArchetype missing/invalid — defaulted to A7_text_as_visual`);
+      }
+      beat.voOverVisuals = b.voOverVisuals !== false; // default true
+      beat.section = "hook";
+    }
+
+    // V9 Law 0.5 — subShots for any non-closeup/non-textcard beat
+    if (Array.isArray(b.subShots) && b.subShots.length > 0) {
+      beat.subShots = sanitizeSubShots(b.subShots, beat.layout);
+    } else if (beat.layout === "cold_open_hook") {
+      // Missing subShots on the hook is a critical gap — generate a minimal-viable 3-shot fallback
+      // so the pipeline doesn't fail. Asset generator will still apply cinematographer-grade wrapping.
+      beat.subShots = buildHookFallbackSubShots(beat);
+      console.warn(`[AINYCU ScriptDirector] Beat 1 missing subShots — generated fallback hook subShots`);
+    }
+
+    // V9 Law 0.6 — total hook duration reflects sum of subShots
+    if (beat.layout === "cold_open_hook" && beat.subShots && beat.subShots.length > 0) {
+      const hookSum = beat.subShots.reduce((s, shot) => s + shot.durationSec, 0);
+      beat.durationSec = Math.min(Math.max(hookSum, 3.0), 6.0);
+    }
 
     // ── Word Styles (multi-style captions) ──
     if (b.wordStyles && typeof b.wordStyles === "object") {
@@ -413,30 +538,43 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
     return beat;
   });
 
-  // Hard trim: if over 50s estimated, remove walkthrough beats from the end
-  // until we're under budget. Avatar speaks ~1.5-2x slower than estimated,
-  // so 50s script → ~75-100s video. Target 40s → ~60-80s video.
-  const MAX_SCRIPT_SEC = 50;
-  let totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
-  while (totalDuration > MAX_SCRIPT_SEC && beats.length > 6) {
-    // Find last walkthrough beat (not hook, daytag, bridge, sowhat, or signoff)
-    const sections = ["hook", "daytag", "bridge", "sowhat", "signoff"];
+  // V9 Law 0.1 — SCRIPT-STAGE duration cap on SPOKEN prose, not runtime.
+  // Avatar TTS runs ~1.4× estimated, so 45s spoken → ~63s reel (hook 4s + brand 2.6s + body +
+  // outro 4s). Prune whole beats at GENERATION time. Never runtime-truncate — Quinn finishes her sentence.
+  // Prefer removing the second-to-last walkthrough beat first (keeps bridge→steps→sowhat arc tight).
+  const PROTECTED_SECTIONS = new Set(["hook", "daytag", "bridge", "sowhat", "signoff"]);
+  let spokenDuration = estimateSpokenSec(beats);
+  while (spokenDuration > MAX_SPOKEN_SEC && beats.length > 6) {
+    // Walk from end backwards, skip protected sections, prefer the LAST walkthrough beat
+    // (which is usually the least important step if the director already ordered by priority)
     let removeIdx = -1;
     for (let i = beats.length - 1; i >= 0; i--) {
-      if (!sections.includes(beats[i].section ?? "")) {
+      if (!PROTECTED_SECTIONS.has(beats[i].section ?? "")) {
         removeIdx = i;
         break;
       }
     }
     if (removeIdx === -1) break;
     const removed = beats.splice(removeIdx, 1)[0];
-    totalDuration -= removed.durationSec;
-    console.log(`[AINYCU ScriptDirector] Trimmed beat "${removed.narration?.slice(0, 40)}..." (${removed.durationSec}s) — now ${totalDuration}s`);
+    spokenDuration = estimateSpokenSec(beats);
+    console.log(`[AINYCU ScriptDirector] V9 duration prune: removed beat "${removed.narration?.slice(0, 40)}..." (~${removed.durationSec}s visual) — est spoken now ${spokenDuration.toFixed(1)}s`);
   }
 
-  if (totalDuration < 25 || totalDuration > 55) {
-    console.warn(`[AINYCU ScriptDirector] Duration ${totalDuration}s outside 25-55s range (target ~40s for ~60s actual video)`);
+  // Re-time after pruning so startSec is sequential and beats.id is stable
+  let t = 0;
+  for (const b of beats) { b.startSec = t; t += b.durationSec; }
+  beats.forEach((b, i) => { b.id = i + 1; });
+  const totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
+
+  if (spokenDuration < MIN_SPOKEN_SEC) {
+    console.warn(`[AINYCU ScriptDirector] Spoken duration ~${spokenDuration.toFixed(1)}s is under MIN_SPOKEN_SEC ${MIN_SPOKEN_SEC}s — reel will feel thin`);
   }
+  if (spokenDuration > MAX_SPOKEN_SEC) {
+    console.warn(`[AINYCU ScriptDirector] Spoken duration ~${spokenDuration.toFixed(1)}s still > MAX_SPOKEN_SEC ${MAX_SPOKEN_SEC}s after pruning — script too dense, may need regeneration`);
+  }
+
+  // V9 Laws 0.2 / 0.5 — post-hoc lint of sub-shot coverage + pace
+  lintV9Density(beats);
 
   return {
     topic: String(raw.topic),
@@ -453,4 +591,195 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
+}
+
+// ─── V9 Helpers ─────────────────────────────────────────────
+
+/**
+ * Estimate spoken duration from NARRATION TEXT (not beat.durationSec which includes
+ * visual padding). Uses ~2.3 words/second as Quinn's natural TTS pace.
+ */
+function estimateSpokenSec(beats: Beat[]): number {
+  const WORDS_PER_SEC = 2.3;
+  const totalWords = beats
+    .map(b => (b.narration ?? "")
+      .replace(/\[[A-Z0-9]+\]/g, "")  // strip section markers
+      .split(/\s+/).filter(Boolean).length)
+    .reduce((a, b) => a + b, 0);
+  return totalWords / WORDS_PER_SEC;
+}
+
+/**
+ * Coerce LLM-emitted subShots into valid ShotSpec[] — clamps duration to 0.8–2.0s
+ * (Law 0.6), validates cameraMove/transitionOut enums, caps at 3 entries.
+ */
+function sanitizeSubShots(raw: any[], layout: LayoutMode): ShotSpec[] {
+  const validCameraMoves: ShotSpec["cameraMove"][] = [
+    "locked", "slow_push_in", "slow_pull_out", "whip_pan",
+    "handheld_drift", "macro_rack_focus", "crane_down", "orbit",
+  ];
+  const validTransitions: ShotSpec["transitionOut"][] = [
+    "cut", "whip_pan", "flash_cut", "shader_wipe",
+    "cross_dissolve", "zoom_punch", "jumbotron",
+  ];
+  const validEntryDirections = [
+    "slide_left", "slide_right", "slide_up", "slide_down",
+    "scale_up", "letter_by_letter",
+  ] as const;
+  const validHow = [
+    "slide_left", "slide_right", "slide_up", "slide_down",
+    "scale_up", "scale_down", "letter_by_letter", "write_on",
+    "fade_in", "wipe_in",
+  ] as const;
+
+  const shots: ShotSpec[] = raw.slice(0, 3).map((s: any, idx: number): ShotSpec => {
+    const dur = clamp(Number(s.durationSec) || 1.4, 0.8, MAX_SHOT_SEC);
+    const cameraMove = (validCameraMoves as string[]).includes(s.cameraMove) ? s.cameraMove : "locked";
+    const transitionOut = (validTransitions as string[]).includes(s.transitionOut) ? s.transitionOut : "cut";
+
+    const shot: ShotSpec = {
+      durationSec: dur,
+      cameraMove,
+      onScreenContent: String(s.onScreenContent ?? s.prompt ?? ""),
+      transitionOut,
+      assetPrompt: String(s.assetPrompt ?? s.onScreenContent ?? ""),
+    };
+
+    if (Array.isArray(s.progressiveElements)) {
+      shot.progressiveElements = s.progressiveElements
+        .filter((p: any) => p && typeof p === "object")
+        .slice(0, 5)
+        .map((p: any) => ({
+          what: String(p.what ?? ""),
+          appearsAtMs: Math.max(0, Number(p.appearsAtMs) || 0),
+          how: (validHow as readonly string[]).includes(p.how) ? p.how : "fade_in",
+        }));
+    }
+
+    if (s.captionOverlay && typeof s.captionOverlay === "object") {
+      const text = String(s.captionOverlay.text ?? "").trim();
+      if (text && text.length > 0) {
+        shot.captionOverlay = {
+          text: text.split(/\s+/).slice(0, 6).join(" "),  // enforce ≤6 words
+          entryDirection: (validEntryDirections as readonly string[]).includes(s.captionOverlay.entryDirection)
+            ? s.captionOverlay.entryDirection
+            : "letter_by_letter",
+          offsetMs: Math.max(0, Number(s.captionOverlay.offsetMs) || 0),
+        };
+      }
+    }
+
+    return shot;
+  });
+
+  // Enforce minimum 2 sub-shots for cold_open_hook (pattern interrupt needs a beat + a payoff)
+  if (layout === "cold_open_hook" && shots.length < 2) {
+    shots.push({
+      durationSec: 1.2,
+      cameraMove: "locked",
+      onScreenContent: "Payoff shot — resolves the interrupt visually",
+      transitionOut: "cut",
+      assetPrompt: "Cinematic resolution shot matching the hook's subject. Vertical 1080x1920, 1.2s at 30fps. Locked-off composition. Clean frame, final element in focus, hard lighting, editorial style. Negative: no text hallucination, no watermarks, no stock-photo look.",
+    });
+  }
+
+  return shots;
+}
+
+/**
+ * Minimum-viable fallback hook subShots when the LLM forgets to emit them.
+ * Produces a 3-shot (1.4 + 1.6 + 1.0 = 4.0s) pattern interrupt using the A7 text-as-visual
+ * archetype, which works for any subject since kinetic typography fits any topic.
+ */
+function buildHookFallbackSubShots(beat: Beat): ShotSpec[] {
+  // Strip [SECTION] markers before using narration in prompts — otherwise "[HOOK]" leaks to Nano Banana.
+  const cleanNarration = (beat.narration ?? "").replace(/\[[A-Z0-9]+\]/g, "").trim();
+  const subject = cleanNarration.slice(0, 50) || "AI news you can use";
+  return [
+    {
+      durationSec: 1.4,
+      cameraMove: "slow_push_in",
+      onScreenContent: `Massive kinetic typography on matte black. Key phrase from: "${subject}". Letters spring in staggered.`,
+      progressiveElements: [
+        { what: "key phrase letters", appearsAtMs: 0, how: "letter_by_letter" },
+      ],
+      transitionOut: "flash_cut",
+      assetPrompt: `Vertical 1080x1920, 1.4 seconds at 30fps. Macro typography composition on matte black background. Massive bold sans-serif letters (Inter Black 900) in white with gold accent underline (#e89b06). Key phrase derived from: "${subject}". Letters spring-enter one at a time from below, scale 0.4→1.0 with overshoot. Lighting: hard rim light on letter edges. Focus: tack sharp. Style: Apple keynote title card, early 2000s MTV bumper energy. Negative: no hallucinated text, no watermarks, no stock-photo look, no real-person faces, consistent style.`,
+    },
+    {
+      durationSec: 1.6,
+      cameraMove: "whip_pan",
+      onScreenContent: `Secondary visual metaphor tied to subject. Fast cut after the typography — delivers the "so what".`,
+      progressiveElements: [
+        { what: "metaphor object", appearsAtMs: 100, how: "slide_left" },
+      ],
+      captionOverlay: {
+        text: "WATCH THIS.",
+        entryDirection: "scale_up",
+        offsetMs: 200,
+      },
+      transitionOut: "zoom_punch",
+      assetPrompt: `Vertical 1080x1920, 1.6 seconds at 30fps. Macro shot of a visual metaphor for "${subject}" on matte black — flat vector illustration style, single subject centered, whipping in from the right with motion blur. Lighting: hard key light upper-left, deep shadows. Focus: tack sharp on subject, background matte black. Style: Wes Anderson symmetry, premium product demo. Negative: no hallucinated text, no watermarks, no stock-photo look, no real-person faces.`,
+    },
+    {
+      durationSec: 1.0,
+      cameraMove: "locked",
+      onScreenContent: `Resolution beat — the subject fully revealed. Holds on final frame 0.6s then transitions to the CRT TV drop.`,
+      transitionOut: "cross_dissolve",
+      assetPrompt: `Vertical 1080x1920, 1.0 seconds at 30fps. Locked-off final composition showing the resolution of "${subject}". Clean frame, single hero element in focus, matte black background, hard editorial lighting. Style: final Apple keynote beat, settles rather than moves. Negative: no hallucinated text, no watermarks, no stock-photo look, consistent style.`,
+    },
+  ];
+}
+
+/**
+ * V9 Laws 0.2 + 0.6 post-generation lint. Warns (not throws) — pipeline continues
+ * but the issues surface in Railway logs and can inform script-director prompt tuning.
+ */
+function lintV9Density(beats: Beat[]): void {
+  const issues: string[] = [];
+
+  // Law 0.5 — every non-closeup/non-textcard beat should have subShots
+  for (const b of beats) {
+    const exempt = b.layout === "avatar_closeup" || b.layout === "text_card";
+    if (!exempt && (!b.subShots || b.subShots.length < 2)) {
+      issues.push(`Beat ${b.id} (${b.layout}) has ${b.subShots?.length ?? 0} sub-shots, need ≥2 (Law 0.5)`);
+    }
+  }
+
+  // Law 0.6 — no sub-shot > 2.0s
+  for (const b of beats) {
+    if (!b.subShots) continue;
+    for (let i = 0; i < b.subShots.length; i++) {
+      const s = b.subShots[i];
+      if (s.durationSec > MAX_SHOT_SEC + 0.01) {
+        issues.push(`Beat ${b.id} sub-shot ${i} is ${s.durationSec.toFixed(2)}s (> ${MAX_SHOT_SEC}s cap, Law 0.6)`);
+      }
+    }
+  }
+
+  // Law 0.2 — entry-direction + transition variety
+  const entries = beats.flatMap(b => b.subShots?.flatMap(s => s.captionOverlay?.entryDirection ?? []) ?? []);
+  const transitions = beats.flatMap(b => b.subShots?.map(s => s.transitionOut) ?? []);
+  const entryVariety = new Set(entries).size;
+  const transitionVariety = new Set(transitions).size;
+  if (entries.length > 0 && entryVariety < 3) {
+    issues.push(`Only ${entryVariety} distinct caption entrance styles across reel (Law 0.2 wants ≥4)`);
+  }
+  if (transitions.length > 0 && transitionVariety < 3) {
+    issues.push(`Only ${transitionVariety} distinct transitions across reel (Law 0.2 wants ≥4)`);
+  }
+
+  // Back-to-back repeat check
+  for (let i = 1; i < transitions.length; i++) {
+    if (transitions[i] === transitions[i - 1]) {
+      issues.push(`Repeated transition "${transitions[i]}" back-to-back at sub-shot index ${i} (Law 0.2)`);
+    }
+  }
+
+  if (issues.length > 0) {
+    console.warn(`[AINYCU ScriptDirector] V9 density lint found ${issues.length} issue(s):`);
+    for (const msg of issues) console.warn(`  - ${msg}`);
+  } else {
+    console.log(`[AINYCU ScriptDirector] V9 density lint passed (Laws 0.2/0.5/0.6)`);
+  }
 }

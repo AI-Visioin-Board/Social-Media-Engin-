@@ -19,7 +19,7 @@ import type {
   AssetSource,
   ParallelGroup,
 } from "./types.js";
-import { getIndependentRequests, getDependentRequests } from "./assetRouter.js";
+import { getDependentRequests, decodeShotId } from "./assetRouter.js";
 import { generateImage } from "./utils/nanoBananaClient.js";
 import { animateImage } from "./utils/veoClient.js";
 import { searchStockVideo, searchStockVideoBatch, resetUsedVideos } from "./utils/pexelsClient.js";
@@ -157,11 +157,62 @@ export async function generateAllAssetsMulti(
     }
   }
 
+  // V9 — collapse per-shot encoded beatIds (beatId*1000+shotIndex) back into the
+  // parent beat's MultiAssetMap entry so the assembler sees one list per beat.
+  // Leaves the primary map keyed at the encoded shotId for debugging (Railway logs),
+  // but also publishes the decoded primary/multi at the parent beatId.
+  regroupShotAssets(primary, multi);
+
   const successCount = Object.keys(primary).length;
   const multiCount = Object.values(multi).reduce((sum, arr) => sum + arr.length, 0);
   console.log(`[AssetGen] Completed: ${successCount} beats with ${multiCount} total clips`);
 
   return { primary, multi };
+}
+
+/**
+ * V9 — the asset router emits one AssetRequest per sub-shot, each with a unique
+ * encoded beatId (shotId = beatId*1000 + shotIndex). The assembler expects assets
+ * grouped by ORIGINAL beatId, so we collapse shotIds back under their parent here.
+ *
+ * After this pass: for a beat that had 3 sub-shots,
+ *   - multi[beatId] = [asset0, asset1, asset2] (ordered by shotIndex)
+ *   - primary[beatId] = multi[beatId][0] (first shot is primary)
+ *   - multi[shotId] entries remain for debugging but aren't the contract
+ */
+function regroupShotAssets(primary: AssetMap, multi: MultiAssetMap): void {
+  // Collect all encoded shotIds (values ≥ 1000 are encoded per-shot IDs)
+  const shotIds = Object.keys(primary).map(Number).filter(n => n >= 1000);
+  if (shotIds.length === 0) return;
+
+  // Group by parent beatId
+  const groups = new Map<number, Array<{ shotIndex: number; asset: GeneratedAsset }>>();
+  // Include any existing single-shot assets (shot 0 is stored under the plain beatId)
+  for (const idStr of Object.keys(primary)) {
+    const shotId = Number(idStr);
+    const { beatId, shotIndex } = decodeShotId(shotId);
+    if (shotIndex === 0 && shotId < 1000) {
+      // Non-encoded beat (e.g. legacy single-asset beat) — still surface under its own beatId
+      // but also include it as shotIndex 0 of that parent's group so multi[beatId][0] is consistent.
+      const arr = groups.get(beatId) ?? [];
+      arr.push({ shotIndex: 0, asset: primary[shotId] });
+      groups.set(beatId, arr);
+    } else if (shotId >= 1000) {
+      const arr = groups.get(beatId) ?? [];
+      arr.push({ shotIndex, asset: primary[shotId] });
+      groups.set(beatId, arr);
+    }
+  }
+
+  // Publish decoded groups back under parent beatId
+  groups.forEach((entries, beatId) => {
+    entries.sort((a: { shotIndex: number }, b: { shotIndex: number }) => a.shotIndex - b.shotIndex);
+    const assets = entries.map((e: { asset: GeneratedAsset }) => ({ ...e.asset, beatId }));
+    if (assets.length > 0) {
+      multi[beatId] = assets;
+      primary[beatId] = assets[0];
+    }
+  });
 }
 
 async function processGroup(
@@ -340,9 +391,11 @@ async function generateSingleAsset(
       const videoHeight = req.aspectRatio === "1:1" ? 1080 : 1920;
 
       // Step 2: Animate the still with Veo 3.1 (image-to-video)
-      // If Veo fails, we gracefully fall back to the still image
+      // V9 Law 0.4 — use the full cinematographer-grade prompt as-is. The previous
+      // "Subtle cinematic motion" wrapper diluted quality by overriding the shot's
+      // camera-move spec. Veo gets the real brief now.
       try {
-        const motionPrompt = `Subtle cinematic motion: gentle camera movement, atmospheric lighting shifts. ${req.prompt}`;
+        const motionPrompt = req.prompt;
         const veoResult = await animateImage(result.imageBase64, result.mimeType, motionPrompt, signal, req.aspectRatio);
         const videoPublicUrl = await uploadBufferToStorage(veoResult.videoBuffer, veoResult.mimeType, req.beatId, "mp4");
         console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana → Veo animation SUCCESS (${req.aspectRatio})`);

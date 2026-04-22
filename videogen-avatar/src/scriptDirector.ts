@@ -120,16 +120,21 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     "static_ken_burns", "ai_video", "stock_clip", "screen_capture",
   ];
   const validTransitions: TransitionType[] = ["cut", "dissolve", "zoom_in", "slide_left"];
-  const validLayouts: LayoutMode[] = ["pip", "fullscreen_broll", "avatar_closeup", "text_card"];
+  const validLayouts: LayoutMode[] = [
+    "pip", "fullscreen_broll", "avatar_closeup", "text_card",
+    "device_mockup", "icon_grid", "motion_graphic", "cold_open_hook",
+  ];
 
   let runningTime = 0;
   const beats: Beat[] = raw.beats.map((b: any, i: number) => {
-    // 8-12 beats at 3-8 seconds each (total ~45-60s)
+    // V9: 9-11 beats, 30-45s spoken, ~55-63s reel final
     const duration = clamp(b.durationSec ?? 5, 2, 10);
-    // Default layout: first beat = avatar_closeup, last beat = avatar_closeup, middle = pip
+    // V9 default layout: first beat = cold_open_hook (pattern interrupt), last beat = avatar_closeup, middle = pip
     const isFirst = i === 0;
     const isLast = i === raw.beats.length - 1;
-    const defaultLayout: LayoutMode = (isFirst || isLast) ? "avatar_closeup" : "pip";
+    const defaultLayout: LayoutMode = isFirst ? "cold_open_hook"
+      : isLast ? "avatar_closeup"
+      : "pip";
     const beat: Beat = {
       id: i + 1,
       startSec: runningTime,
@@ -171,30 +176,53 @@ function validateAndCleanScript(raw: any, targetDurationSec: number): VideoScrip
     return beat;
   });
 
-  // Hard cap: trim beats from the end if total exceeds target duration
-  let totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
-  if (totalDuration > targetDurationSec) {
-    console.warn(`[ScriptDirector] Script ${totalDuration}s exceeds target ${targetDurationSec}s — trimming beats`);
-    while (totalDuration > targetDurationSec && beats.length > 3) {
-      // Remove second-to-last beat (keep last beat = CTA/signoff)
-      const removeIdx = beats.length - 2;
-      const removed = beats.splice(removeIdx, 1)[0];
-      totalDuration -= removed.durationSec;
-      console.warn(`[ScriptDirector] Removed beat ${removed.id} (${removed.durationSec}s) — now ${totalDuration}s`);
-    }
-    // Recalculate startSec for remaining beats
-    let time = 0;
-    for (const b of beats) {
-      b.startSec = time;
-      time += b.durationSec;
-    }
-    // Re-number beat IDs
-    beats.forEach((b, i) => { b.id = i + 1; });
-    totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
-  }
+  // V9 Law 0.1 — SCRIPT-STAGE duration cap on SPOKEN prose (not beat.durationSec).
+  // Quinn TTS runs ~2.3 words/sec; target 30–45s spoken = 70–105 words.
+  // Prune walkthrough beats first, keep hook/signoff intact. Never runtime-truncate.
+  const MAX_SPOKEN_SEC = Math.min(targetDurationSec, 45);
+  const estimateSpoken = (bs: Beat[]): number => {
+    const words = bs
+      .map(b => (b.narration ?? "").replace(/\[[A-Z0-9]+\]/g, "").split(/\s+/).filter(Boolean).length)
+      .reduce((a, b) => a + b, 0);
+    return words / 2.3;
+  };
+  // Section markers protected from pruning — these carry the narrative arc.
+  // Everything else (walkthrough, bridge, step1-5) can be trimmed.
+  const PROTECTED_SECTIONS = new Set(["hook", "daytag", "sowhat", "signoff"]);
+  const isProtected = (b: Beat, idx: number, total: number): boolean => {
+    if (b.section && PROTECTED_SECTIONS.has(b.section)) return true;
+    // Positional fallback when no section marker was set: beat 0 = hook, last = signoff.
+    if (idx === 0 || idx === total - 1) return true;
+    return false;
+  };
 
-  if (totalDuration < 20) {
-    console.warn(`[ScriptDirector] Script duration ${totalDuration}s is unusually short`);
+  let spokenDuration = estimateSpoken(beats);
+  if (spokenDuration > MAX_SPOKEN_SEC) {
+    console.warn(`[ScriptDirector] Spoken ~${spokenDuration.toFixed(1)}s exceeds target ${MAX_SPOKEN_SEC}s — V9 pruning`);
+    let safety = 20; // hard stop to prevent infinite loop on degenerate input
+    while (spokenDuration > MAX_SPOKEN_SEC && beats.length > 3 && safety-- > 0) {
+      // Find a prunable beat: last non-protected beat (walk from back, skip protected).
+      let removeIdx = -1;
+      for (let i = beats.length - 2; i >= 1; i--) {
+        if (!isProtected(beats[i], i, beats.length)) { removeIdx = i; break; }
+      }
+      if (removeIdx === -1) {
+        console.warn(`[ScriptDirector] No prunable non-protected beats remain — stopping pruning at ${spokenDuration.toFixed(1)}s`);
+        break;
+      }
+      const removed = beats.splice(removeIdx, 1)[0];
+      spokenDuration = estimateSpoken(beats);
+      console.warn(`[ScriptDirector] Pruned beat ${removed.id} [${removed.section ?? "unmarked"}] (${removed.narration?.slice(0, 40)}...) — est spoken now ${spokenDuration.toFixed(1)}s`);
+    }
+    // Recalculate startSec and re-number IDs
+    let time = 0;
+    for (const b of beats) { b.startSec = time; time += b.durationSec; }
+    beats.forEach((b, i) => { b.id = i + 1; });
+  }
+  const totalDuration = beats.reduce((sum, b) => sum + b.durationSec, 0);
+
+  if (spokenDuration < 20) {
+    console.warn(`[ScriptDirector] Spoken duration ~${spokenDuration.toFixed(1)}s is unusually short`);
   }
 
   return {
