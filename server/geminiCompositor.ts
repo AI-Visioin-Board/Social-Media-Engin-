@@ -314,34 +314,63 @@ export async function compositeGeminiVideo(
   const overlayPath = path.join(tempDir, `overlay_${ts}.png`);
   const outputPath = path.join(tempDir, `output_${ts}.mp4`);
 
-  fs.writeFileSync(videoPath, videoBuffer);
+  // STEP 1: Validate buffer is a real MP4 (starts with ftyp box)
+  if (!videoBuffer || videoBuffer.length < 1000) {
+    throw new Error(`invalid video buffer: ${videoBuffer?.length ?? 0} bytes`);
+  }
+  // MP4 files have "ftyp" at byte 4
+  const ftypCheck = videoBuffer.slice(4, 8).toString("ascii");
+  if (ftypCheck !== "ftyp") {
+    throw new Error(`buffer is not MP4 (got "${ftypCheck}" at byte 4, size=${videoBuffer.length})`);
+  }
+  console.log(`[GeminiCompositor] Video buffer: ${videoBuffer.length} bytes, ftyp OK`);
 
-  // 1. Generate transparent overlay PNG via Puppeteer
-  const browser = await puppeteer.launch({
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
-    headless: true,
-  });
   try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 1 });
-    await page.setContent(overlayHtml, {
-      waitUntil: "networkidle2",
-      timeout: 30_000,
-    });
-    await page.screenshot({
-      path: overlayPath,
-      type: "png",
-      omitBackground: true,
-    });
-  } finally {
-    await browser.close();
+    fs.writeFileSync(videoPath, videoBuffer);
+  } catch (err: any) {
+    throw new Error(`video write failed: ${err?.message}`);
   }
 
-  // 2. Composite with FFmpeg
+  // STEP 2: Generate transparent overlay PNG via Puppeteer
+  // Switched from networkidle2 to domcontentloaded — avoids hanging when Google Fonts are slow
+  try {
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      headless: true,
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1080, height: 1350, deviceScaleFactor: 1 });
+      await page.setContent(overlayHtml, {
+        waitUntil: "domcontentloaded",
+        timeout: 20_000,
+      });
+      // Give fonts a moment to load but don't block on networkidle
+      await new Promise((r) => setTimeout(r, 1500));
+      await page.screenshot({
+        path: overlayPath,
+        type: "png",
+        omitBackground: true,
+      });
+    } finally {
+      await browser.close();
+    }
+  } catch (err: any) {
+    // Cleanup video file on Puppeteer failure
+    try { if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath); } catch {}
+    throw new Error(`puppeteer overlay render failed: ${err?.message}`);
+  }
+
+  if (!fs.existsSync(overlayPath) || fs.statSync(overlayPath).size < 100) {
+    try { if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath); } catch {}
+    throw new Error(`overlay PNG missing or empty: ${overlayPath}`);
+  }
+
+  // STEP 3: Composite with FFmpeg
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error("FFmpeg processing timed out after 60 seconds"));
-    }, 60_000);
+      reject(new Error("FFmpeg processing timed out after 90 seconds"));
+    }, 90_000);
 
     ffmpeg(videoPath)
       .input(overlayPath)
@@ -371,7 +400,7 @@ export async function compositeGeminiVideo(
         }
         resolve(`data:video/mp4;base64,${outBuffer.toString("base64")}`);
       })
-      .on("error", (err) => {
+      .on("error", (err: any) => {
         clearTimeout(timeout);
         console.error("[GeminiCompositor] FFmpeg error:", err);
         try {
@@ -379,7 +408,7 @@ export async function compositeGeminiVideo(
           if (fs.existsSync(overlayPath)) fs.unlinkSync(overlayPath);
           if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
         } catch {}
-        reject(err);
+        reject(new Error(`ffmpeg: ${err?.message ?? String(err)}`));
       });
   });
 }
