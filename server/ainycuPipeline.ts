@@ -281,7 +281,7 @@ export async function continueAfterTopicApproval(
 
     const folderName = sanitizeTopicName(approved.title);
     const outputDir = join(OUTPUT_BASE, folderName);
-    const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, approved.url, ac.signal);
+    const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, approved.url, ac.signal, multiAssets);
 
     // Close headless browser if it was used (free memory)
     try {
@@ -509,7 +509,7 @@ async function rerunPipeline(
     const folderName = sanitizeTopicName(topic);
     const outputDir = join(OUTPUT_BASE, folderName);
     const topicUrl = run.topicSourceUrl ?? undefined;
-    const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, topicUrl, ac.signal);
+    const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, topicUrl, ac.signal, multiAssets);
 
     // Close headless browser if it was used
     try {
@@ -571,7 +571,7 @@ export async function swapBroll(runId: number, beatIndex: number, newPrompt?: st
     const folderName = sanitizeTopicName(run.topic ?? "untitled");
     const outputDir = join(OUTPUT_BASE, folderName);
     const topicUrl = run.topicSourceUrl ?? undefined;
-    const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, topicUrl);
+    const savedFiles = await saveAssetsToFolder(script, assets, outputDir, runId, topicUrl, undefined, multiAssets);
 
     await updateRun(runId, {
       status: "completed",
@@ -653,14 +653,23 @@ async function cleanFolder(dir: string): Promise<void> {
   }
 }
 
-/** Download assets from URLs and save as numbered files to local folder */
+/**
+ * Download assets from URLs and save as numbered files to local folder.
+ *
+ * When a beat has shots[] AND multiAssets[beat.id] has ≥ 1 entries, each shot
+ * is saved as its own file named:
+ *   "{seq}--{section}-s{shotIdx}--{desc}--{dur}.{ext}"
+ *
+ * For beats without shots[], fall back to the legacy single-file-per-beat naming.
+ */
 async function saveAssetsToFolder(
   script: any,
   assets: Record<string, any>,
   outputDir: string,
   runId: number,
-  topicUrl?: string,
+  _topicUrl?: string,
   signal?: AbortSignal,
+  multiAssets?: Record<string, any[]>,
 ): Promise<string[]> {
   await mkdir(outputDir, { recursive: true });
   await cleanFolder(outputDir);
@@ -671,53 +680,115 @@ async function saveAssetsToFolder(
   const skipLayouts = ["avatar_closeup", "text_card", "icon_grid", "motion_graphic"];
   for (const beat of script.beats) {
     if (skipLayouts.includes(beat.layout)) continue;
+    if (beat.remotionOnly) continue;
+
+    // Per-shot branch: prefer multiAssets when the beat has shots[]
+    if (Array.isArray(beat.shots) && beat.shots.length > 0 && multiAssets?.[beat.id]?.length) {
+      const shotAssetsArr = multiAssets[beat.id];
+      // Match asset → shot by shotIdx when present; otherwise fall back to order.
+      const byIdx = new Map<number, any>();
+      let orderCursor = 0;
+      for (const a of shotAssetsArr) {
+        if (typeof a?.shotIdx === "number") byIdx.set(a.shotIdx, a);
+      }
+      for (const shot of beat.shots) {
+        const asset = byIdx.get(shot.idx)
+          ?? shotAssetsArr[orderCursor]
+          ?? shotAssetsArr[shotAssetsArr.length - 1];
+        orderCursor++;
+        if (!asset) continue;
+        const filename = await saveAssetFile({
+          asset,
+          outputDir,
+          beatNarration: beat.narration ?? "",
+          beatDurationSec: beat.durationSec,
+          shotIdx: shot.idx,
+          shotPrompt: shot.visualPrompt,
+          seq: imageNumber,
+          signal,
+        });
+        if (filename) {
+          savedFiles.push(filename);
+          console.log(`[AINYCU Pipeline] Beat ${beat.id} shot ${shot.idx} → ${filename}`);
+          imageNumber++;
+        }
+      }
+      await updateRun(runId, { statusDetail: `Saved ${savedFiles.length} files...` });
+      continue;
+    }
+
+    // Legacy beat-level branch
     const asset = assets[beat.id];
     if (!asset) {
       console.warn(`[AINYCU Pipeline] Beat ${beat.id}: no asset generated, skipping`);
       continue;
     }
-
-    try {
-      const response = await fetch(asset.url, { signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status} downloading ${asset.url}`);
-      const buffer = Buffer.from(await response.arrayBuffer());
-
-      // Build descriptive filename from section marker + description
-      const markerMatch = beat.narration?.match(/\[(HOOK|DAYTAG|BRIDGE|STEP\d|SOWHAT|SIGNOFF)\]/i);
-      const section = markerMatch?.[1]?.toLowerCase() ?? `beat${beat.id}`;
-      const desc = (beat.visualPrompt ?? "")
-        .replace(/https?:\/\/[^\s]+/g, "")  // strip URLs
-        .replace(/[^a-zA-Z0-9\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .toLowerCase()
-        .slice(0, 40)
-        .replace(/-+$/, "");
-      const duration = `${Math.round(beat.durationSec)}s`;
-      const ext = asset.mediaType === "video" ? "mp4"
-        : asset.url.includes(".jpg") || asset.url.includes(".jpeg") ? "jpg" : "png";
-
-      const filename = desc
-        ? `${imageNumber}--${section}--${desc}--${duration}.${ext}`
-        : `${imageNumber}.${ext}`;
-
-      await writeFile(join(outputDir, filename), buffer);
+    const filename = await saveAssetFile({
+      asset,
+      outputDir,
+      beatNarration: beat.narration ?? "",
+      beatDurationSec: beat.durationSec,
+      shotIdx: undefined,
+      shotPrompt: beat.visualPrompt,
+      seq: imageNumber,
+      signal,
+    });
+    if (filename) {
       savedFiles.push(filename);
       console.log(`[AINYCU Pipeline] Beat ${beat.id} → ${filename} (${asset.source})`);
       imageNumber++;
-
-      await updateRun(runId, {
-        statusDetail: `Saved ${savedFiles.length} files... (beat ${beat.id})`,
-      });
-    } catch (dlErr: any) {
-      console.error(`[AINYCU Pipeline] Beat ${beat.id}: download failed: ${dlErr.message}`);
+      await updateRun(runId, { statusDetail: `Saved ${savedFiles.length} files... (beat ${beat.id})` });
     }
   }
 
   // Save script files
-  const narrationText = script.beats.map((b: any) => b.narration).join("\n\n");
+  const narrationText = script.beats.map((b: any) => (b.narration ?? "").replace(/\[[A-Z0-9]+\]\s*/g, "")).join("\n\n");
   await writeFile(join(outputDir, "script.txt"), narrationText, "utf-8");
   await writeFile(join(outputDir, "script.json"), JSON.stringify(script, null, 2), "utf-8");
 
   return savedFiles;
+}
+
+// Write a single asset to disk with a descriptive filename.
+async function saveAssetFile(p: {
+  asset: any;
+  outputDir: string;
+  beatNarration: string;
+  beatDurationSec: number;
+  shotIdx?: number;
+  shotPrompt: string;
+  seq: number;
+  signal?: AbortSignal;
+}): Promise<string | null> {
+  const { asset, outputDir, beatNarration, beatDurationSec, shotIdx, shotPrompt, seq, signal } = p;
+  try {
+    const response = await fetch(asset.url, { signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status} downloading ${asset.url}`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    const markerMatch = beatNarration.match(/\[(HOOK|DAYTAG|BRIDGE|STEP\d|SOWHAT|SIGNOFF)\]/i);
+    const section = markerMatch?.[1]?.toLowerCase() ?? `beat`;
+    const desc = (shotPrompt ?? "")
+      .replace(/https?:\/\/[^\s]+/g, "")
+      .replace(/[^a-zA-Z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .toLowerCase()
+      .slice(0, 40)
+      .replace(/-+$/, "");
+    const duration = `${Math.round(beatDurationSec)}s`;
+    const ext = asset.mediaType === "video" ? "mp4"
+      : asset.url.includes(".jpg") || asset.url.includes(".jpeg") ? "jpg" : "png";
+
+    const shotTag = shotIdx !== undefined ? `-s${shotIdx}` : "";
+    const filename = desc
+      ? `${seq}--${section}${shotTag}--${desc}--${duration}.${ext}`
+      : `${seq}${shotTag}.${ext}`;
+
+    await writeFile(join(outputDir, filename), buffer);
+    return filename;
+  } catch (dlErr: any) {
+    console.error(`[AINYCU Pipeline] saveAssetFile failed: ${dlErr.message}`);
+    return null;
+  }
 }
 

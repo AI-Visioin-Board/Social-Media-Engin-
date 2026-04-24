@@ -45,6 +45,31 @@ export interface Beat {
   iconGridItems?: Array<{ emoji: string; label: string }>;
   // For device_mockup layout: which device frame to use
   deviceType?: "macbook" | "iphone";
+
+  // ─── Sub-Shot Density (v9, 4x visual density pass) ────────
+  // Ordered sub-shots inside this beat. Each shot fetches its own asset and
+  // renders with a hard-cut transition. Required for pip / fullscreen_broll /
+  // device_mockup beats ≥ 3s. Ignored for avatar_closeup / text_card /
+  // icon_grid / motion_graphic (those layouts animate internally).
+  shots?: Shot[];
+
+  // Section marker used by downstream matching (HOOK, DAYTAG, STEP1, etc.)
+  section?: string;
+}
+
+// A single visual beat inside a larger Beat. Durations are relative to the
+// start of the parent beat.
+export interface Shot {
+  idx: number;              // 1-based index inside parent beat
+  startSec: number;         // offset from beat.startSec
+  durationSec: number;      // 0.7 – 2.5 typical
+  visualType: VisualType;
+  visualPrompt: string;
+  visualSubject?: string;
+  motionStyle: MotionStyle;
+  emphasisWord?: string;    // 1-3 words to burn-in as a yellow-pill chyron
+  // Resolved by asset generator once the file lands on disk
+  assetPath?: string;
 }
 
 export type VisualType =
@@ -53,7 +78,10 @@ export type VisualType =
   | "cinematic_concept"
   | "generic_action"
   | "data_graphic"
-  | "screen_capture";
+  | "screen_capture"
+  | "reaction_clip"       // talking-head clip of a named AI figure (Altman, Amodei, etc.)
+  | "brand_logo_card"     // single brand logo on gradient background
+  | "stat_card";          // huge number + small label, Remotion-rendered
 
 export type MotionStyle =
   | "static_ken_burns"
@@ -75,6 +103,7 @@ export type AssetSource =
 
 export interface AssetRequest {
   beatId: number;
+  shotIdx?: number;      // when populated, this request is for a sub-shot inside the beat
   source: AssetSource;
   prompt: string;
   subject?: string;
@@ -100,6 +129,7 @@ export type AssetMediaType = "image" | "video";
 
 export interface GeneratedAsset {
   beatId: number;
+  shotIdx?: number;      // when populated, this asset belongs to beat.shots[shotIdx]
   source: AssetSource;
   mediaType: AssetMediaType;
   url: string;

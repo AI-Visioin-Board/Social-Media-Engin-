@@ -3,11 +3,17 @@
 // Takes an AssetManifest → generates all assets in parallel
 // Handles fallback chains when sources fail
 //
+// v9 — PER-SHOT ASSETS:
+// When a Beat has shots[], the router emits one AssetRequest per shot with
+// shotIdx set. This generator stores each shot's asset separately and then
+// reassembles them in order into MultiAssetMap[beatId] so downstream tools
+// (Remotion) can lay them out as hard-cut sub-clips.
+//
 // FLOW: Nano Banana still → Veo 3.1 animation → 5s video clip
 // Veo failure gracefully degrades to still image (Ken Burns in assembler)
 //
-// Pexels stock beats fetch MULTIPLE clips per beat for rapid-fire
-// sub-clipping (1.5-2.5s visual cuts instead of one static clip)
+// Pexels beats without shots[] still fetch MULTIPLE clips for rapid-fire
+// sub-clipping. Pexels shots (with shotIdx) fetch a single clip each.
 // ============================================================
 
 import type {
@@ -16,10 +22,9 @@ import type {
   AssetMap,
   MultiAssetMap,
   GeneratedAsset,
-  AssetSource,
   ParallelGroup,
 } from "./types.js";
-import { getIndependentRequests, getDependentRequests } from "./assetRouter.js";
+import { getDependentRequests } from "./assetRouter.js";
 import { generateImage } from "./utils/nanoBananaClient.js";
 import { animateImage } from "./utils/veoClient.js";
 import { searchStockVideo, searchStockVideoBatch, resetUsedVideos } from "./utils/pexelsClient.js";
@@ -27,13 +32,25 @@ import { searchStockVideo, searchStockVideoBatch, resetUsedVideos } from "./util
 import { retry } from "./utils/retry.js";
 
 // How many stock clips to fetch per beat for rapid-fire sub-clipping
+// (only applied for beat-level Pexels requests with no shotIdx)
 const PEXELS_CLIPS_PER_BEAT = 3;
 
+// Key for per-shot asset dedup / lookup
+function reqKey(req: Pick<AssetRequest, "beatId" | "shotIdx">): string {
+  return req.shotIdx !== undefined ? `${req.beatId}:${req.shotIdx}` : `${req.beatId}`;
+}
+
 // Upload base64 image to server storage so Creatomate can access it via public URL
-async function uploadToStorage(base64: string, mimeType: string, beatId: number): Promise<string> {
+async function uploadToStorage(
+  base64: string,
+  mimeType: string,
+  beatId: number,
+  shotIdx?: number,
+): Promise<string> {
   const { storagePut } = await import("../../server/storage.js");
   const ext = mimeType.includes("png") ? "png" : "jpg";
-  const key = `avatar-broll/beat-${beatId}-${Date.now()}.${ext}`;
+  const shotTag = shotIdx !== undefined ? `-s${shotIdx}` : "";
+  const key = `avatar-broll/beat-${beatId}${shotTag}-${Date.now()}.${ext}`;
   const buffer = Buffer.from(base64, "base64");
   const { url: localPath } = await storagePut(key, buffer, mimeType);
 
@@ -41,9 +58,16 @@ async function uploadToStorage(base64: string, mimeType: string, beatId: number)
 }
 
 // Upload a raw Buffer (video/image) to server storage
-async function uploadBufferToStorage(buf: Buffer, mimeType: string, beatId: number, ext: string): Promise<string> {
+async function uploadBufferToStorage(
+  buf: Buffer,
+  mimeType: string,
+  beatId: number,
+  ext: string,
+  shotIdx?: number,
+): Promise<string> {
   const { storagePut } = await import("../../server/storage.js");
-  const key = `avatar-broll/beat-${beatId}-${Date.now()}.${ext}`;
+  const shotTag = shotIdx !== undefined ? `-s${shotIdx}` : "";
+  const key = `avatar-broll/beat-${beatId}${shotTag}-${Date.now()}.${ext}`;
   const { url: localPath } = await storagePut(key, buf, mimeType);
 
   return toPublicUrl(localPath);
@@ -60,57 +84,14 @@ export async function generateAllAssets(
   manifest: AssetManifest,
   signal?: AbortSignal,
 ): Promise<AssetMap> {
-  const assets: AssetMap = {};
-
-  // Reset Pexels deduplication for this video generation
-  resetUsedVideos();
-
-  // Phase 1: Generate all independent assets in parallel (grouped by source)
-  console.log(`[AssetGen] Generating ${manifest.requests.length} assets across ${manifest.parallelGroups.length} source groups...`);
-
-  const independentResults = await Promise.allSettled(
-    manifest.parallelGroups.map(group =>
-      processGroup(group, manifest.requests, assets, signal)
-    ),
-  );
-
-  for (const result of independentResults) {
-    if (result.status === "rejected") {
-      console.error(`[AssetGen] Group failed: ${result.reason}`);
-    }
-  }
-
-  // Phase 2: Process dependent requests (I2V that need source images)
-  const dependents = getDependentRequests(manifest);
-  if (dependents.length > 0) {
-    console.log(`[AssetGen] Processing ${dependents.length} dependent requests (I2V)...`);
-    for (const req of dependents) {
-      const sourceAsset = assets[req.dependsOn!];
-      if (!sourceAsset) {
-        console.warn(`[AssetGen] Beat ${req.beatId}: dependency (beat ${req.dependsOn}) not available, skipping I2V`);
-        continue;
-      }
-      try {
-        const asset = await generateSingleAsset(req, signal, sourceAsset.url);
-        assets[req.beatId] = asset;  // I2V result replaces the still
-      } catch (err: any) {
-        console.warn(`[AssetGen] Beat ${req.beatId}: I2V failed (${err.message}), keeping still image`);
-        // The still image from Phase 1 remains in assets[req.beatId]
-      }
-    }
-  }
-
-  const successCount = Object.keys(assets).length;
-  const totalBeats = new Set(manifest.requests.map(r => r.beatId)).size;
-  console.log(`[AssetGen] Completed: ${successCount}/${totalBeats} beats have assets`);
-
-  return assets;
+  const { primary } = await generateAllAssetsMulti(manifest, signal);
+  return primary;
 }
 
 /**
- * Generate multiple assets per beat for rapid-fire sub-clipping.
- * For Pexels beats, fetches multiple clips instead of just one.
- * Returns MultiAssetMap where each beat can have 1-4 assets.
+ * Generate all assets (beat-level AND per-shot) and return both:
+ *   primary[beatId]    — the first/cover asset for each beat
+ *   multi[beatId][idx] — ordered array of per-shot assets (length ≥ 1)
  */
 export async function generateAllAssetsMulti(
   manifest: AssetManifest,
@@ -120,20 +101,22 @@ export async function generateAllAssetsMulti(
   // Reset Pexels deduplication for this video generation
   resetUsedVideos();
 
-  const primary: AssetMap = {};
-  const multi: MultiAssetMap = {};
-
-  console.log(`[AssetGen] Generating ${manifest.requests.length} assets (multi-clip mode)...`);
-
   const imagesOnly = options?.imagesOnly ?? false;
   if (imagesOnly) {
     console.log(`[AssetGen] Images-only mode — skipping Veo animation, using Pexels photos instead of videos`);
   }
 
-  // Phase 1: Generate independent assets
+  // Shared map of all results keyed by "beatId" or "beatId:shotIdx".
+  // Multiple groups write here concurrently; keys never collide because each
+  // AssetRequest has a unique (beatId, shotIdx) pair.
+  const shotResults = new Map<string, GeneratedAsset[]>();
+
+  console.log(`[AssetGen] Generating ${manifest.requests.length} assets (multi-clip mode)...`);
+
+  // Phase 1: Generate independent assets per source group
   const independentResults = await Promise.allSettled(
     manifest.parallelGroups.map(group =>
-      processGroupMulti(group, manifest.requests, primary, multi, signal, imagesOnly)
+      processGroupMulti(group, manifest.requests, shotResults, signal, imagesOnly),
     ),
   );
 
@@ -143,65 +126,49 @@ export async function generateAllAssetsMulti(
     }
   }
 
-  // Phase 2: Dependent requests (I2V)
+  // Phase 2: Dependent requests (I2V that need source images)
   const dependents = getDependentRequests(manifest);
   for (const req of dependents) {
-    const sourceAsset = primary[req.dependsOn!];
+    const depKey = req.dependsOn !== undefined ? `${req.dependsOn}` : undefined;
+    const depArr = depKey ? shotResults.get(depKey) : undefined;
+    const sourceAsset = depArr?.[0];
     if (!sourceAsset) continue;
     try {
       const asset = await generateSingleAsset(req, signal, sourceAsset.url);
-      primary[req.beatId] = asset;
-      multi[req.beatId] = [asset];
+      shotResults.set(reqKey(req), [asset]);
     } catch (err: any) {
-      console.warn(`[AssetGen] Beat ${req.beatId}: I2V failed, keeping still`);
+      console.warn(`[AssetGen] Beat ${req.beatId}: I2V failed (${err.message}), keeping still`);
     }
+  }
+
+  // Phase 3: Reassemble primary + multi in request/shot order
+  const primary: AssetMap = {};
+  const multi: MultiAssetMap = {};
+
+  for (const req of manifest.requests) {
+    const arr = shotResults.get(reqKey(req));
+    if (!arr || arr.length === 0) continue;
+    const list = multi[req.beatId] ?? (multi[req.beatId] = []);
+    for (const a of arr) list.push(a);
+    if (!primary[req.beatId]) primary[req.beatId] = arr[0];
   }
 
   const successCount = Object.keys(primary).length;
   const multiCount = Object.values(multi).reduce((sum, arr) => sum + arr.length, 0);
-  console.log(`[AssetGen] Completed: ${successCount} beats with ${multiCount} total clips`);
+  console.log(`[AssetGen] Completed: ${successCount} beats with ${multiCount} total clips/shots`);
 
   return { primary, multi };
-}
-
-async function processGroup(
-  group: ParallelGroup,
-  allRequests: AssetRequest[],
-  assets: AssetMap,
-  signal?: AbortSignal,
-): Promise<void> {
-  const requests = allRequests.filter(
-    r => group.beatIds.includes(r.beatId) && r.dependsOn === undefined && r.source === group.source,
-  );
-
-  const chunks = chunkArray(requests, group.maxConcurrent);
-
-  for (const chunk of chunks) {
-    const results = await Promise.allSettled(
-      chunk.map(async (req) => {
-        const asset = await generateWithFallback(req, signal);
-        if (asset) assets[req.beatId] = asset;
-      }),
-    );
-
-    for (const r of results) {
-      if (r.status === "rejected") {
-        console.error(`[AssetGen] Asset failed: ${r.reason}`);
-      }
-    }
-  }
 }
 
 async function processGroupMulti(
   group: ParallelGroup,
   allRequests: AssetRequest[],
-  primary: AssetMap,
-  multi: MultiAssetMap,
+  shotResults: Map<string, GeneratedAsset[]>,
   signal?: AbortSignal,
   imagesOnly?: boolean,
 ): Promise<void> {
   const requests = allRequests.filter(
-    r => group.beatIds.includes(r.beatId) && r.dependsOn === undefined && r.source === group.source,
+    r => r.dependsOn === undefined && r.source === group.source && group.beatIds.includes(r.beatId),
   );
 
   const chunks = chunkArray(requests, group.maxConcurrent);
@@ -209,60 +176,13 @@ async function processGroupMulti(
   for (const chunk of chunks) {
     const results = await Promise.allSettled(
       chunk.map(async (req) => {
-        // For Pexels — fetch photos if imagesOnly, otherwise video clips
-        if (req.source === "pexels") {
-          if (imagesOnly) {
-            // Images-only mode: use Pexels Photos API instead of Videos
-            const { searchStockPhoto } = await import("./utils/pexelsClient.js");
-            const photo = await searchStockPhoto(req.prompt, signal);
-            if (photo) {
-              const asset: GeneratedAsset = {
-                beatId: req.beatId,
-                source: "pexels" as const,
-                mediaType: "image" as const,
-                url: photo.url,
-                width: photo.width,
-                height: photo.height,
-                fallbackUsed: false,
-              };
-              primary[req.beatId] = asset;
-              multi[req.beatId] = [asset];
-            } else {
-              const asset = await generateWithFallback(req, signal, undefined, imagesOnly);
-              if (asset) {
-                primary[req.beatId] = asset;
-                multi[req.beatId] = [asset];
-              }
-            }
-          } else {
-            const clips = await searchStockVideoBatch(req.prompt, PEXELS_CLIPS_PER_BEAT, signal);
-            if (clips.length > 0) {
-              const assets: GeneratedAsset[] = clips.map((clip) => ({
-                beatId: req.beatId,
-                source: "pexels" as const,
-                mediaType: "video" as const,
-                url: clip.url,
-                durationSec: clip.duration,
-                width: clip.width,
-                height: clip.height,
-                fallbackUsed: false,
-              }));
-              primary[req.beatId] = assets[0];
-              multi[req.beatId] = assets;
-            } else {
-              const asset = await generateWithFallback(req, signal);
-              if (asset) {
-                primary[req.beatId] = asset;
-                multi[req.beatId] = [asset];
-              }
-            }
+        const assets = await fetchAssetsForRequest(req, signal, imagesOnly);
+        if (assets && assets.length > 0) {
+          // Stamp shotIdx so downstream consumers can match asset → shot
+          if (req.shotIdx !== undefined) {
+            for (const a of assets) a.shotIdx = req.shotIdx;
           }
-        } else {
-          const asset = await generateWithFallback(req, signal, undefined, imagesOnly);
-          if (asset) {
-            primary[req.beatId] = asset;
-            multi[req.beatId] = [asset];
-          }
+          shotResults.set(reqKey(req), assets);
         }
       }),
     );
@@ -275,55 +195,117 @@ async function processGroupMulti(
   }
 }
 
+/**
+ * Fetch one-or-more assets for a single AssetRequest.
+ *
+ * Returns MULTIPLE assets only in one case:
+ *   - Beat-level Pexels request with no shotIdx → fetch PEXELS_CLIPS_PER_BEAT
+ *     clips so we can rapid-fire sub-clip a single beat when shots[] is absent.
+ *
+ * Everything else returns exactly 1 asset.
+ */
+async function fetchAssetsForRequest(
+  req: AssetRequest,
+  signal?: AbortSignal,
+  imagesOnly?: boolean,
+): Promise<GeneratedAsset[] | null> {
+  // Beat-level Pexels rapid-fire: fetch N video clips in one request
+  const isShotLevel = req.shotIdx !== undefined;
+
+  if (req.source === "pexels" && !isShotLevel) {
+    if (imagesOnly) {
+      // Images-only mode: use Pexels Photos API instead of Videos
+      const { searchStockPhoto } = await import("./utils/pexelsClient.js");
+      const photo = await searchStockPhoto(req.prompt, signal);
+      if (photo) {
+        return [{
+          beatId: req.beatId,
+          source: "pexels",
+          mediaType: "image",
+          url: photo.url,
+          width: photo.width,
+          height: photo.height,
+          fallbackUsed: false,
+        }];
+      }
+      // fallback chain
+      const fb = await generateWithFallback(req, signal, undefined, imagesOnly);
+      return fb ? [fb] : null;
+    }
+    const clips = await searchStockVideoBatch(req.prompt, PEXELS_CLIPS_PER_BEAT, signal);
+    if (clips.length > 0) {
+      return clips.map((clip) => ({
+        beatId: req.beatId,
+        source: "pexels" as const,
+        mediaType: "video" as const,
+        url: clip.url,
+        durationSec: clip.duration,
+        width: clip.width,
+        height: clip.height,
+        fallbackUsed: false,
+      }));
+    }
+    const fb = await generateWithFallback(req, signal, undefined, imagesOnly);
+    return fb ? [fb] : null;
+  }
+
+  // All other cases — single asset (possibly with fallback)
+  const asset = await generateWithFallback(req, signal, undefined, imagesOnly);
+  return asset ? [asset] : null;
+}
+
 async function generateWithFallback(
   req: AssetRequest,
   signal?: AbortSignal,
   _sourceImageUrl?: string,
   imagesOnly?: boolean,
 ): Promise<GeneratedAsset | null> {
+  const label = req.shotIdx !== undefined ? `beat${req.beatId}s${req.shotIdx}` : `beat${req.beatId}`;
   // Try primary source
   try {
     return await retry(
       () => generateSingleAsset(req, signal, undefined, imagesOnly),
-      `${req.source}:beat${req.beatId}`,
+      `${req.source}:${label}`,
       2,
       signal,
     );
   } catch (primaryErr: any) {
-    console.warn(`[AssetGen] Beat ${req.beatId}: primary ${req.source} failed: ${primaryErr.message}`);
+    console.warn(`[AssetGen] ${label}: primary ${req.source} failed: ${primaryErr.message}`);
   }
 
   // Try fallback chain
   for (const fallbackSource of req.fallbackChain) {
     try {
-      console.log(`[AssetGen] Beat ${req.beatId}: trying fallback ${fallbackSource}...`);
+      console.log(`[AssetGen] ${label}: trying fallback ${fallbackSource}...`);
       const fallbackReq = { ...req, source: fallbackSource };
       const asset = await generateSingleAsset(fallbackReq, signal, undefined, imagesOnly);
       return { ...asset, fallbackUsed: true, fallbackSource };
     } catch (fallbackErr: any) {
-      console.warn(`[AssetGen] Beat ${req.beatId}: fallback ${fallbackSource} also failed: ${fallbackErr.message}`);
+      console.warn(`[AssetGen] ${label}: fallback ${fallbackSource} also failed: ${fallbackErr.message}`);
     }
   }
 
-  console.error(`[AssetGen] Beat ${req.beatId}: ALL sources exhausted, no asset generated`);
+  console.error(`[AssetGen] ${label}: ALL sources exhausted, no asset generated`);
   return null;
 }
 
 async function generateSingleAsset(
   req: AssetRequest,
   signal?: AbortSignal,
-  sourceImageUrl?: string,
+  _sourceImageUrl?: string,
   imagesOnly?: boolean,
 ): Promise<GeneratedAsset> {
+  const label = req.shotIdx !== undefined ? `beat${req.beatId}s${req.shotIdx}` : `beat${req.beatId}`;
+
   switch (req.source) {
     case "nano_banana": {
       // Step 1: Generate sharp still image via Nano Banana
       const result = await generateImage(req.prompt, signal, req.aspectRatio);
-      const imagePublicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId);
+      const imagePublicUrl = await uploadToStorage(result.imageBase64, result.mimeType, req.beatId, req.shotIdx);
 
       // Images-only mode: skip Veo animation, return still image directly
       if (imagesOnly) {
-        console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana still (images-only mode)`);
+        console.log(`[AssetGen] ${label}: Nano Banana still (images-only mode)`);
         return {
           beatId: req.beatId,
           source: "nano_banana",
@@ -344,8 +326,8 @@ async function generateSingleAsset(
       try {
         const motionPrompt = `Subtle cinematic motion: gentle camera movement, atmospheric lighting shifts. ${req.prompt}`;
         const veoResult = await animateImage(result.imageBase64, result.mimeType, motionPrompt, signal, req.aspectRatio);
-        const videoPublicUrl = await uploadBufferToStorage(veoResult.videoBuffer, veoResult.mimeType, req.beatId, "mp4");
-        console.log(`[AssetGen] Beat ${req.beatId}: Nano Banana → Veo animation SUCCESS (${req.aspectRatio})`);
+        const videoPublicUrl = await uploadBufferToStorage(veoResult.videoBuffer, veoResult.mimeType, req.beatId, "mp4", req.shotIdx);
+        console.log(`[AssetGen] ${label}: Nano Banana → Veo animation SUCCESS (${req.aspectRatio})`);
         return {
           beatId: req.beatId,
           source: "nano_banana",
@@ -357,7 +339,7 @@ async function generateSingleAsset(
           fallbackUsed: false,
         };
       } catch (veoErr: any) {
-        console.warn(`[AssetGen] Beat ${req.beatId}: Veo animation failed (${veoErr.message}), using still image with Ken Burns`);
+        console.warn(`[AssetGen] ${label}: Veo animation failed (${veoErr.message}), using still image with Ken Burns`);
         return {
           beatId: req.beatId,
           source: "nano_banana",
@@ -377,6 +359,7 @@ async function generateSingleAsset(
     }
 
     case "pexels": {
+      // Single-clip fetch for per-shot requests
       const result = await searchStockVideo(req.prompt, signal);
       if (!result) throw new Error("No stock footage found");
       return {
@@ -403,8 +386,8 @@ async function generateSingleAsset(
       const capture = await captureScreenshot(url, req.beatId, layout, req.prompt, signal);
 
       // Upload screenshot to server storage for public URL access
-      const publicUrl = await uploadBufferToStorage(capture.buffer, "image/png", req.beatId, "png");
-      console.log(`[AssetGen] Beat ${req.beatId}: Headless capture SUCCESS from ${url} (${capture.width}x${capture.height})`);
+      const publicUrl = await uploadBufferToStorage(capture.buffer, "image/png", req.beatId, "png", req.shotIdx);
+      console.log(`[AssetGen] ${label}: Headless capture SUCCESS from ${url} (${capture.width}x${capture.height})`);
 
       return {
         beatId: req.beatId,

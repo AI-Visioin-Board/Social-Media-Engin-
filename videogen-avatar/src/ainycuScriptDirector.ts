@@ -6,7 +6,7 @@
 // ============================================================
 
 import { CONFIG } from "./config.js";
-import type { VideoScript, Beat, VisualType, MotionStyle, TransitionType, LayoutMode } from "./types.js";
+import type { VideoScript, Beat, Shot, VisualType, MotionStyle, TransitionType, LayoutMode } from "./types.js";
 
 // ─── Verified Fact (from research pipeline) ─────────────────
 export interface VerifiedFact {
@@ -45,29 +45,94 @@ YOUR AUDIENCE:
 - They know AI is important but don't know what to DO about it
 - Every episode must give them something they can actually try
 
-SCRIPT STRUCTURE (follow EXACTLY — 8-10 beats, 35-50 seconds total — SHORTER IS BETTER, the avatar speaks slower than you think):
+SCRIPT LENGTH — HARD RULES (this is the single most common failure mode):
 
-Beat 1 — HOOK (2-3 sec): Bold statement about why this topic matters. Grab attention.
+The avatar speaks at ~150-160 words per minute. A 60-second video = 135-145 words TOTAL.
+You will be REJECTED and retried if you exceed 145 words. Budget every word.
+
+WORD BUDGET PER BEAT (MUST fit within these caps):
+- HOOK: 12-18 words   (~5-7s)
+- DAYTAG: 8-10 words  (~4s)
+- BRIDGE: 10-14 words (~5s)
+- Each STEP beat: 12-16 words (~5-6s)     [NEVER more than 16 per step]
+- SOWHAT: 14-20 words (~6-8s)
+- SIGNOFF: 10-14 words (~5s)
+
+HARD LENGTH RULE: Total script word count MUST be ≤ 145 words. If you write 200 words, you failed.
+
+ANTI-BLOAT RULES (these are what turn 60s scripts into 100s scripts):
+
+1. DO NOT narrate UI click paths. The visuals show the clicks.
+   BAD (11 words of audio describing clicks): "Go to Settings, Integrations, Slack, hit Connect, then tag @manus in a thread."
+   GOOD (6 words — the shots show the path): "Tag @manus in any Slack thread."
+
+2. DO NOT double-describe what the visuals already show.
+   BAD (14 words naming outputs TWICE): "ask for a presentation, landing page, document analysis. You see PPT, PDF, Excel come out."
+   GOOD (7 words — shots show the file icons): "Ask for a deck, a doc, anything."
+
+3. DO NOT pad with "You see…" phrases. They narrate the visuals at the viewer, who is already watching.
+   BAD: "You see repeat work start with your rules already loaded."
+   GOOD: "Every task inherits your rules."
+
+4. DO NOT list every product SKU/tier audibly. Visuals show tables.
+   BAD: "Free gives you 1.6 Lite in Agent Mode, Pro adds 1.6 and 1.6 Max, both include Chat Mode."
+   GOOD: "Free gets you Agent Mode. Pro unlocks Max."
+
+5. Every sentence earns its words. Contract, trim articles, cut "that"/"which" where unnecessary.
+
+SCRIPT STRUCTURE (follow EXACTLY — 8-10 beats, 55-65 seconds total):
+
+Beat 1 — HOOK (5-6 sec, 12-18 words): CONFLICT-FRAMED or NEWS-HOOKABLE opener. Stops the scroll in 2 seconds.
   Layout: "avatar_closeup"
-  Example: "Canva can turn a dead flat graphic into something you can actually edit."
 
-Beat 2 — DAY TAG (2 sec): Text card with the series identifier.
+  The hook is the single most important beat. A bland hook ("X is a cool new AI tool")
+  wastes the entire reel. Use one of these proven patterns — pick the ONE that fits the topic:
+
+  A) "Just killed" / "just nuked" / "just made obsolete" framing
+     - "Manus AI Agent just killed every other agent out there."
+     - "This new tool just made ChatGPT Plus look ancient."
+     - "Claude just nuked every writing app on your phone."
+
+  B) Authority figure + bold claim
+     - "Meta CEO Mark Zuckerberg just nuked the competition with Manus AI."
+     - "Sam Altman says this is ChatGPT's biggest update ever — here's what changed."
+     - "Google's head of AI just said this tool beats Gemini. Here's what it does."
+
+  C) "Just dropped" / "Everyone's using" / breaking-news framing
+     - "A new AI agent just dropped. Here's five things it can do for you."
+     - "Everyone's sleeping on this one. It's the best AI tool I've tested this year."
+     - "This launched 48 hours ago and it's already replacing three of my apps."
+
+  D) Number-payoff / listicle hook
+     - "Five things Manus AI can do in your daily work that nothing else can."
+     - "Three ways this new tool saves you an hour every day."
+
+  E) Pattern-interrupt question
+     - "What if ChatGPT could send your emails for you? It can now."
+     - "You're still paying for this software? Not after you see what Canva AI just added."
+
+  RULES:
+  - 12-18 words. No longer. The first 5 words have to hook — put the conflict/news up front.
+  - NEVER open with "Today we're talking about..." or "Let me show you..." — those are dead hooks.
+  - NEVER describe the feature generically — name the tool AND the framing in one sentence.
+  - If the topic genuinely lacks a news hook, use pattern D (number-payoff). Do NOT invent fake news.
+  - Avoid "revolutionary", "game-changing", "next-gen" — these are weak corporate filler words.
+
+Beat 2 — DAY TAG (4 sec, 8-10 words): Text card with the series identifier.
   Layout: MUST be "text_card"
   textCardText: "DAY [X]\\nAI NEWS YOU CAN USE"
   textCardColor: "#000000"
   Narration: "Welcome to Day [X] of AI News You Can Use."
 
-Beat 3 — BRIDGE (2-3 sec): Connect the topic to the viewer's life.
+Beat 3 — BRIDGE (5 sec, 10-14 words): Connect the topic to the viewer's life.
   Layout: "avatar_closeup" or "icon_grid" (if listing what this helps with)
-  Example: "If you have an old flyer, menu, or poster, this saves you from rebuilding the whole thing."
+  Example: "If your work lives in chats and repeat tasks, this is for you."
 
-Beats 4-7 — THE WALKTHROUGH (15-25 sec): 2-3 concrete steps, 1-2 beats per step. Keep it tight — only the most impressive features.
-  Step intro beat (2 sec): avatar_closeup or text_card — set up what they'll do
-  Step demo beat (3-4 sec): pip, device_mockup, or icon_grid — show it
-  Use phrases: "All you have to do is..." "Step one..." "Now do this..."
-  Each step = 1-2 sentences max
-  End each step with what the viewer will SEE, not what they'll "learn"
-  MIX layouts across steps — never do 3 pips in a row.
+Beats 4-7 — THE WALKTHROUGH (20-28 sec, 12-16 words per step beat): 2-3 concrete steps.
+  Each step beat = ONE sentence. Maximum 16 words. No UI click paths in audio.
+  The VISUALS show the clicks — your job is to name the feature and its payoff.
+  Layout mix: pip, device_mockup, icon_grid, motion_graphic (never 3 pips in a row).
+  Use: "Step one..." "Step two..." "And..." to transition between.
 
   CRITICAL — LEAD WITH FEATURES, NOT PROMPTING TIPS:
   The walkthrough must showcase the tool's most impressive CAPABILITIES and FEATURES.
@@ -121,9 +186,9 @@ These markers are stripped before TTS but used for B-roll matching.
 VOICE RULES:
 - Talk like you're showing a friend something cool on your phone
 - No corporate language, no "in today's rapidly evolving landscape"
-- Total word count: 130-180 words (45-65 seconds at natural pace)
-- End every walkthrough step with what the viewer will SEE
-- Visual change MINIMUM every 3 seconds — never let a beat run longer than 5 sec
+- Total word count: 125-145 words (55-65 seconds at natural pace) — HARD CAP 145
+- Name each feature once, then move on — no restating for emphasis
+- Visual change every 1-2 seconds via shots[] — see SHOT DENSITY below
 
 BANNED WORDS: delve, landscape, tapestry, realm, paradigm, embark, beacon, robust, comprehensive,
 cutting-edge, leverage, pivotal, seamless, game-changer, utilize, holistic, actionable, impactful,
@@ -153,12 +218,72 @@ LAYOUT RULES:
 - Include at least 1 icon_grid OR 1 motion_graphic per script (visual variety)
 - Walkthrough beats: mix pip + device_mockup + icon_grid — don't do 3 pips in a row
 
-VISUAL TYPES (one per beat):
+VISUAL TYPES (one per beat — or one per SHOT when shots[] is used):
 - "screen_capture" — Real screenshot of a website/app. ONLY use for PUBLIC pages (see rules below).
 - "product_logo_ui" — AI-generated image of app icons, product UI, clean interfaces.
 - "data_graphic" — Stats, comparisons, infographic-style.
 - "cinematic_concept" — Abstract/dramatic (use sparingly).
 - "generic_action" — Stock footage (LAST RESORT).
+- "reaction_clip" — Talking-head clip of a named public AI figure (Sam Altman, Dario Amodei, etc.) or a reaction shot. Requires visualSubject.
+- "brand_logo_card" — A single product/company logo centered on a clean gradient background. Use when naming a brand or tool. Set visualSubject to the brand name (e.g. "Slack", "Manus", "Microsoft").
+- "stat_card" — Huge number + tiny label, Remotion-rendered. Use for dollar figures, percentages, multipliers, counts. visualPrompt MUST be JSON-ish: "number:$20 | label:per month" or "number:10M | label:users".
+
+SHOT DENSITY (v9 — 4x density pass — MANDATORY for visual-heavy layouts):
+
+Every b-roll-driven beat MUST be broken into SHOTS that each hold for 0.8-2.0 seconds.
+Without shots[], a 5-second pip beat holds ONE image for 5 seconds — which looks amateur.
+With shots[], the same 5 seconds shows 3-4 different visuals with hard cuts between them.
+
+WHEN TO PROVIDE shots[]:
+- REQUIRED on every beat with layout "pip", "fullscreen_broll", or "device_mockup" ≥ 3s
+- OPTIONAL on "icon_grid", "motion_graphic", "avatar_closeup", "text_card" — those layouts
+  animate internally, so shots[] is usually unnecessary
+
+SHOT COUNT FORMULA:
+- Beat duration 3-4s  → 2-3 shots  (each ~1.3s)
+- Beat duration 5-6s  → 3-4 shots  (each ~1.5s)
+- Beat duration 7-8s  → 4-5 shots  (each ~1.6s)
+
+SHOT SCHEMA — inside each b-roll beat:
+"shots": [
+  {
+    "idx": 1,
+    "startSec": 0,
+    "durationSec": 1.2,
+    "visualType": "brand_logo_card",
+    "visualPrompt": "Slack logo on gradient",
+    "visualSubject": "Slack",
+    "motionStyle": "static_ken_burns",
+    "emphasisWord": "Slack"
+  },
+  {
+    "idx": 2,
+    "startSec": 1.2,
+    "durationSec": 1.5,
+    "visualType": "product_logo_ui",
+    "visualPrompt": "Slack thread with @manus tag highlighted in yellow pill",
+    "motionStyle": "ai_video",
+    "emphasisWord": "@manus"
+  },
+  { "idx": 3, "startSec": 2.7, "durationSec": 1.3, ... },
+  { "idx": 4, "startSec": 4.0, "durationSec": 1.0, ... }
+]
+
+SHOT DESIGN RULES:
+- Shot 1 is usually a BRAND ANCHOR — brand_logo_card or product_logo_ui of the app being discussed
+- Shots 2-3 show CONCRETE UI MOMENTS — specific buttons, screens, or actions
+- Shot 4 is often a PAYOFF — the file appearing, the result, the stat
+- MIX visualTypes across shots — never 4 brand_logo_cards in a row
+- Each shot's visualPrompt is a TIGHT description of ONE specific thing visible on screen
+- emphasisWord is 1-3 words that burn-in as a yellow-pill chyron while the shot is visible.
+  Pick the single most important word the viewer should remember from that micro-moment.
+- startSec values must be monotonically increasing. Sum of durationSec across shots MUST equal beat.durationSec.
+
+SHOT PROMPT QUALITY — each visualPrompt should be SPECIFIC, like a cinematographer's shot list:
+BAD: "Slack interface"
+GOOD: "MacBook screen showing Slack channel sidebar with 'general' selected and a @manus thread below with 3 replies"
+BAD: "Manus screenshot"
+GOOD: "Manus Settings panel with Integrations tab open, Slack row highlighted, Connect button glowing"
 
 SCREEN CAPTURE INTELLIGENCE:
 When choosing "screen_capture", the pipeline takes a real screenshot via headless browser.
@@ -217,7 +342,7 @@ OUTPUT FORMAT: Return valid JSON:
       "durationSec": 3,
       "narration": "string with [SECTION] markers",
       "layout": "pip|fullscreen_broll|avatar_closeup|text_card|device_mockup|icon_grid|motion_graphic",
-      "visualType": "screen_capture|product_logo_ui|data_graphic|cinematic_concept|generic_action|named_person",
+      "visualType": "screen_capture|product_logo_ui|data_graphic|cinematic_concept|generic_action|named_person|reaction_clip|brand_logo_card|stat_card",
       "visualPrompt": "detailed prompt describing what to show on screen",
       "visualSubject": "string|null",
       "motionStyle": "ai_video|static_ken_burns|stock_clip|screen_capture",
@@ -229,7 +354,19 @@ OUTPUT FORMAT: Return valid JSON:
       "wordStyles": {"ToolName": "hero", "click": "action"},
       "zoomPunch": false,
       "iconGridItems": null,
-      "deviceType": null
+      "deviceType": null,
+      "shots": [
+        {
+          "idx": 1,
+          "startSec": 0,
+          "durationSec": 1.2,
+          "visualType": "brand_logo_card",
+          "visualPrompt": "Slack logo on gradient",
+          "visualSubject": "Slack",
+          "motionStyle": "static_ken_burns",
+          "emphasisWord": "Slack"
+        }
+      ]
     }
   ],
   "caption": "string — Instagram caption (educational angle, 3-5 hashtags)",
@@ -237,14 +374,60 @@ OUTPUT FORMAT: Return valid JSON:
   "cta": "I'm Quinn. Your AI helping you navigate AI. For more AI news you can use, give us a follow."
 }`;
 
+// Hard word-count ceiling. Above this we retry with a trimming nudge.
+const MAX_NARRATION_WORDS = 145;
+// Soft ceiling. Logged but not retried.
+const SOFT_NARRATION_WORDS = 135;
+
 export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<VideoScript> {
   const { topic, angle, dayNumber, verifiedFacts, feedback, signal } = opts;
 
-  let userPrompt = `Create a 45-65 second educational reel script about this topic:\n\n${topic}\n\n`;
+  const baseUserPrompt = buildUserPrompt({ topic, angle, dayNumber, verifiedFacts, feedback });
+
+  // First attempt
+  let raw = await callOpenAI(baseUserPrompt, signal);
+  let wordCount = countNarrationWords(raw);
+  console.log(`[AINYCU ScriptDirector] Draft 1: ${wordCount} words`);
+
+  // Retry once with explicit trimming nudge if over hard cap
+  if (wordCount > MAX_NARRATION_WORDS) {
+    console.warn(`[AINYCU ScriptDirector] ${wordCount} words > ${MAX_NARRATION_WORDS} cap — retrying with trim nudge`);
+    const trimPrompt = baseUserPrompt +
+      `\n\nYOUR PREVIOUS DRAFT WAS ${wordCount} WORDS — OVER THE 145-WORD HARD CAP.\n` +
+      `Rewrite with the SAME structure and facts, but cut to ≤ ${SOFT_NARRATION_WORDS} words total.\n` +
+      `Apply the anti-bloat rules from the system prompt aggressively:\n` +
+      `- Cut "You see..." phrases entirely\n` +
+      `- Replace UI click paths with a single feature name (the visuals show the path)\n` +
+      `- Do not double-describe outputs\n` +
+      `- Contract articles and drop filler ("that", "which", "just")\n` +
+      `Return JSON only.`;
+    raw = await callOpenAI(trimPrompt, signal);
+    wordCount = countNarrationWords(raw);
+    console.log(`[AINYCU ScriptDirector] Draft 2 (trimmed): ${wordCount} words`);
+    if (wordCount > MAX_NARRATION_WORDS) {
+      console.warn(`[AINYCU ScriptDirector] Still over cap at ${wordCount} words — validator will hard-trim by beat`);
+    }
+  }
+
+  return validateAndCleanScript(raw, dayNumber);
+}
+
+function buildUserPrompt(p: {
+  topic: string;
+  angle?: string;
+  dayNumber: number;
+  verifiedFacts?: VerifiedFact[];
+  feedback?: string;
+}): string {
+  const { topic, angle, dayNumber, verifiedFacts, feedback } = p;
+
+  let userPrompt = `Create a 55-65 second educational reel script about this topic:\n\n${topic}\n\n`;
 
   userPrompt += `SERIES: "AI News You Can Use" — Day ${dayNumber} of 30.\n`;
   userPrompt += `The Day Tag beat MUST say: "Welcome to Day ${dayNumber} of AI News You Can Use."\n`;
   userPrompt += `The textCardText for the Day Tag beat MUST be: "DAY ${dayNumber}\\nAI NEWS YOU CAN USE"\n\n`;
+
+  userPrompt += `HARD LENGTH CONSTRAINT: Total narration across all beats must be ≤ ${SOFT_NARRATION_WORDS} words (${MAX_NARRATION_WORDS} absolute max). Budget each beat per the word caps in the system prompt.\n\n`;
 
   if (angle) {
     userPrompt += `ANGLE (the "here's what you can do"): ${angle}\n\n`;
@@ -257,15 +440,23 @@ export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<V
     for (const f of verifiedFacts) {
       userPrompt += `- ${f.fact} [Source: ${f.sourceUrl}]\n`;
     }
-    userPrompt += "\nUse these facts for the walkthrough steps. LEAD WITH THE MOST IMPRESSIVE FEATURES AND CAPABILITIES — the things that make people say 'wait, it can do THAT?' Do NOT waste beats on generic prompting advice. Show what the tool can DO. You can add personality and commentary, but the INSTRUCTIONAL CONTENT must come from these facts.\n\nCRITICAL: Each walkthrough step must cover a DIFFERENT fact/feature from the list above. Do NOT reuse or rephrase the same capability across multiple steps. If the facts mention 5 distinct features, your walkthrough should cover 3-5 of them — one per step. Name each feature explicitly.\n\n";
+    userPrompt += "\nUse these facts for the walkthrough steps. LEAD WITH THE MOST IMPRESSIVE FEATURES AND CAPABILITIES. Do NOT waste beats on generic prompting advice. Show what the tool can DO.\n\nCRITICAL: Each walkthrough step must cover a DIFFERENT fact/feature. NAME each feature explicitly in ≤ 16 words per beat.\n\n";
   }
 
   if (feedback) {
     userPrompt += `USER FEEDBACK (address these concerns):\n${feedback}\n\n`;
   }
 
-  userPrompt += "Remember: JSON only, no markdown fences, no explanation.";
+  userPrompt += "REMEMBER:\n";
+  userPrompt += "- Every pip / fullscreen_broll / device_mockup beat ≥ 3s MUST include a shots[] array with 2-4 shots.\n";
+  userPrompt += "- Each shot's durationSec is 0.8-2.0s. Sum of shots equals beat.durationSec.\n";
+  userPrompt += "- shots[].emphasisWord is a 1-3 word burn-in chyron.\n";
+  userPrompt += "- JSON only, no markdown fences, no explanation.";
 
+  return userPrompt;
+}
+
+async function callOpenAI(userPrompt: string, signal?: AbortSignal): Promise<any> {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -294,27 +485,48 @@ export async function generateAinycuScript(opts: AinycuScriptOptions): Promise<V
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenAI returned empty response");
 
-  const raw = JSON.parse(content);
-  return validateAndCleanScript(raw, dayNumber);
+  return JSON.parse(content);
+}
+
+// Count spoken words in narration, stripping [SECTION] markers.
+function countNarrationWords(raw: any): number {
+  if (!raw?.beats || !Array.isArray(raw.beats)) return 0;
+  return raw.beats.reduce((sum: number, b: any) => {
+    const n = String(b?.narration ?? "");
+    // Strip section markers like [HOOK], [STEP1], etc. before counting
+    const stripped = n.replace(/\[[A-Z0-9]+\]/g, "").trim();
+    if (!stripped) return sum;
+    return sum + stripped.split(/\s+/).filter(Boolean).length;
+  }, 0);
 }
 
 // Layouts that are rendered entirely by Remotion — no external b-roll needed
 const REMOTION_ONLY_LAYOUTS: LayoutMode[] = ["icon_grid", "motion_graphic"];
 
+// Layouts that REQUIRE shots[] (b-roll-driven, hold > 1 shot looks amateur)
+const SHOT_REQUIRED_LAYOUTS: LayoutMode[] = ["pip", "fullscreen_broll", "device_mockup"];
+
+// Stat-card visualType is Remotion-rendered; brand_logo_card uses Nano Banana
+const REMOTION_ONLY_VISUAL_TYPES: VisualType[] = ["stat_card"];
+
 const VALID_WORD_STYLES = ["hero", "action", "danger", "pill"] as const;
+
+const VALID_VISUAL_TYPES: VisualType[] = [
+  "named_person", "product_logo_ui", "cinematic_concept",
+  "generic_action", "data_graphic", "screen_capture",
+  "reaction_clip", "brand_logo_card", "stat_card",
+];
+const VALID_MOTION_STYLES: MotionStyle[] = [
+  "static_ken_burns", "ai_video", "stock_clip", "screen_capture",
+];
 
 function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
   if (!raw.topic || !raw.beats || !Array.isArray(raw.beats) || raw.beats.length === 0) {
     throw new Error("Invalid script: missing topic or beats array");
   }
 
-  const validVisualTypes: VisualType[] = [
-    "named_person", "product_logo_ui", "cinematic_concept",
-    "generic_action", "data_graphic", "screen_capture",
-  ];
-  const validMotionStyles: MotionStyle[] = [
-    "static_ken_burns", "ai_video", "stock_clip", "screen_capture",
-  ];
+  const validVisualTypes: VisualType[] = VALID_VISUAL_TYPES;
+  const validMotionStyles: MotionStyle[] = VALID_MOTION_STYLES;
   const validTransitions: TransitionType[] = ["cut", "dissolve", "zoom_in", "slide_left"];
   const validLayouts: LayoutMode[] = [
     "pip", "fullscreen_broll", "avatar_closeup", "text_card",
@@ -401,12 +613,44 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
       beat.visualType = "cinematic_concept";
     }
 
+    if (beat.visualType === "reaction_clip" && !beat.visualSubject) {
+      // reaction_clip requires a subject (named person); downgrade if missing
+      beat.visualType = "cinematic_concept";
+    }
+
     if (beat.visualType === "generic_action" && beat.motionStyle !== "stock_clip") {
       beat.motionStyle = "stock_clip";
     }
 
     if (beat.visualType === "screen_capture") {
       beat.motionStyle = "screen_capture";
+    }
+
+    if (beat.visualType === "stat_card") {
+      beat.motionStyle = "static_ken_burns";
+      beat.remotionOnly = true; // rendered by Remotion, no asset fetch needed
+    }
+
+    if (beat.visualType === "brand_logo_card") {
+      // Nano Banana render of a single brand logo on a clean gradient
+      beat.motionStyle = "static_ken_burns";
+    }
+
+    // Extract section marker from narration leading tag (e.g. "[HOOK] Manus is...")
+    const sectionMatch = beat.narration.match(/^\[([A-Z0-9]+)\]/);
+    if (sectionMatch) {
+      beat.section = sectionMatch[1].toLowerCase();
+    }
+
+    // ── Validate / Repair Shots ──
+    // If the beat is a shot-required layout and no shots[] was provided, auto-split.
+    // If shots[] was provided, normalize its timings to fit beat.durationSec.
+    if (SHOT_REQUIRED_LAYOUTS.includes(beat.layout) && beat.durationSec >= 3) {
+      beat.shots = validateAndRepairShots(beat, b.shots);
+    } else if (Array.isArray(b.shots) && b.shots.length > 0) {
+      // Caller provided shots[] on a layout that normally doesn't need them —
+      // keep them if they're valid, they'll be honored downstream.
+      beat.shots = validateAndRepairShots(beat, b.shots);
     }
 
     runningTime += duration;
@@ -454,3 +698,109 @@ function validateAndCleanScript(raw: any, dayNumber: number): VideoScript {
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
 }
+
+// ─── Shot validator / auto-splitter ─────────────────────────
+// Ensures every shot-required beat has a well-formed shots[] whose durations
+// sum to beat.durationSec. If the LLM omitted shots[], auto-split the beat
+// into N equal shots derived from the narration.
+function validateAndRepairShots(beat: Beat, rawShots: any): Shot[] {
+  const duration = beat.durationSec;
+
+  // Ideal shot count per the system prompt formula
+  const targetCount = duration <= 4 ? 3
+    : duration <= 6 ? 4
+    : duration <= 8 ? 5
+    : 5;
+
+  let shots: Shot[] = [];
+
+  if (Array.isArray(rawShots) && rawShots.length > 0) {
+    shots = rawShots
+      .filter((s: any) => s && typeof s === "object")
+      .map((s: any, i: number): Shot => ({
+        idx: typeof s.idx === "number" ? s.idx : i + 1,
+        startSec: Number.isFinite(s.startSec) ? Number(s.startSec) : i * (duration / rawShots.length),
+        durationSec: Number.isFinite(s.durationSec) ? Number(s.durationSec) : duration / rawShots.length,
+        visualType: VALID_VISUAL_TYPES.includes(s.visualType) ? s.visualType : beat.visualType,
+        visualPrompt: String(s.visualPrompt ?? s.prompt ?? beat.visualPrompt),
+        visualSubject: s.visualSubject ? String(s.visualSubject) : beat.visualSubject,
+        motionStyle: VALID_MOTION_STYLES.includes(s.motionStyle) ? s.motionStyle : beat.motionStyle,
+        emphasisWord: s.emphasisWord ? String(s.emphasisWord).trim().slice(0, 30) : undefined,
+      }));
+  }
+
+  // If the LLM omitted shots[] or provided < 2, auto-split the beat evenly.
+  if (shots.length < 2) {
+    shots = autoSplitBeat(beat, targetCount);
+  }
+
+  // Clamp durations: 0.6s minimum, 2.5s max, and force sum == beat.durationSec
+  shots = normalizeShotTimings(shots, duration);
+
+  // Renumber idx + ensure monotonic startSec
+  let cursor = 0;
+  shots.forEach((s, i) => {
+    s.idx = i + 1;
+    s.startSec = cursor;
+    cursor += s.durationSec;
+  });
+
+  return shots;
+}
+
+// Auto-generate N evenly-spaced shots for a beat that was missing shots[].
+// Each shot inherits the beat's visual direction; the LLM has no sub-shot
+// vocabulary here, so we fall back to "show the same thing from a different
+// angle" — better than a single 5-second held frame.
+function autoSplitBeat(beat: Beat, targetCount: number): Shot[] {
+  const shotDuration = beat.durationSec / targetCount;
+  const tokens = beat.narration
+    .replace(/\[[A-Z0-9]+\]/g, "")
+    .split(/\s+/)
+    .filter(w => w.length > 3);
+
+  return Array.from({ length: targetCount }, (_, i) => {
+    const emphasis = tokens[i] ? tokens[i].replace(/[^\w@]/g, "") : undefined;
+    return {
+      idx: i + 1,
+      startSec: i * shotDuration,
+      durationSec: shotDuration,
+      visualType: beat.visualType,
+      visualPrompt: `${beat.visualPrompt} — shot ${i + 1}/${targetCount}, emphasis: ${emphasis ?? "hero shot"}`,
+      visualSubject: beat.visualSubject,
+      motionStyle: beat.motionStyle,
+      emphasisWord: emphasis && emphasis.length > 2 ? emphasis : undefined,
+    };
+  });
+}
+
+// Enforce min/max shot duration and make the sum match beat duration exactly.
+function normalizeShotTimings(shots: Shot[], totalDuration: number): Shot[] {
+  if (shots.length === 0) return shots;
+
+  const MIN = 0.6;
+  const MAX = 2.5;
+
+  // First pass: clamp each shot
+  const clamped = shots.map(s => ({
+    ...s,
+    durationSec: clamp(s.durationSec, MIN, MAX),
+  }));
+
+  // Second pass: scale to match totalDuration
+  const currentSum = clamped.reduce((sum, s) => sum + s.durationSec, 0);
+  if (currentSum <= 0) return clamped;
+
+  const scale = totalDuration / currentSum;
+  return clamped.map(s => ({
+    ...s,
+    durationSec: Math.max(MIN, s.durationSec * scale),
+  }));
+}
+
+export const __testing = {
+  countNarrationWords,
+  validateAndRepairShots,
+  autoSplitBeat,
+  normalizeShotTimings,
+};

@@ -28,6 +28,7 @@ export interface ScoredTopic {
     wowFactor: number;
     personalImpact: number;
     userRelevance: number;
+    newsHook: number;
   };
   weightedScore: number;
   summary: string;
@@ -55,17 +56,56 @@ export interface VerifiedTopic extends ScoredTopic {
   verificationStatus: "verified_3plus" | "insufficient_sources" | "unverified";
 }
 
+// ─── OpenAI Retry Helper ─────────────────────────────────────
+// OpenAI's Responses + Chat endpoints occasionally return 502 / 503 / 504 via
+// Cloudflare when upstream is overloaded. These are transient — retrying with
+// small backoff clears them in the vast majority of cases. Without this, a
+// single upstream blip kills an entire topic's research (which is a ~$0.20 +
+// 60-second loss per failed topic).
+//
+// Only retries on 5xx responses and network/abort errors. 4xx (auth, rate
+// limits with explicit 429 retry-after) are surfaced immediately.
+async function fetchOpenAIWithRetry(
+  url: string,
+  init: RequestInit,
+  { maxAttempts = 3, baseDelayMs = 800 }: { maxAttempts?: number; baseDelayMs?: number } = {},
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (res.ok) return res;
+      // Retry only on 5xx (upstream/Cloudflare issues). 4xx is a real error.
+      if (res.status >= 500 && attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1); // 800ms, 1600ms, 3200ms
+        console.warn(`[AINYCU Research] OpenAI ${res.status} on ${url.split("/").pop()} — retry ${attempt}/${maxAttempts - 1} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res; // Non-5xx: return as-is, caller inspects .ok
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        console.warn(`[AINYCU Research] OpenAI fetch threw (${(err as Error).message?.slice(0, 80)}) — retry ${attempt}/${maxAttempts - 1} in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr ?? new Error("OpenAI fetch failed after retries");
+}
+
 // ─── Scoring Prompt (Educational / Usability Focus) ─────────
 
 const AINYCU_SCORING_PROMPT = `SCORING FOR "AI NEWS YOU CAN USE" EDUCATIONAL REELS (score each factor 1-10):
 
-This series is EDUCATIONAL — topics must be things a non-technical person can actually DO or USE right now.
+This series is EDUCATIONAL but VIRAL — topics must (a) be things a non-technical person can actually DO or USE right now AND (b) carry a news hook that stops the scroll ("X just dropped", "Y just killed Z", "CEO says this is 10x better").
 
-1. SHAREABILITY (weight: 3x) — Would someone share this with a friend or coworker?
-   - 10: "You NEED to try this" — immediately useful
+1. SHAREABILITY (weight: 5x) — Would someone share this with a friend, coworker, or repost it?
+   - 10: "You NEED to see this" — carries a headline hook someone wants to pass on
    - 7-9: "This is cool, check it out"
    - 4-6: "Interesting"
-   - 1-3: "Meh"
+   - 1-3: "Meh" — no reason to forward
 
 2. SAVE-WORTHINESS (weight: 5x) — Would someone bookmark this to try later?
    - 10: Step-by-step tutorial they'll come back to. Actionable instructions.
@@ -81,11 +121,11 @@ This series is EDUCATIONAL — topics must be things a non-technical person can 
    - 2-3: Needs developer tools, terminal, or coding
    - 1: Only for engineers/researchers
 
-4. WOW FACTOR (weight: 4x) — Does this make someone say "wait, I can do THAT?"
-   - 10: Mind-blowing capability that feels like magic
-   - 7-9: Genuinely surprising and cool
+4. WOW FACTOR (weight: 6x) — Does this make someone say "wait, I can do THAT?"
+   - 10: Mind-blowing capability that feels like magic, makes Quinn's jaw drop on camera
+   - 7-9: Genuinely surprising — not the same story everyone already covered
    - 4-6: Useful but not surprising
-   - 1-3: Boring/expected
+   - 1-3: Boring/expected, no jaw-drop moment
 
 5. PERSONAL IMPACT (weight: 2x) — Does this affect the viewer's daily life or work?
    - 10: Saves hours per week, changes how they work
@@ -93,17 +133,24 @@ This series is EDUCATIONAL — topics must be things a non-technical person can 
    - 4-6: Nice to have
    - 1-3: Abstract/theoretical
 
-6. USER RELEVANCE (weight: 4x) — How broadly applicable is this?
+6. USER RELEVANCE (weight: 3x) — How broadly applicable is this?
    - 10: Everyone with a phone/computer can use this
    - 8-9: Most office workers or students
    - 6-7: Specific but large group (small biz owners, freelancers)
    - 4-5: Niche audience
    - 1-3: Very niche/technical
 
-FORMULA: ((share×3) + (save×5) + (usability×6) + (wow×4) + (impact×2) + (relevance×4)) / 24
+7. NEWS HOOK / VIRALITY (weight: 5x) — Does this story carry its own headline hook?
+   - 10: "X just killed Y", "just dropped today", "CEO nuked the competition", "first AI to do Z"
+   - 7-9: Clear recency + novelty angle ("new update", "just announced", "launches public beta")
+   - 4-6: Interesting feature but no news-hook framing available
+   - 1-3: Generic evergreen tip with no timely angle — already been covered a dozen times
+   - 1: Old news — story is more than ~30 days old or has been widely saturated
 
-Topics scoring below 5.0 should be REJECTED.
-Topics scoring 7.0+ are EXCELLENT.
+FORMULA: ((share×5) + (save×5) + (usability×6) + (wow×6) + (impact×2) + (relevance×3) + (viral×5)) / 32
+
+Topics scoring below 5.5 should be REJECTED.
+Topics scoring 7.0+ are EXCELLENT — these are the ones that will actually move follower counts.
 
 CRITICAL FILTERS — REJECT topics that:
 - Are research papers or academic findings
@@ -138,14 +185,19 @@ async function discoverFromNewsAPI(): Promise<RawTopic[]> {
   const apiKey = ENV.newsApiKey;
   if (!apiKey) return [];
 
-  const daysBack = 14; // Wider window — usable features don't expire in 3 days
+  const daysBack = 10; // Tighter window — "just dropped" virality decays fast
   const from = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  // News-hookable phrasing: we want stories that carry a built-in hook
+  // (launch, announcement, beats competitor, kills category) — not generic
+  // "AI productivity" features that have been covered a dozen times.
   const queries = [
-    "AI tool launch",
-    "AI feature update consumer",
-    "ChatGPT new feature",
-    "Google Gemini update",
-    "AI productivity tool",
+    "AI agent just launched",
+    "new AI tool released this week",
+    "AI feature beats ChatGPT",
+    "Anthropic Claude announcement",
+    "OpenAI ChatGPT new capability",
+    "Google Gemini drops",
+    "AI startup raises viral",
   ];
   const results: RawTopic[] = [];
 
@@ -213,15 +265,16 @@ async function discoverFromGPTWebSearch(): Promise<RawTopic[]> {
   const cutoffStr = cutoff.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
   const queries = [
-    `Today is ${todayStr}. Search for 6 AI tools, features, or capabilities released or updated AFTER ${cutoffStr} that a NON-TECHNICAL person would find immediately useful. Focus on: new features in ChatGPT, Claude, Gemini, Perplexity, Canva AI, Notion AI, Adobe AI, Apple Intelligence, Google AI products. The feature must be AVAILABLE NOW (not coming soon). Return ONLY a JSON array: [{"title": "headline describing what you can DO", "url": "source url", "source": "news", "angle": "one sentence: here's what you can do with it"}]`,
-    `Today is ${todayStr}. Search for 6 AI productivity hacks, extensions, or automations released AFTER ${cutoffStr} that save time for office workers, students, or small business owners. Must be real tools a regular person can set up without coding. Return ONLY a JSON array: [{"title": "headline", "url": "source url", "source": "news", "angle": "one sentence: here's what you can do"}]`,
+    `Today is ${todayStr}. Search for 6 AI tools or features that JUST DROPPED (released or announced AFTER ${cutoffStr}) and are going VIRAL right now on X/Twitter, Reddit, or Hacker News. Prefer stories with a built-in hook: new agent that outperforms competitors, a tool that just killed an entire category, a CEO making a bold claim, a surprise capability no one expected. Must be AVAILABLE NOW (not coming soon) and usable by a non-technical person. Return ONLY a JSON array: [{"title": "news-hookable headline — what just happened + why it matters", "url": "source url", "source": "news", "angle": "one sentence: here's what you can do with it"}]`,
+    `Today is ${todayStr}. Search for 6 AI agents, copilots, or automations released AFTER ${cutoffStr} that DO something surprising (not just chat): book meetings, control your computer, send emails, run research, manage files, integrate with Slack/Gmail/Notion. Prioritize tools with multiple impressive named features — not one-trick apps. Return ONLY a JSON array: [{"title": "headline naming the tool + its strongest capability", "url": "source url", "source": "news", "angle": "one sentence: here's what you can do"}]`,
+    `Today is ${todayStr}. Search for 4 AI news stories from the last 10 days where a NEW TOOL or FEATURE is being positioned as beating, killing, or replacing an incumbent (e.g., "X kills Y", "the new ChatGPT killer", "startup outperforms OpenAI", "CEO says our tool is 10x better"). The story must center on a real, usable product — not research papers. Return ONLY a JSON array: [{"title": "headline with the conflict/comparison framing", "url": "source url", "source": "news", "angle": "one sentence: here's what you can do"}]`,
   ];
 
   const results: RawTopic[] = [];
   await Promise.allSettled(
     queries.map(async (query) => {
       try {
-        const response = await fetch("https://api.openai.com/v1/responses", {
+        const response = await fetchOpenAIWithRetry("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${ENV.openaiApiKey}`,
@@ -284,7 +337,7 @@ export async function scoreAndSelectTopics(topics: RawTopic[], count: number = 3
 
   const topicList = topics.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -299,7 +352,7 @@ export async function scoreAndSelectTopics(topics: RawTopic[], count: number = 3
         },
         {
           role: "user",
-          content: `Score these topics and select the best ${count} for educational Reels. For each selected topic, provide all 6 scores, a 1-sentence summary, AND a "here's what you can do" angle.\n\nTopics:\n${topicList}\n\nReturn JSON: {"selected": [{"index": number, "title": "string", "summary": "1 sentence", "angle": "the specific here's what you can do angle", "scores": {"shareability": N, "saveWorthiness": N, "usability": N, "wowFactor": N, "personalImpact": N, "userRelevance": N}}]}`,
+          content: `Score these topics and select the best ${count} for educational Reels. For each selected topic, provide all 7 scores, a 1-sentence summary, AND a "here's what you can do" angle.\n\nTopics:\n${topicList}\n\nReturn JSON: {"selected": [{"index": number, "title": "string", "summary": "1 sentence", "angle": "the specific here's what you can do angle", "scores": {"shareability": N, "saveWorthiness": N, "usability": N, "wowFactor": N, "personalImpact": N, "userRelevance": N, "newsHook": N}}]}`,
         },
       ],
       temperature: 0.5,
@@ -328,11 +381,13 @@ export async function scoreAndSelectTopics(topics: RawTopic[], count: number = 3
       wowFactor: clamp(s.scores?.wowFactor ?? 5, 1, 10),
       personalImpact: clamp(s.scores?.personalImpact ?? 5, 1, 10),
       userRelevance: clamp(s.scores?.userRelevance ?? 5, 1, 10),
+      newsHook: clamp(s.scores?.newsHook ?? 5, 1, 10),
     };
     const weightedScore = Math.round(
-      ((scores.shareability * 3) + (scores.saveWorthiness * 5) +
-       (scores.usability * 6) + (scores.wowFactor * 4) +
-       (scores.personalImpact * 2) + (scores.userRelevance * 4)) / 24 * 10
+      ((scores.shareability * 5) + (scores.saveWorthiness * 5) +
+       (scores.usability * 6) + (scores.wowFactor * 6) +
+       (scores.personalImpact * 2) + (scores.userRelevance * 3) +
+       (scores.newsHook * 5)) / 32 * 10
     ) / 10;
 
     return {
@@ -354,16 +409,10 @@ export async function scoreAndSelectTopics(topics: RawTopic[], count: number = 3
 export async function verifyTopic(topic: ScoredTopic): Promise<VerifiedTopic> {
   console.log(`[AINYCU Research] Verifying: "${topic.title.slice(0, 60)}..."`);
 
-  // Run SERP + official docs deep dive in parallel
-  const [serpResults, docsSources] = await Promise.all([
-    searchSERP(topic.title),
-    fetchOfficialDocs(topic.title),
-  ]);
-
-  const sources = [
-    ...(await fetchArticleBodies(serpResults)),
-    ...docsSources,
-  ];
+  // Deep search: fan out across 4 complementary SERP queries + 2 doc searches
+  // so we capture the FULL breadth of a tool (features, integrations, automations,
+  // use cases) instead of whatever single angle the base query happens to surface.
+  const sources = await deepSearch(topic.title);
 
   const tier1Count = sources.filter(s => s.credibilityTier === "tier1").length;
   const verificationStatus = tier1Count >= 3 ? "verified_3plus" as const
@@ -391,7 +440,7 @@ async function fetchOfficialDocs(topic: string): Promise<SourceArticle[]> {
   if (!ENV.openaiApiKey) return [];
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetchOpenAIWithRetry("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${ENV.openaiApiKey}`,
@@ -453,6 +502,69 @@ async function fetchOfficialDocs(topic: string): Promise<SourceArticle[]> {
   }
 }
 
+// ─── Deep Multi-Angle Search ───────────────────────────────
+// Runs 4 SERP queries + 2 official-docs searches in parallel, deduped by URL.
+// Ensures we capture integrations, capabilities, automations, and use cases —
+// not just whatever angle the base-title query happens to surface.
+// This is what stops the "Manus helps with Slack" single-fact narrowness.
+async function deepSearch(topic: string): Promise<SourceArticle[]> {
+  const base = topic.trim();
+  const serpQueries = [
+    base,
+    `${base} features capabilities`,
+    `${base} integrations connections apps`,
+    `${base} use cases examples 2026`,
+  ];
+
+  // Use allSettled: isolate failures per query so one timeout doesn't kill the
+  // whole deep search. searchSERP/fetchOfficialDocs already return [] on error
+  // internally, but allSettled is the belt-and-suspenders contract.
+  const [serpSettled, officialSettled, changelogSettled] = await Promise.all([
+    Promise.allSettled(serpQueries.map(q => searchSERP(q))),
+    Promise.allSettled([fetchOfficialDocs(topic)]),
+    Promise.allSettled([fetchOfficialDocs(`${topic} changelog release notes what's new`)]),
+  ]);
+
+  const serpBuckets = serpSettled.map(r => r.status === "fulfilled" ? r.value : []);
+  const officialDocs = officialSettled[0]?.status === "fulfilled" ? officialSettled[0].value : [];
+  const changelogDocs = changelogSettled[0]?.status === "fulfilled" ? changelogSettled[0].value : [];
+
+  // Merge + dedupe SERP results by URL (preserves within-bucket order)
+  const seen = new Set<string>();
+  const mergedSerp: Array<{ url: string; title: string; snippet: string; date?: string }> = [];
+  for (const bucket of serpBuckets) {
+    for (const r of bucket) {
+      if (!r.url || seen.has(r.url)) continue;
+      seen.add(r.url);
+      mergedSerp.push(r);
+    }
+  }
+
+  // Prioritize tier-1 sources; within each tier, preserve the merged order
+  // (which already reflects the query bucket priority: base title first).
+  // stable sort is guaranteed in modern Node/V8.
+  mergedSerp.sort((a, b) => {
+    const aTier = isTier1Source(a.url) ? 0 : 1;
+    const bTier = isTier1Source(b.url) ? 0 : 1;
+    return aTier - bTier;
+  });
+
+  const articleSources = await fetchArticleBodies(mergedSerp.slice(0, 12));
+
+  // Merge docs, dedupe against article URLs
+  const allDocs = [...officialDocs, ...changelogDocs];
+  const docSeen = new Set(articleSources.map(s => s.url));
+  const uniqueDocs = allDocs.filter(d => {
+    if (docSeen.has(d.url)) return false;
+    docSeen.add(d.url);
+    return true;
+  });
+
+  const combined = [...articleSources, ...uniqueDocs];
+  console.log(`[AINYCU Research] Deep search: ${serpBuckets.reduce((s, b) => s + b.length, 0)} SERP hits → ${mergedSerp.length} unique → ${articleSources.length} articles + ${uniqueDocs.length} docs = ${combined.length} sources`);
+  return combined;
+}
+
 async function searchSERP(query: string): Promise<Array<{ url: string; title: string; snippet: string; date?: string }>> {
   const serpKey = ENV.serpApiKey;
   if (!serpKey) return [];
@@ -486,13 +598,15 @@ async function searchSERP(query: string): Promise<Array<{ url: string; title: st
 }
 
 async function fetchArticleBodies(
-  serpResults: Array<{ url: string; title: string; snippet: string; date?: string }>
+  serpResults: Array<{ url: string; title: string; snippet: string; date?: string }>,
 ): Promise<SourceArticle[]> {
+  // Caller controls how many results to fetch. deepSearch() passes a pre-trimmed
+  // list (~12 URLs); any legacy caller passing raw SERP results can still cap
+  // itself with .slice() before calling.
   const sources: SourceArticle[] = [];
-  const topResults = serpResults.slice(0, 7);
 
   await Promise.allSettled(
-    topResults.map(async (result) => {
+    serpResults.map(async (result) => {
       const domain = extractDomain(result.url);
       const credibilityTier = isTier1Source(result.url) ? "tier1" as const : "other" as const;
 
@@ -544,7 +658,7 @@ async function extractFacts(topic: string, sources: SourceArticle[]): Promise<Ve
     .join("\n\n---\n\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetchOpenAIWithRetry("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -601,7 +715,7 @@ export async function runFullResearch(suggestedTopic?: string): Promise<AinycuRe
     const preScored: ScoredTopic = {
       title: suggestedTopic,
       url: "",
-      scores: { shareability: 8, saveWorthiness: 9, usability: 9, wowFactor: 8, personalImpact: 8, userRelevance: 9 },
+      scores: { shareability: 8, saveWorthiness: 9, usability: 9, wowFactor: 8, personalImpact: 8, userRelevance: 9, newsHook: 8 },
       weightedScore: 8.5,
       summary: suggestedTopic,
       angle: "",
