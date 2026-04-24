@@ -332,6 +332,9 @@ export async function geminiGenerateVideo(
   }
 }
 
+/** Diagnostic: last Veo error message — read by contentPipeline for statusDetail */
+export let __lastVeoError: string | null = null;
+
 /**
  * Generate a 5s video from an existing image using Veo 3.1 image-to-video.
  * The image provides the first frame; Veo adds cinematic motion.
@@ -343,6 +346,7 @@ export async function geminiImageToVideo(
   log: (msg: string) => void,
   checkAbort: () => void,
 ): Promise<Buffer | null> {
+  __lastVeoError = null;
   const ai = getGeminiClient();
   const apiKey = ENV.geminiApiKey;
 
@@ -391,6 +395,7 @@ export async function geminiImageToVideo(
     return Buffer.from(arrayBuffer);
   } catch (err: any) {
     const msg = err?.message ?? String(err);
+    __lastVeoError = `${msg} | name=${err?.name} status=${err?.status} code=${err?.code}`;
     console.error("[GeminiEngine] Veo image-to-video failed:", msg);
     console.error("[GeminiEngine] Veo error stack:", err?.stack);
     console.error("[GeminiEngine] Veo error details:", JSON.stringify({

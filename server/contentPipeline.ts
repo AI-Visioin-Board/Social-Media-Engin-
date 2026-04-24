@@ -1554,7 +1554,8 @@ async function _runPipelineStages(
 
     // ── Phase 2: Pick 3 slides for image-to-video motion ──
     // Primary: Veo 3.1 image-to-video | Fallback: Kling img2vid
-    const { geminiImageToVideo } = await import("./geminiEngine");
+    const geminiEngine = await import("./geminiEngine");
+    const { geminiImageToVideo } = geminiEngine;
 
     logWithProgress(`Stage 5: Adding motion to 3 slides via image-to-video...`);
 
@@ -1636,10 +1637,10 @@ async function _runPipelineStages(
       }
 
       console.warn(`[ContentPipeline] Slide ${idx}: all img2vid attempts failed, keeping static image`);
-      // Persist video failure to statusDetail for diagnostics
-      const prevDetail = (await db.select().from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.statusDetail ?? "";
+      const veoErr = geminiEngine.__lastVeoError ?? "(no error captured)";
+      const prevErr = (await db.select().from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.errorMessage ?? "";
       await db.update(contentRuns).set({
-        statusDetail: `${prevDetail} | VEO_FAIL s${idx}`.slice(0, 2000),
+        errorMessage: `${prevErr}\nVEO_FAIL s${idx}: ${veoErr.slice(0, 400)}`.slice(0, 4000),
       }).where(eq(contentRuns.id, runId));
     }
 
@@ -1741,10 +1742,10 @@ async function _runPipelineStages(
         const errType = media.type;
         console.error(`[ContentPipeline] Assembly failed for slide ${slideRecord.slideIndex} (${errType}): ${errMsg}`);
         console.error(`[ContentPipeline] Assembly error stack:`, err?.stack);
-        // Persist error to statusDetail so we can diagnose without logs
-        const prevDetail = (await db.select().from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.statusDetail ?? "";
+        // Persist to errorMessage (more durable than statusDetail which gets overwritten by progress updates)
+        const prevErr = (await db.select().from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.errorMessage ?? "";
         await db.update(contentRuns).set({
-          statusDetail: `${prevDetail} | ASM_FAIL s${slideRecord.slideIndex}(${errType}):${errMsg.slice(0, 200)}`.slice(0, 2000),
+          errorMessage: `${prevErr}\nASM_FAIL s${slideRecord.slideIndex}(${errType}): ${errMsg.slice(0, 500)}`.slice(0, 4000),
         }).where(eq(contentRuns.id, runId));
         await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
       }
