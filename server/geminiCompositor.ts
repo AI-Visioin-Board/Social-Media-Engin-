@@ -18,15 +18,41 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
-// Use ffmpeg-static if available, fall back to system ffmpeg
+// Use ffmpeg-static if available, fall back to system ffmpeg (nix, apt, or PATH)
 const ffmpegPath = (() => {
-  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) return ffmpegStatic;
-  try {
-    return execFileSync("/usr/bin/which", ["ffmpeg"], { encoding: "utf-8" }).trim();
-  } catch {
-    console.warn("[GeminiCompositor] No ffmpeg found — video compositing will fail");
-    return "ffmpeg";
+  // 1. ffmpeg-static (from npm postinstall — requires pnpm allowlist)
+  if (ffmpegStatic) {
+    const p = typeof ffmpegStatic === "string" ? ffmpegStatic : String(ffmpegStatic);
+    if (fs.existsSync(p)) {
+      console.log(`[GeminiCompositor] Using ffmpeg-static: ${p}`);
+      return p;
+    }
+    console.warn(`[GeminiCompositor] ffmpeg-static path missing on disk: ${p}`);
   }
+  // 2. Common absolute paths (nix, apt install, custom)
+  const candidates = [
+    "/root/.nix-profile/bin/ffmpeg",
+    "/nix/var/nix/profiles/default/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/usr/bin/ffmpeg",
+    "/opt/homebrew/bin/ffmpeg",
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      console.log(`[GeminiCompositor] Using system ffmpeg: ${p}`);
+      return p;
+    }
+  }
+  // 3. Try `command -v` via shell — honors PATH, works in minimal containers
+  try {
+    const out = execFileSync("sh", ["-c", "command -v ffmpeg"], { encoding: "utf-8" }).trim();
+    if (out && fs.existsSync(out)) {
+      console.log(`[GeminiCompositor] Using PATH ffmpeg: ${out}`);
+      return out;
+    }
+  } catch {}
+  console.error("[GeminiCompositor] NO FFMPEG FOUND — video compositing will spawn 'ffmpeg' literal and fail with ENOENT");
+  return "ffmpeg";
 })();
 ffmpeg.setFfmpegPath(ffmpegPath);
 
