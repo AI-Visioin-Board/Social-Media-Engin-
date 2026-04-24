@@ -1617,8 +1617,9 @@ async function _runPipelineStages(
           const { url: imageUrl } = await storagePut(
             `slides/${runId}/img2vid_source_${idx}.png`, imgBuf, "image/png"
           );
+          // Generic motion prompt only — same reason as Veo (content prompts trigger safety filters)
           const videoUrl = await generateKlingImageToVideo(
-            `Subtle cinematic motion, slow zoom and gentle parallax. ${slidePrompt}`,
+            "Subtle cinematic motion: slow push-in zoom, gentle parallax on the foreground subject, soft ambient light shift. Keep the scene composition stable.",
             imageUrl, klingAK, klingSK,
           );
           if (videoUrl) {

@@ -355,9 +355,14 @@ export async function geminiImageToVideo(
     const raw = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
 
     log("Veo img2vid: Generating 6s video from image...");
+    // CRITICAL: Do NOT include the original image-gen prompt in the Veo prompt.
+    // Original prompts often contain safety-flagged terms ("aggressively",
+    // "violently", "smash", etc) that cause Veo to silently return no video.
+    // Use a purely generic motion directive — the image itself conveys the content.
+    const safePrompt = "Subtle cinematic motion: slow push-in zoom, gentle parallax on the foreground subject, soft ambient light shift. Keep the scene composition stable.";
     let operation = await ai.models.generateVideos({
       model: "veo-3.1-generate-preview",
-      prompt: `Subtle cinematic motion, slow zoom and gentle parallax. ${prompt}`,
+      prompt: safePrompt,
       image: {
         imageBytes: raw,
         mimeType: "image/png",
@@ -383,7 +388,12 @@ export async function geminiImageToVideo(
     }
 
     const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!videoUri) throw new Error("No video URI returned from Veo img2vid");
+    if (!videoUri) {
+      // Log the full response — typically contains safety filter reason
+      const respSnippet = JSON.stringify(operation.response ?? {}).slice(0, 400);
+      console.error("[GeminiEngine] Veo returned no URI. response:", respSnippet);
+      throw new Error(`No video URI returned from Veo img2vid. response=${respSnippet}`);
+    }
 
     const response = await fetch(videoUri, {
       headers: { "x-goog-api-key": apiKey },
