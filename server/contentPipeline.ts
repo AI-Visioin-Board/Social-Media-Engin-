@@ -1194,8 +1194,13 @@ export async function triggerInstagramPost(
         run_id: runId,
         caption,
         slides: slidePayload,
-        // Array of objects for Make.com Instagram carousel — Files parameter expects [{image_url, media_type}]
-        image_urls: slidePayload.map((s) => ({ image_url: s.image_url, media_type: s.media_type })),
+        // Array for Make.com Instagram carousel Files field — each item is EITHER
+        // {image_url: "..."} OR {video_url: "..."} based on slide type.
+        // Instagram's Graph API carousel accepts mixed media but requires the right field per item.
+        image_urls: slidePayload.map((s) => s.media_type === "VIDEO"
+          ? { video_url: s.video_url }
+          : { image_url: s.image_url }
+        ),
         slide_count: slides.length,
         has_video: slides.some((s) => s.isVideo),
         posted_at: new Date().toISOString(),
