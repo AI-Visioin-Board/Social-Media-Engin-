@@ -21,10 +21,14 @@ import type { ResearchedTopic } from "./contentPipeline";
 export interface GeminiCreativeBrief {
   coverHeadline: string;
   coverImagePrompt: string;
+  /** Celebrity-free variant of coverImagePrompt used to generate the image that feeds Veo img2vid. */
+  coverVideoSafePrompt?: string;
   slides: Array<{
     headline: string;
     summary: string;
     imagePrompt: string;
+    /** Celebrity-free variant used only if this slide gets selected for Veo img2vid. */
+    videoSafePrompt?: string;
     cinematicScore: number;
   }>;
 }
@@ -85,10 +89,13 @@ Task 1: Write a SCROLL-STOPPING, ALL-CAPS cover headline (max 12 words) that syn
 
 Task 2: Write an image prompt for the COVER SLIDE. This MUST be a comical, salacious, eye-capturing composite featuring the main subjects (CEOs, politicians, AI entities) from the stories interacting in a dramatic or absurd way. Include relevant company logos if applicable.
 
+Task 2b: Write a coverVideoSafePrompt — the SAME scene/mood as the cover, but with ZERO real people or celebrity likenesses (no Sam Altman, Sundar Pichai, Elon Musk, etc.). Replace any specific person with: anonymous silhouettes, generic figures shot from behind, just hands/arms, close-ups on products/logos/screens, abstract visual metaphors, or environmental shots. Same lighting, style, composition, 10-part framework — just swap the people for celebrity-free visual alternatives. Veo img2vid will refuse any image containing a real person's likeness, so this prompt MUST have NO recognizable individuals.
+
 Task 3: For EACH of the ${topics.length} stories, write:
 - A punchy ALL-CAPS headline (max 10 words)
 - A 1-2 sentence summary for the slide text
-- An image prompt for that slide
+- An image prompt for that slide (celebrities allowed for viral appeal)
+- A videoSafePrompt — same scene/mood WITHOUT celebrities, following the same rules as Task 2b. This is used if the slide gets selected for video animation.
 - A cinematicScore (1-10) rating how cinematic the image would look as a slow-motion video. Score HIGH (8-10) for: action shots, dramatic confrontations, physical movement, crowds, weather/particles, dynamic lighting. Score LOW (1-4) for: static portraits, logos, text-heavy concepts, abstract ideas.
 
 CRITICAL REQUIREMENT — The 10-Part PROMPTHIS Framework:
@@ -113,6 +120,7 @@ ${JSON.stringify(topicSummary, null, 2)}`,
         properties: {
           coverHeadline: { type: Type.STRING },
           coverImagePrompt: { type: Type.STRING },
+          coverVideoSafePrompt: { type: Type.STRING },
           slides: {
             type: Type.ARRAY,
             items: {
@@ -121,13 +129,14 @@ ${JSON.stringify(topicSummary, null, 2)}`,
                 headline: { type: Type.STRING },
                 summary: { type: Type.STRING },
                 imagePrompt: { type: Type.STRING },
+                videoSafePrompt: { type: Type.STRING },
                 cinematicScore: { type: Type.NUMBER },
               },
-              required: ["headline", "summary", "imagePrompt", "cinematicScore"],
+              required: ["headline", "summary", "imagePrompt", "videoSafePrompt", "cinematicScore"],
             },
           },
         },
-        required: ["coverHeadline", "coverImagePrompt", "slides"],
+        required: ["coverHeadline", "coverImagePrompt", "coverVideoSafePrompt", "slides"],
       },
     },
   });

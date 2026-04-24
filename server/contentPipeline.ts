@@ -1583,6 +1583,24 @@ async function _runPipelineStages(
         ? creativeBrief.coverImagePrompt
         : creativeBrief.slides[idx - 1].imagePrompt;
 
+      // Veo refuses to animate images containing celebrity likenesses.
+      // If the CD provided a videoSafePrompt (celebrity-free variant), generate a
+      // separate image from that prompt and feed IT to Veo. Keep the original
+      // celebrity-featuring image as a fallback if Veo still fails.
+      const videoSafePrompt = idx === 0
+        ? creativeBrief.coverVideoSafePrompt
+        : creativeBrief.slides[idx - 1].videoSafePrompt;
+
+      let veoInputImage = media.data as string;
+      if (videoSafePrompt) {
+        try {
+          logWithProgress(`Stage 5: Regenerating slide ${idx} celebrity-free for Veo...`);
+          veoInputImage = await geminiGenerateImage(videoSafePrompt, logWithProgress);
+        } catch (err: any) {
+          console.warn(`[ContentPipeline] videoSafe image gen failed for slide ${idx}, using original: ${err?.message}`);
+        }
+      }
+
       const markAsVideo = async () => {
         const matchSlide = slideRecords.find(s => s.slideIndex === idx);
         if (matchSlide) {
@@ -1594,7 +1612,7 @@ async function _runPipelineStages(
       logWithProgress(`Stage 5: Adding motion to slide ${idx} (Veo img2vid)...`);
       const videoBuffer = await geminiImageToVideo(
         slidePrompt,
-        media.data as string,
+        veoInputImage,
         logWithProgress,
         checkAbort,
       );
