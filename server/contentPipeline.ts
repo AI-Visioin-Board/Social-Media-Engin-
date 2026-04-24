@@ -1636,6 +1636,11 @@ async function _runPipelineStages(
       }
 
       console.warn(`[ContentPipeline] Slide ${idx}: all img2vid attempts failed, keeping static image`);
+      // Persist video failure to statusDetail for diagnostics
+      const prevDetail = (await db.select().from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.statusDetail ?? "";
+      await db.update(contentRuns).set({
+        statusDetail: `${prevDetail} | VEO_FAIL s${idx}`.slice(0, 2000),
+      }).where(eq(contentRuns.id, runId));
     }
 
     const videoCount = generatedMedia.filter(m => m.type === "video").length;
@@ -1732,7 +1737,15 @@ async function _runPipelineStages(
         assemblySuccessCount++;
         console.log(`[ContentPipeline] Slide ${slideRecord.slideIndex}: assembled → ${url.slice(0, 80)}...`);
       } catch (err: any) {
-        console.error(`[ContentPipeline] Assembly failed for slide ${slideRecord.slideIndex}: ${err?.message}`);
+        const errMsg = err?.message ?? String(err);
+        const errType = media.type;
+        console.error(`[ContentPipeline] Assembly failed for slide ${slideRecord.slideIndex} (${errType}): ${errMsg}`);
+        console.error(`[ContentPipeline] Assembly error stack:`, err?.stack);
+        // Persist error to statusDetail so we can diagnose without logs
+        const prevDetail = (await db.select().from(contentRuns).where(eq(contentRuns.id, runId)))[0]?.statusDetail ?? "";
+        await db.update(contentRuns).set({
+          statusDetail: `${prevDetail} | ASM_FAIL s${slideRecord.slideIndex}(${errType}):${errMsg.slice(0, 200)}`.slice(0, 2000),
+        }).where(eq(contentRuns.id, runId));
         await db.update(generatedSlides).set({ status: "ready" }).where(eq(generatedSlides.id, slideRecord.id));
       }
     }

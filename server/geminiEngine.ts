@@ -390,8 +390,16 @@ export async function geminiImageToVideo(
     log("Veo img2vid: Video generated successfully.");
     return Buffer.from(arrayBuffer);
   } catch (err: any) {
-    console.error("[GeminiEngine] Veo image-to-video failed:", err?.message);
-    log(`Veo img2vid failed: ${err?.message}`);
+    const msg = err?.message ?? String(err);
+    console.error("[GeminiEngine] Veo image-to-video failed:", msg);
+    console.error("[GeminiEngine] Veo error stack:", err?.stack);
+    console.error("[GeminiEngine] Veo error details:", JSON.stringify({
+      name: err?.name,
+      status: err?.status,
+      code: err?.code,
+      cause: err?.cause?.message,
+    }));
+    log(`Veo img2vid failed: ${msg}`);
     return null;
   }
 }
