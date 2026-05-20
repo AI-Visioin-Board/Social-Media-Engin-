@@ -732,7 +732,7 @@ export default function EditorialCalendar() {
                   placeholder={
                     detailEntry.contentType === "x_post"
                       ? "Write your tweet..."
-                      : "Write the Instagram caption for this Reel..."
+                      : "Write the caption for this post..."
                   }
                   value={captionText}
                   onChange={(e) => setCaptionText(e.target.value)}
