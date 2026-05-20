@@ -236,6 +236,13 @@ async function startServer() {
   registerAuthRoutes(app);
   // Serve uploaded files (local filesystem storage)
   app.use("/uploads", express.static(path.resolve(process.env.UPLOADS_DIR || "./public/uploads")));
+  // Guard: a missing /uploads/* file must 404, NOT fall through to the SPA
+  // catch-all (which would return index.html with HTTP 200). Without this,
+  // an external fetcher like Zernio downloading a bad media URL gets HTML
+  // instead of an error, producing confusing publish failures.
+  app.use("/uploads", (_req, res) => {
+    res.status(404).json({ error: "File not found" });
+  });
   // MCP Server (AI agent interface)
   registerMcpEndpoint(app);
   // Asset download endpoints (zip b-roll + script from DB)

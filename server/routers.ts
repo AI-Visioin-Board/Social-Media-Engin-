@@ -647,14 +647,16 @@ export const appRouter = router({
           headline: s.headline ?? "",
           isVideo: s.isVideoSlide === 1 && !!(s.assembledUrl && (s.assembledUrl.includes(".mp4") || s.assembledUrl.includes("video"))),
         }));
-        // Fire Make.com webhook (URL resolved inside triggerInstagramPost: env → DB fallback)
-        const { triggerInstagramPost } = await import("./contentPipeline");
-        const posted = await triggerInstagramPost(
+        // Publish via configured publisher (Postiz / Make / both — see ENV.publisher).
+        // Postiz writes postizPostId we persist for status tracking.
+        const { triggerCarouselPost } = await import("./contentPipeline");
+        const result = await triggerCarouselPost(
           input.runId,
           readySlides,
           input.caption,
           process.env.MAKE_WEBHOOK_URL
         );
+        const posted = result.ok;
 
         // Save published topics for no-repeat logic
         const topicsSelected = JSON.parse(run.topicsSelected ?? "[]");
@@ -671,14 +673,16 @@ export const appRouter = router({
         await db.update(contentRuns).set({
           status: posted ? "completed" : "pending_post",
           postApproved: posted,
+          // If Zernio published, store its post ID for later status sync.
+          ...(result.zernioPostId ? { instagramPostId: result.zernioPostId } : {}),
         }).where(eq(contentRuns.id, input.runId));
 
         const { notifyOwner } = await import("./_core/notification");
         await notifyOwner({
-          title: posted ? "Instagram Post Published!" : "Post Failed — Webhook Error",
+          title: posted ? "Instagram Post Published!" : "Post Failed — Publisher Error",
           content: posted
             ? `Run #${input.runId} carousel was posted to Instagram successfully.`
-            : `Run #${input.runId} approval was set but Make.com webhook failed. Check your webhook URL.`,
+            : `Run #${input.runId} approval was set but the publisher failed. Check Postiz / Make webhook.`,
         });
 
         return { success: true, posted };
@@ -715,15 +719,19 @@ export const appRouter = router({
 
         if (readySlides.length === 0) throw new Error("No assembled slides found for this run");
 
-        const { triggerInstagramPost } = await import("./contentPipeline");
-        const posted = await triggerInstagramPost(
+        const { triggerCarouselPost } = await import("./contentPipeline");
+        const result = await triggerCarouselPost(
           input.runId,
           readySlides,
           caption,
           process.env.MAKE_WEBHOOK_URL
         );
-
-        return { success: true, posted };
+        if (result.zernioPostId) {
+          await db.update(contentRuns).set({
+            instagramPostId: result.zernioPostId,
+          }).where(eq(contentRuns.id, input.runId));
+        }
+        return { success: true, posted: result.ok };
       }),
 
     // Save edited caption for a run
@@ -1966,6 +1974,188 @@ export const appRouter = router({
           updatedAt: new Date(),
         }).where(eq(calendarEntries.id, input.id)).returning();
         return entry;
+      }),
+
+    // Upload one or more media files (images and/or videos) to a calendar
+    // entry. Appends to the entry's mediaItems array in order — this is how
+    // carousels (and mixed image+video carousels) are assembled before posting.
+    uploadMedia: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        files: z.array(z.object({
+          base64: z.string(),
+          fileName: z.string(),
+          mimeType: z.string(),
+        })).min(1).max(10), // IG carousel hard cap is 10
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const { storagePut } = await import("./storage");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        // Validate every file is image or video
+        for (const f of input.files) {
+          if (!f.mimeType.startsWith("image/") && !f.mimeType.startsWith("video/")) {
+            throw new Error(`Invalid file type ${f.mimeType} — only images and videos allowed`);
+          }
+        }
+
+        const [existing] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!existing) throw new Error("Calendar entry not found");
+
+        type MediaItem = { type: "image" | "video"; url: string; name: string };
+        const current: MediaItem[] = existing.mediaItems ? JSON.parse(existing.mediaItems) : [];
+
+        // IG carousel hard cap is 10 — validate the COMBINED total, not just the batch.
+        if (current.length + input.files.length > 10) {
+          throw new Error(
+            `Carousel limit is 10 — this entry has ${current.length} item(s), can't add ${input.files.length} more.`
+          );
+        }
+
+        for (const f of input.files) {
+          const rawExt = f.fileName.split(".").pop() ?? "bin";
+          const ext = rawExt.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "bin";
+          const isVideo = f.mimeType.startsWith("video/");
+          const key = `calendar/media-${input.id}-${Date.now()}-${current.length}.${ext}`;
+          const buffer = Buffer.from(f.base64, "base64");
+          const { url } = await storagePut(key, buffer, f.mimeType);
+          current.push({ type: isVideo ? "video" : "image", url, name: f.fileName });
+        }
+
+        const [entry] = await db.update(calendarEntries).set({
+          mediaItems: JSON.stringify(current),
+          postStatus: "ready",
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id)).returning();
+
+        return { success: true, mediaItems: current, entry };
+      }),
+
+    // Remove a single media item (by index) from a calendar entry.
+    removeMedia: adminProcedure
+      .input(z.object({ id: z.number(), index: z.number().min(0) }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [existing] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!existing) throw new Error("Calendar entry not found");
+        const items: Array<{ type: string; url: string; name: string }> =
+          existing.mediaItems ? JSON.parse(existing.mediaItems) : [];
+        if (input.index < items.length) items.splice(input.index, 1);
+        const [entry] = await db.update(calendarEntries).set({
+          mediaItems: JSON.stringify(items),
+          postStatus: items.length === 0 ? "draft" : existing.postStatus,
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id)).returning();
+        return { success: true, mediaItems: items, entry };
+      }),
+
+    // Set the target platform for a calendar entry.
+    // Platform strings match Zernio's API (note: "twitter", not "x").
+    setPlatform: adminProcedure
+      .input(z.object({ id: z.number(), platform: z.enum(["instagram", "tiktok", "youtube", "twitter", "linkedin"]) }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [entry] = await db.update(calendarEntries).set({
+          targetPlatform: input.platform,
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id)).returning();
+        return entry;
+      }),
+
+    // Publish a calendar entry's media directly via Zernio. Handles single
+    // image, single video, carousel, and mixed-media carousel. Routes to the
+    // entry's targetPlatform (instagram for now; others as accounts connect).
+    postViaZernio: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        caption: z.string().optional(), // freshest caption from the UI
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+
+        const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!entry) throw new Error("Calendar entry not found");
+
+        // Assemble media: prefer the unified mediaItems; fall back to a
+        // single uploaded video (legacy reel entries) so old entries still post.
+        type MediaItem = { type: "image" | "video"; url: string; name?: string };
+        let media: MediaItem[] = entry.mediaItems ? JSON.parse(entry.mediaItems) : [];
+        if (media.length === 0 && entry.uploadedVideoUrl) {
+          media = [{ type: "video", url: entry.uploadedVideoUrl, name: entry.uploadedVideoName ?? "video" }];
+        }
+        if (media.length === 0) throw new Error("No media uploaded for this entry");
+
+        const caption = input.caption || entry.instagramCaption || entry.topicTitle || "";
+        if (input.caption) {
+          await db.update(calendarEntries).set({
+            instagramCaption: input.caption, updatedAt: new Date(),
+          }).where(eq(calendarEntries.id, input.id));
+        }
+
+        // Absolutize relative /uploads/ URLs so Zernio can fetch them.
+        const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+          ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+          : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
+        const absolutize = (u: string) => (u.startsWith("http") ? u : `${baseUrl}${u}`);
+
+        // Resolve target platform → Zernio account id DYNAMICALLY.
+        // (Connect a platform in the Zernio dashboard and it lights up here
+        // with no env/code change. IG can still be pinned via env override.)
+        const platform = (entry.targetPlatform ?? "instagram") as
+          "instagram" | "tiktok" | "youtube" | "twitter" | "linkedin";
+        const { createPost, resolveAccountId } = await import("./zernioClient");
+        const override = platform === "instagram" ? ENV.zernioInstagramAccountId || undefined : undefined;
+        const accountId = await resolveAccountId(platform, override);
+        if (!accountId) {
+          throw new Error(
+            `No active Zernio account for "${platform}". Connect it in the Zernio dashboard first.`
+          );
+        }
+
+        const result = await createPost({
+          content: caption,
+          title: `calendar-${input.id}`,
+          mediaItems: media.map((m) => ({ type: m.type, url: absolutize(m.url) })),
+          platforms: [{ platform, accountId }],
+          publishNow: true,
+        });
+
+        const postedStatusByPlatform: Record<string, string> = {
+          instagram: "posted_ig", tiktok: "posted_tt", youtube: "posted_yt", twitter: "posted_x", linkedin: "posted_li",
+        };
+        await db.update(calendarEntries).set({
+          postStatus: result.ok ? (postedStatusByPlatform[platform] ?? "posted") : entry.postStatus,
+          status: result.ok ? "posted" : entry.status,
+          ...(result.zernioPostId ? { zernioPostId: result.zernioPostId } : {}),
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id));
+
+        if (!result.ok) {
+          throw new Error(result.error || "Zernio publish failed");
+        }
+        return {
+          success: true,
+          platform,
+          zernioPostId: result.zernioPostId,
+          status: result.status,
+          platformResults: result.platformResults,
+        };
       }),
 
     // Post uploaded video to Instagram via Make.com webhook

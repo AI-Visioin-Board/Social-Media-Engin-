@@ -199,7 +199,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     "approve_and_post_carousel",
-    "Approve the final carousel and fire the Make.com webhook to post to Instagram.",
+    "Approve the final carousel and publish to Instagram via the configured publisher (Postiz / Make.com / dual-write).",
     {
       run_id: z.number(), caption: z.string().optional().describe("Override caption. If omitted, uses existing."),
     },
@@ -208,7 +208,7 @@ export function createMcpServer(): McpServer {
       if (!db) throw new Error("DB not available");
       const { contentRuns, generatedSlides } = await getSchema();
       const { eq } = await getDrizzleOps();
-      const { triggerInstagramPost } = await import("./contentPipeline");
+      const { triggerCarouselPost } = await import("./contentPipeline");
 
       const [run] = await db.select().from(contentRuns).where(eq(contentRuns.id, run_id));
       if (!run) throw new Error(`Run ${run_id} not found`);
@@ -220,20 +220,22 @@ export function createMcpServer(): McpServer {
       }
 
       const webhookUrl = process.env.MAKE_WEBHOOK_URL;
-      if (!webhookUrl) throw new Error("MAKE_WEBHOOK_URL not configured");
+      // No hard requirement on MAKE_WEBHOOK_URL anymore — Postiz is the primary path.
+      // We only error if neither publisher is reachable; that surfaces in result.ok.
 
-      const posted = await triggerInstagramPost(
+      const result = await triggerCarouselPost(
         run_id,
-        slides.map((s: any) => ({ assembledUrl: s.assembledUrl, isVideo: s.isVideo })),
+        slides.map((s: any) => ({ assembledUrl: s.assembledUrl, headline: s.headline ?? "", isVideo: s.isVideo })),
         finalCaption,
         webhookUrl,
       );
 
       await db.update(contentRuns).set({
         status: "completed", postApproved: true, updatedAt: new Date(),
+        ...(result.zernioPostId ? { instagramPostId: result.zernioPostId } : {}),
       }).where(eq(contentRuns.id, run_id));
 
-      return { content: [{ type: "text" as const, text: JSON.stringify({ run_id, status: "completed", posted, message: "Carousel approved and posted" }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ run_id, status: "completed", posted: result.ok, zernioPostId: result.zernioPostId, message: "Carousel approved and posted" }) }] };
     },
   );
 

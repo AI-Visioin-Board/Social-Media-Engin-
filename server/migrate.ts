@@ -423,6 +423,22 @@ export async function migrateDatabase(): Promise<void> {
         ALTER TABLE calendar_entries ADD COLUMN tweet_ids TEXT DEFAULT NULL;
       EXCEPTION WHEN duplicate_column THEN NULL; END $$;
     `);
+    // Unified media + direct Zernio publishing (2026-05)
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN media_items TEXT DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN target_platform VARCHAR(20) DEFAULT 'instagram';
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
+    await sql.unsafe(`
+      DO $$ BEGIN
+        ALTER TABLE calendar_entries ADD COLUMN zernio_post_id VARCHAR(64) DEFAULT NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    `);
 
     // ── AI News You Can Use pipeline ─────────────
     await sql.unsafe(`

@@ -74,10 +74,14 @@ const POST_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   posted_ig: { label: "Posted (IG)", color: "bg-green-500" },
   posted_x: { label: "Posted (X)", color: "bg-green-500" },
   posted_yt: { label: "Posted (YT)", color: "bg-green-500" },
+  posted_tt: { label: "Posted (TikTok)", color: "bg-green-500" },
+  posted_li: { label: "Posted (LinkedIn)", color: "bg-green-500" },
   posted_both: { label: "Posted (IG + X)", color: "bg-green-500" },
 };
 
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+type MediaItem = { type: "image" | "video"; url: string; name?: string };
 
 type CalendarEntry = {
   id: number;
@@ -93,7 +97,35 @@ type CalendarEntry = {
   uploadedVideoName: string | null;
   instagramCaption: string | null;
   postStatus: string | null;
+  mediaItems: string | null;        // JSON: MediaItem[]
+  targetPlatform: string | null;    // instagram | tiktok | youtube | x | linkedin
+  zernioPostId: string | null;
+  tweetId?: string | null;
+  tweetUrl?: string | null;
+  tweetIds?: string | null;
 };
+
+const PLATFORM_LABELS: Record<string, string> = {
+  instagram: "Instagram",
+  tiktok: "TikTok",
+  youtube: "YouTube",
+  twitter: "X / Twitter",
+  linkedin: "LinkedIn",
+};
+
+// Platforms currently connected in Zernio (verified live 2026-05-20):
+// instagram, twitter, youtube. LinkedIn + TikTok show but warn until connected.
+const CONNECTED_PLATFORMS = new Set(["instagram", "twitter", "youtube"]);
+
+/** Parse the mediaItems JSON column safely. */
+function parseMedia(entry: CalendarEntry | null): MediaItem[] {
+  if (!entry?.mediaItems) return [];
+  try {
+    return JSON.parse(entry.mediaItems) as MediaItem[];
+  } catch {
+    return [];
+  }
+}
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -203,6 +235,78 @@ export default function EditorialCalendar() {
     },
     onError: (e: any) => toast.error(`Twitter post failed: ${e.message}`),
   });
+
+  // ─── Unified media + Zernio publishing ──────────────────────────────────
+  const uploadMedia = trpc.calendar.uploadMedia.useMutation({
+    onSuccess: (data: any) => {
+      toast.success("Media uploaded!");
+      if (detailEntry) {
+        setDetailEntry({
+          ...detailEntry,
+          mediaItems: JSON.stringify(data.mediaItems),
+          postStatus: "ready",
+        });
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const removeMedia = trpc.calendar.removeMedia.useMutation({
+    onSuccess: (data: any) => {
+      if (detailEntry) {
+        setDetailEntry({ ...detailEntry, mediaItems: JSON.stringify(data.mediaItems) });
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const setPlatform = trpc.calendar.setPlatform.useMutation({
+    onSuccess: (data: any) => {
+      if (detailEntry) setDetailEntry({ ...detailEntry, targetPlatform: data.targetPlatform });
+      refetch();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const postViaZernio = trpc.calendar.postViaZernio.useMutation({
+    onSuccess: (data: any) => {
+      const label = PLATFORM_LABELS[data.platform] ?? data.platform;
+      toast.success(`Posted to ${label}! (${data.status ?? "published"})`);
+      if (detailEntry) {
+        const statusMap: Record<string, string> = {
+          instagram: "posted_ig", tiktok: "posted_tt", youtube: "posted_yt", x: "posted_x", linkedin: "posted_li",
+        };
+        setDetailEntry({ ...detailEntry, postStatus: statusMap[data.platform] ?? "posted", zernioPostId: data.zernioPostId ?? null });
+      }
+      refetch();
+    },
+    onError: (e: any) => toast.error(`Publish failed: ${e.message}`),
+  });
+
+  /** Read multiple files → base64 → uploadMedia. */
+  const handleMediaUpload = useCallback((id: number, files: FileList) => {
+    const readers = Array.from(files).map(
+      (file) =>
+        new Promise<{ base64: string; fileName: string; mimeType: string }>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve({
+              base64: result.split(",")[1] ?? "",
+              fileName: file.name,
+              mimeType: file.type || "application/octet-stream",
+            });
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        }),
+    );
+    Promise.all(readers)
+      .then((filePayloads) => uploadMedia.mutate({ id, files: filePayloads }))
+      .catch(() => toast.error("Failed to read files"));
+  }, [uploadMedia]);
 
   const postXText = trpc.calendar.postXText.useMutation({
     onSuccess: (data: any) => {
@@ -541,38 +645,80 @@ export default function EditorialCalendar() {
           </DialogHeader>
           {detailEntry && (
             <div className="space-y-5">
-              {/* Video Preview / Upload — only for reels */}
+              {/* Unified Media — images, video, carousel, mixed (not for x_post) */}
+              {detailEntry.contentType !== "x_post" && (() => {
+                const media = parseMedia(detailEntry);
+                // Legacy reel entries: surface the single uploaded video too.
+                const legacyVideo = media.length === 0 && detailEntry.uploadedVideoUrl
+                  ? [{ type: "video" as const, url: detailEntry.uploadedVideoUrl, name: detailEntry.uploadedVideoName ?? "video" }]
+                  : [];
+                const shown = media.length > 0 ? media : legacyVideo;
+                return (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      Media {shown.length > 0 && <span className="text-muted-foreground">({shown.length} {shown.length === 1 ? "item" : "items"} · carousel order)</span>}
+                    </label>
+                    {shown.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {shown.map((m, i) => (
+                          <div key={i} className="relative group rounded-lg overflow-hidden bg-black aspect-[4/5]">
+                            {m.type === "video" ? (
+                              <video src={m.url} className="w-full h-full object-cover" muted playsInline />
+                            ) : (
+                              <img src={m.url} className="w-full h-full object-cover" alt={m.name ?? `slide ${i + 1}`} />
+                            )}
+                            <span className="absolute top-1 left-1 text-[10px] font-bold bg-black/70 text-white rounded px-1.5 py-0.5">
+                              {i + 1}{m.type === "video" ? " ▶" : ""}
+                            </span>
+                            {media.length > 0 && (
+                              <button
+                                onClick={() => removeMedia.mutate({ id: detailEntry.id, index: i })}
+                                className="absolute top-1 right-1 bg-red-500/90 text-white rounded-full h-5 w-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition"
+                                title="Remove"
+                              >×</button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <MediaUploadButton
+                      entryId={detailEntry.id}
+                      onUpload={handleMediaUpload}
+                      loading={uploadMedia.isPending}
+                      label={shown.length > 0 ? "Add more media" : "Upload media (images / video / carousel)"}
+                      variant={shown.length > 0 ? "outline" : "default"}
+                      large={shown.length === 0}
+                    />
+                  </div>
+                );
+              })()}
+
+              {/* Platform selector */}
               {detailEntry.contentType !== "x_post" && (
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Video</label>
-                  {detailEntry.uploadedVideoUrl ? (
-                    <div className="space-y-2">
-                      <video
-                        src={detailEntry.uploadedVideoUrl}
-                        controls
-                        className="w-full max-h-[300px] rounded-lg bg-black"
-                      />
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                        <span>{detailEntry.uploadedVideoName}</span>
-                      </div>
-                      <VideoUploadButton
-                        entryId={detailEntry.id}
-                        onUpload={handleFileUpload}
-                        loading={uploadVideo.isPending}
-                        label="Replace Video"
-                        variant="outline"
-                      />
-                    </div>
-                  ) : (
-                    <VideoUploadButton
-                      entryId={detailEntry.id}
-                      onUpload={handleFileUpload}
-                      loading={uploadVideo.isPending}
-                      label="Upload Video"
-                      variant="default"
-                      large
-                    />
+                  <label className="text-sm font-medium mb-1.5 block">Publish to</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(["instagram", "twitter", "youtube", "linkedin", "tiktok"] as const).map((p) => {
+                      const active = (detailEntry.targetPlatform ?? "instagram") === p;
+                      const connected = CONNECTED_PLATFORMS.has(p);
+                      return (
+                        <Button
+                          key={p}
+                          size="sm"
+                          variant={active ? "default" : "outline"}
+                          onClick={() => setPlatform.mutate({ id: detailEntry.id, platform: p })}
+                          disabled={setPlatform.isPending}
+                          title={connected ? undefined : "Not connected in Zernio yet"}
+                        >
+                          {PLATFORM_LABELS[p]}{!connected && " ·"}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  {!CONNECTED_PLATFORMS.has(detailEntry.targetPlatform ?? "instagram") && (
+                    <p className="text-xs text-orange-400 mt-1.5">
+                      {PLATFORM_LABELS[detailEntry.targetPlatform ?? ""]} isn't connected in Zernio yet — connect it in the Zernio dashboard and publishing will light up automatically (no further setup).
+                    </p>
                   )}
                 </div>
               )}
@@ -674,60 +820,36 @@ export default function EditorialCalendar() {
                       </a>
                     )}
                   </div>
-                ) : (
-                  /* Reel — IG + X buttons */
-                  <>
-                    <Button
-                      onClick={() => {
-                        if (detailEntry) {
-                          postToInstagram.mutate({
-                            id: detailEntry.id,
-                            caption: captionText || undefined,
-                          });
-                        }
-                      }}
-                      disabled={
-                        !detailEntry.uploadedVideoUrl ||
-                        postToInstagram.isPending ||
-                        detailEntry.postStatus === "posted_ig" ||
-                        detailEntry.postStatus === "posted_both"
-                      }
-                      className="flex-1"
-                    >
-                      <Instagram className="h-4 w-4 mr-2" />
-                      {postToInstagram.isPending
-                        ? "Posting..."
-                        : detailEntry.postStatus === "posted_ig"
-                        ? "Posted to Instagram"
-                        : "Post to Instagram"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        if (detailEntry) {
-                          postToTwitter.mutate({
-                            id: detailEntry.id,
-                            caption: captionText || undefined,
-                          });
-                        }
-                      }}
-                      disabled={
-                        !detailEntry.uploadedVideoUrl ||
-                        postToTwitter.isPending ||
-                        detailEntry.postStatus === "posted_x" ||
-                        detailEntry.postStatus === "posted_both"
-                      }
-                    >
-                      <Send className="h-4 w-4 mr-2" />
-                      {postToTwitter.isPending
-                        ? "Posting..."
-                        : detailEntry.postStatus === "posted_x" || detailEntry.postStatus === "posted_both"
-                        ? "Posted to X"
-                        : "Post to X/Twitter"}
-                    </Button>
-                  </>
-                )}
+                ) : (() => {
+                  /* Carousel / Reel — publish via Zernio to the selected platform */
+                  const media = parseMedia(detailEntry);
+                  const hasMedia = media.length > 0 || !!detailEntry.uploadedVideoUrl;
+                  const platform = detailEntry.targetPlatform ?? "instagram";
+                  const alreadyPosted = ["posted_ig", "posted_tt", "posted_yt", "posted_li", "posted_x", "posted_both"].includes(detailEntry.postStatus ?? "");
+                  return (
+                    <div className="flex flex-col gap-2 flex-1">
+                      <Button
+                        className="w-full"
+                        onClick={() => {
+                          if (detailEntry) {
+                            postViaZernio.mutate({ id: detailEntry.id, caption: captionText || undefined });
+                          }
+                        }}
+                        disabled={!hasMedia || postViaZernio.isPending || alreadyPosted}
+                      >
+                        <Instagram className="h-4 w-4 mr-2" />
+                        {postViaZernio.isPending
+                          ? "Publishing..."
+                          : alreadyPosted
+                          ? `Posted to ${PLATFORM_LABELS[platform] ?? platform}`
+                          : `Post to ${PLATFORM_LABELS[platform] ?? platform}`}
+                      </Button>
+                      {!hasMedia && (
+                        <p className="text-xs text-muted-foreground text-center">Upload media first to enable publishing.</p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -783,6 +905,51 @@ function VideoUploadButton({
   );
 }
 
+// ─── Media Upload Button (multi-file: images + videos) ───────────────────────
+
+function MediaUploadButton({
+  entryId,
+  onUpload,
+  loading,
+  label,
+  variant = "default",
+  large = false,
+}: {
+  entryId: number;
+  onUpload: (id: number, files: FileList) => void;
+  loading: boolean;
+  label: string;
+  variant?: "default" | "outline";
+  large?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) onUpload(entryId, e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <Button
+        variant={variant}
+        size={large ? "default" : "sm"}
+        className={large ? "w-full h-20 border-dashed border-2" : "w-full"}
+        onClick={() => inputRef.current?.click()}
+        disabled={loading}
+      >
+        <Upload className={`${large ? "h-5 w-5" : "h-3.5 w-3.5"} mr-2`} />
+        {loading ? "Uploading..." : label}
+      </Button>
+    </>
+  );
+}
+
 // ─── Entry Card ─────────────────────────────────────────────────────────────
 
 function EntryCard({
@@ -812,6 +979,8 @@ function EntryCard({
   const isReel = entry.contentType === "reel";
   const isXPost = entry.contentType === "x_post";
   const hasVideo = !!entry.uploadedVideoUrl;
+  const media = parseMedia(entry);
+  const hasMedia = media.length > 0;
   const postInfo = entry.postStatus
     ? POST_STATUS_CONFIG[entry.postStatus]
     : null;
@@ -858,8 +1027,32 @@ function EntryCard({
         </p>
       )}
 
-      {/* Video indicator for reels */}
-      {isReel && hasVideo && (
+      {/* Media preview strip — first 3 thumbnails + count (carousel/reel) */}
+      {hasMedia && (
+        <div className="flex items-center gap-1">
+          {media.slice(0, 3).map((m, i) => (
+            <div key={i} className="relative h-10 w-8 rounded overflow-hidden bg-black shrink-0">
+              {m.type === "video" ? (
+                <video src={m.url} className="h-full w-full object-cover" muted playsInline />
+              ) : (
+                <img src={m.url} className="h-full w-full object-cover" alt="" />
+              )}
+              {m.type === "video" && (
+                <span className="absolute inset-0 flex items-center justify-center text-white text-[8px]">▶</span>
+              )}
+            </div>
+          ))}
+          {media.length > 3 && (
+            <span className="text-[10px] text-muted-foreground font-medium">+{media.length - 3}</span>
+          )}
+          <span className="text-[10px] text-muted-foreground ml-0.5">
+            {media.length} {media.length === 1 ? "item" : "items"}
+          </span>
+        </div>
+      )}
+
+      {/* Video indicator for legacy reels (no mediaItems yet) */}
+      {isReel && hasVideo && !hasMedia && (
         <div className="flex items-center gap-1 text-green-600">
           <Film className="h-2.5 w-2.5" />
           <span className="truncate">{entry.uploadedVideoName ?? "Video uploaded"}</span>
@@ -908,6 +1101,22 @@ function EntryCard({
               <><Film className="h-2.5 w-2.5 mr-0.5" /> View</>
             ) : (
               <><Upload className="h-2.5 w-2.5 mr-0.5" /> Upload</>
+            )}
+          </Button>
+        )}
+
+        {/* Carousel: Upload media / open detail to publish */}
+        {entry.contentType === "carousel" && (
+          <Button
+            variant={hasMedia ? "outline" : "default"}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={onOpenDetail}
+          >
+            {hasMedia ? (
+              <><Instagram className="h-2.5 w-2.5 mr-0.5" /> {entry.postStatus?.startsWith("posted") ? "View" : "Post"}</>
+            ) : (
+              <><Upload className="h-2.5 w-2.5 mr-0.5" /> Media</>
             )}
           </Button>
         )}

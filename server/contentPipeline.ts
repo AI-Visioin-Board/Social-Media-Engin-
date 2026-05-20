@@ -1126,14 +1126,124 @@ export async function generateSlideImage(
 
 
 
-// ─── Stage 7: Make.com Instagram Webhook ──────────────────────────────────────
+// ─── Stage 7: Carousel Publish ───────────────────────────────────────────────
+//
+// As of 2026-05, this dispatches via either Make.com (legacy) or Zernio
+// (unified social-media posting API, supports mixed-media IG carousels
+// natively) based on ENV.publisher:
+//   - "make"   : legacy webhook only
+//   - "zernio" : Zernio REST only
+//   - "both"   : dual-write safety window — Zernio publishes, Make fires for
+//                diff comparison during the cutover window.
+//
+// New code paths should call triggerCarouselPost. The old triggerInstagramPost
+// name is preserved as a re-export so the MCP server / tRPC routes don't break
+// during transition.
 
 /**
- * Trigger Make.com scenario to post the carousel to Instagram
+ * Publish a carousel via the configured publisher (Zernio / Make / both).
+ * Returns true if the authoritative publisher succeeded.
+ */
+export async function triggerCarouselPost(
+  runId: number,
+  slides: Array<{ assembledUrl: string; headline: string; isVideo?: boolean }>,
+  caption: string,
+  makeWebhookUrl?: string
+): Promise<{ ok: boolean; zernioPostId?: string; makeOk?: boolean; zernioOk?: boolean }> {
+  const publisher = ENV.publisher;
+  const RAILWAY_PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : (process.env.PUBLIC_URL || `http://localhost:${ENV.port}`);
+
+  const absoluteSlides = slides.map((s) => ({
+    ...s,
+    absoluteUrl: s.assembledUrl.startsWith("/uploads/")
+      ? `${RAILWAY_PUBLIC_URL}${s.assembledUrl}`
+      : s.assembledUrl,
+  }));
+
+  let zernioOk: boolean | undefined;
+  let zernioPostId: string | undefined;
+  let makeOk: boolean | undefined;
+
+  // === Zernio path ===
+  if (publisher === "zernio" || publisher === "both") {
+    try {
+      const { createPost, resolveAccountId } = await import("./zernioClient");
+      // Resolve IG account dynamically; env var (if set) is an override.
+      const accountId = await resolveAccountId(
+        "instagram",
+        ENV.zernioInstagramAccountId || undefined
+      );
+      if (!accountId) {
+        console.error(
+          "[ContentPipeline] PUBLISHER=zernio but no active Instagram account in Zernio — skipping Zernio"
+        );
+        zernioOk = false;
+      } else {
+        const result = await createPost({
+          content: caption,
+          title: `sbgpt-run-${runId}`,
+          mediaItems: absoluteSlides.map((s) => ({
+            type: s.isVideo ? ("video" as const) : ("image" as const),
+            url: s.absoluteUrl,
+            altText: s.headline,
+          })),
+          platforms: [{ platform: "instagram", accountId }],
+          publishNow: true,
+        });
+        zernioOk = result.ok;
+        zernioPostId = result.zernioPostId;
+        if (!result.ok) {
+          console.error(`[ContentPipeline] Zernio publish failed: ${result.error}`);
+        } else {
+          console.log(
+            `[ContentPipeline] Zernio post created: ${result.zernioPostId} (status: ${result.status})`
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[ContentPipeline] Zernio client error:", err);
+      zernioOk = false;
+    }
+  }
+
+  // === Make.com path (legacy / dual-write logging) ===
+  if (publisher === "make" || publisher === "both") {
+    makeOk = await firePostMakeWebhook(runId, absoluteSlides, caption, makeWebhookUrl);
+  }
+
+  // Aggregate: in "zernio" mode the Zernio result is authoritative.
+  // In "make" mode the Make result is authoritative.
+  // In "both" mode Zernio is authoritative (Make is shadow logging).
+  const ok =
+    publisher === "make"   ? !!makeOk
+  : publisher === "zernio" ? !!zernioOk
+  /* both */               : !!zernioOk;
+
+  return { ok, zernioPostId, makeOk, zernioOk };
+}
+
+/**
+ * @deprecated Use triggerCarouselPost. Kept for backward compat with callers
+ * that haven't been migrated yet. Returns boolean for API compatibility.
  */
 export async function triggerInstagramPost(
   runId: number,
   slides: Array<{ assembledUrl: string; headline: string; isVideo?: boolean }>,
+  caption: string,
+  makeWebhookUrl?: string
+): Promise<boolean> {
+  const { ok } = await triggerCarouselPost(runId, slides, caption, makeWebhookUrl);
+  return ok;
+}
+
+/** Internal: fires the legacy Make.com webhook with the existing payload shape.
+ *  Extracted from the original triggerInstagramPost so triggerCarouselPost
+ *  can call it conditionally during dual-write. */
+async function firePostMakeWebhook(
+  runId: number,
+  absoluteSlides: Array<{ absoluteUrl: string; headline: string; isVideo?: boolean }>,
   caption: string,
   makeWebhookUrl?: string
 ): Promise<boolean> {
@@ -1150,7 +1260,7 @@ export async function triggerInstagramPost(
     } catch { /* ignore */ }
   }
   if (!url) {
-    console.log("[ContentPipeline] Make.com webhook not configured — skipping Instagram post");
+    console.log("[ContentPipeline] Make.com webhook not configured — skipping Make path");
     return false;
   }
 
@@ -1164,24 +1274,13 @@ export async function triggerInstagramPost(
    * Our slides are 1080×1920 (9:16). The Make.com scenario must crop/pad
    * video slides to 4:5 before calling the Instagram API.
    */
-  // Convert relative /uploads/ URLs to absolute public URLs for Make.com
-  // Make.com needs to download these files — relative paths won't work
-  const RAILWAY_PUBLIC_URL = process.env.RAILWAY_PUBLIC_DOMAIN
-    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-    : (process.env.PUBLIC_URL || `http://localhost:${ENV.port}`);
-
-  const slidePayload = slides.map((s, i) => {
-    const absoluteUrl = s.assembledUrl.startsWith("/uploads/")
-      ? `${RAILWAY_PUBLIC_URL}${s.assembledUrl}`
-      : s.assembledUrl;
-    return {
-      slide_index: i,
-      media_type: s.isVideo ? "VIDEO" : "IMAGE",
-      image_url: absoluteUrl,   // always set — Make.com uses this for IMAGE slides
-      video_url: absoluteUrl,   // always set — Make.com uses this for VIDEO slides
-      headline: s.headline,
-    };
-  });
+  const slidePayload = absoluteSlides.map((s, i) => ({
+    slide_index: i,
+    media_type: s.isVideo ? "VIDEO" : "IMAGE",
+    image_url: s.absoluteUrl,
+    video_url: s.absoluteUrl,
+    headline: s.headline,
+  }));
 
   try {
     const response = await fetch(url, {
@@ -1194,16 +1293,12 @@ export async function triggerInstagramPost(
         run_id: runId,
         caption,
         slides: slidePayload,
-        // Array for Make.com Instagram carousel Files field. Each item must include:
-        //   - media_type: "IMAGE" or "VIDEO"
-        //   - image_url (for IMAGE) OR video_url (for VIDEO)
-        // Instagram Graph API carousel requires media_type per child + the matching URL field.
         image_urls: slidePayload.map((s) => s.media_type === "VIDEO"
           ? { media_type: "VIDEO", video_url: s.video_url }
           : { media_type: "IMAGE", image_url: s.image_url }
         ),
-        slide_count: slides.length,
-        has_video: slides.some((s) => s.isVideo),
+        slide_count: absoluteSlides.length,
+        has_video: absoluteSlides.some((s) => s.isVideo),
         posted_at: new Date().toISOString(),
       }),
     });

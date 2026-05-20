@@ -54,6 +54,25 @@ export const ENV = {
   serpApiKey: process.env.SERP_API_KEY ?? "",
   makeWebhookUrl: process.env.MAKE_WEBHOOK_URL ?? "",
 
+  // Zernio (formerly Late) — unified social-media-posting API.
+  // Replaces Make.com because Make's Instagram Business module mangled
+  // mixed-media carousels on the Graph API. Zernio handles them natively.
+  // Reference: https://docs.zernio.com/llms-full.txt
+  zernioApiKey: process.env.ZERNIO_API_KEY ?? "",
+  /** Zernio account `_id` for the @suggestedbygpt Instagram channel. Pulled
+   *  via GET /api/v1/accounts after the IG OAuth in Zernio dashboard. */
+  zernioInstagramAccountId: process.env.ZERNIO_INSTAGRAM_ACCOUNT_ID ?? "",
+  /** Which publisher fires when triggerCarouselPost runs.
+   *  - "make"   : legacy path only (Make.com webhook)
+   *  - "zernio" : Zernio REST API only
+   *  - "both"   : dual-write — Zernio publishes, Make.com fires for comparison
+   *  Defaults to "make" so deploying this code without setting ZERNIO_* is a no-op.
+   */
+  publisher: (process.env.PUBLISHER ?? "make").toLowerCase() as
+    | "make"
+    | "zernio"
+    | "both",
+
   // Runtime
   isProduction: process.env.NODE_ENV === "production",
   port: parseInt(process.env.PORT ?? "3000", 10),

@@ -256,6 +256,103 @@ describe("triggerInstagramPost: payload shape", () => {
   });
 });
 
+// ─── Zernio publisher: payload shape ─────────────────────────────────────────
+//
+// These mirror the slide-mapping logic inside triggerCarouselPost so we catch
+// regressions in the Zernio mediaItems payload independent of the legacy Make
+// payload. Zernio's shape: { type: "image"|"video", url, altText? }.
+
+describe("Zernio publisher: mediaItems payload shape", () => {
+  /** Mirror the slide → Zernio mediaItem mapping from contentPipeline.triggerCarouselPost */
+  function buildZernioMediaItems(
+    slides: Array<{ assembledUrl: string; headline: string; isVideo?: boolean }>
+  ) {
+    return slides.map((s) => ({
+      type: s.isVideo ? ("video" as const) : ("image" as const),
+      url: s.assembledUrl,
+      altText: s.headline,
+    }));
+  }
+
+  const mixedSlides = [
+    { assembledUrl: "https://cdn.example.com/slide0.png", headline: "Cover",   isVideo: false },
+    { assembledUrl: "https://cdn.example.com/slide1.mp4", headline: "Story 1", isVideo: true  },
+    { assembledUrl: "https://cdn.example.com/slide2.png", headline: "Story 2", isVideo: false },
+    { assembledUrl: "https://cdn.example.com/slide3.mp4", headline: "Story 3", isVideo: true  },
+  ];
+
+  it("emits lowercase 'image' / 'video' types per slide (Zernio convention)", () => {
+    const payload = buildZernioMediaItems(mixedSlides);
+    expect(payload.map((s) => s.type)).toEqual(["image", "video", "image", "video"]);
+  });
+
+  it("never sets both image_url AND video_url on the same slide", () => {
+    // Zernio uses a single `url` field per mediaItem. This guards against a
+    // refactor accidentally reintroducing the Make schema (separate image_url
+    // / video_url fields that Make's IG module choked on).
+    const payload = buildZernioMediaItems(mixedSlides);
+    for (const s of payload) {
+      expect(s).toHaveProperty("url");
+      expect(s).not.toHaveProperty("image_url");
+      expect(s).not.toHaveProperty("video_url");
+    }
+  });
+
+  it("preserves slide order in the array (carousel order matters)", () => {
+    const payload = buildZernioMediaItems(mixedSlides);
+    expect(payload[0].url).toContain("slide0");
+    expect(payload[1].url).toContain("slide1");
+    expect(payload[2].url).toContain("slide2");
+    expect(payload[3].url).toContain("slide3");
+  });
+
+  it("passes headline through as altText", () => {
+    const payload = buildZernioMediaItems(mixedSlides);
+    expect(payload[0].altText).toBe("Cover");
+    expect(payload[3].altText).toBe("Story 3");
+  });
+
+  it("supports image-only carousels (no video flag at all)", () => {
+    const imgOnly = [
+      { assembledUrl: "https://cdn.example.com/a.png", headline: "A" },
+      { assembledUrl: "https://cdn.example.com/b.png", headline: "B" },
+    ];
+    const payload = buildZernioMediaItems(imgOnly);
+    expect(payload.every((s) => s.type === "image")).toBe(true);
+  });
+
+  it("builds title in sbgpt-run-<id> shape (used for internal correlation)", () => {
+    const runId = 42;
+    expect(`sbgpt-run-${runId}`).toBe("sbgpt-run-42");
+  });
+});
+
+// ─── Publisher feature flag routing ──────────────────────────────────────────
+
+describe("Publisher feature flag routing", () => {
+  /** Mirror the ok aggregation rule from triggerCarouselPost */
+  function aggregate(publisher: "make" | "zernio" | "both", makeOk?: boolean, zernioOk?: boolean): boolean {
+    return publisher === "make"   ? !!makeOk
+         : publisher === "zernio" ? !!zernioOk
+         /* both */                : !!zernioOk;
+  }
+
+  it("'make' mode: ok follows Make result only", () => {
+    expect(aggregate("make", true,  false)).toBe(true);
+    expect(aggregate("make", false, true )).toBe(false);
+  });
+
+  it("'zernio' mode: ok follows Zernio result only", () => {
+    expect(aggregate("zernio", true,  false)).toBe(false);
+    expect(aggregate("zernio", false, true )).toBe(true);
+  });
+
+  it("'both' (dual-write) mode: Zernio is authoritative; Make is shadow", () => {
+    expect(aggregate("both", true,  false)).toBe(false); // Make ok but Zernio failed → run fails
+    expect(aggregate("both", false, true )).toBe(true);  // Make failed but Zernio ok → run succeeds
+  });
+});
+
 describe("isVideoSlide: URL detection logic", () => {
   /** Mirror the isVideo detection from routers.ts approvePost */
   function detectIsVideo(assembledUrl: string | null, isVideoSlide: number): boolean {

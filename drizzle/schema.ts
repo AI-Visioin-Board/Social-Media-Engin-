@@ -525,6 +525,15 @@ export const calendarEntries = pgTable("calendar_entries", {
   instagramCaption: text("instagram_caption"),
   textContent: text("text_content"),  // tweet text, thread JSON, or caption draft
   imageUrls: text("image_urls"),  // JSON array of image URLs for x_post entries
+  // Unified media for direct-publish via Zernio. JSON array, ordered:
+  //   [{ type: "image"|"video", url, name }]
+  // Supports single image, single video, carousel, or mixed-media carousel.
+  mediaItems: text("media_items"),
+  // Which platform this entry publishes to (instagram | tiktok | youtube | x | linkedin).
+  // Drives which Zernio account the post is routed to. Defaults to instagram.
+  targetPlatform: varchar("target_platform", { length: 20 }).default("instagram"),
+  // Zernio post _id stored after a successful publish (for status sync).
+  zernioPostId: varchar("zernio_post_id", { length: 64 }),
   tweetId: varchar("tweet_id", { length: 50 }),  // stored after successful X post
   tweetUrl: varchar("tweet_url", { length: 255 }),  // stored after successful X post
   tweetIds: text("tweet_ids"),  // JSON array of tweet IDs for x_thread entries
