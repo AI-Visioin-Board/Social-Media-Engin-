@@ -648,6 +648,165 @@ export function createMcpServer(): McpServer {
     },
   );
 
+  // ── Direct Zernio publishing from the calendar ──────────────────────────
+
+  server.tool(
+    "add_calendar_media",
+    "Attach media (images and/or videos) to a calendar entry by URL — assembles a carousel. Pass multiple items for a carousel; mixed image+video is supported. URLs must be publicly reachable (Zernio fetches them at publish time). Max 10 per entry.",
+    {
+      id: z.number().describe("Calendar entry ID."),
+      items: z.array(z.object({
+        type: z.enum(["image", "video"]),
+        url: z.string().describe("Public HTTPS URL to the image or video."),
+        name: z.string().optional(),
+      })).describe("Ordered media items — carousel order is preserved."),
+    },
+    async ({ id, items }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB not available");
+      const { calendarEntries } = await getSchema();
+      const { eq } = await getDrizzleOps();
+      const [existing] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, id));
+      if (!existing) throw new Error("Calendar entry not found");
+      type MediaItem = { type: "image" | "video"; url: string; name?: string };
+      const current: MediaItem[] = (existing as any).mediaItems ? JSON.parse((existing as any).mediaItems) : [];
+      if (current.length + items.length > 10) {
+        throw new Error(`Carousel limit is 10 — entry has ${current.length}, can't add ${items.length}.`);
+      }
+      const merged = [...current, ...items.map((i) => ({ type: i.type, url: i.url, name: i.name ?? "media" }))];
+      await db.update(calendarEntries).set({
+        mediaItems: JSON.stringify(merged), postStatus: "ready", updatedAt: new Date(),
+      }).where(eq(calendarEntries.id, id));
+      return { content: [{ type: "text" as const, text: JSON.stringify({ id, media_count: merged.length, media: merged }) }] };
+    },
+  );
+
+  server.tool(
+    "remove_calendar_media",
+    "Remove a single media item from a calendar entry by its zero-based index.",
+    { id: z.number(), index: z.number().describe("Zero-based index of the media item to remove.") },
+    async ({ id, index }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB not available");
+      const { calendarEntries } = await getSchema();
+      const { eq } = await getDrizzleOps();
+      const [existing] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, id));
+      if (!existing) throw new Error("Calendar entry not found");
+      const items: any[] = (existing as any).mediaItems ? JSON.parse((existing as any).mediaItems) : [];
+      if (index >= 0 && index < items.length) items.splice(index, 1);
+      await db.update(calendarEntries).set({
+        mediaItems: JSON.stringify(items),
+        postStatus: items.length === 0 ? "draft" : (existing as any).postStatus,
+        updatedAt: new Date(),
+      }).where(eq(calendarEntries.id, id));
+      return { content: [{ type: "text" as const, text: JSON.stringify({ id, media_count: items.length }) }] };
+    },
+  );
+
+  server.tool(
+    "set_calendar_platform",
+    "Set the target platform a calendar entry publishes to (instagram | twitter | youtube | linkedin | tiktok). Only platforms connected in Zernio will actually publish.",
+    {
+      id: z.number(),
+      platform: z.enum(["instagram", "twitter", "youtube", "linkedin", "tiktok"]),
+    },
+    async ({ id, platform }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB not available");
+      const { calendarEntries } = await getSchema();
+      const { eq } = await getDrizzleOps();
+      await db.update(calendarEntries).set({ targetPlatform: platform, updatedAt: new Date() }).where(eq(calendarEntries.id, id));
+      return { content: [{ type: "text" as const, text: JSON.stringify({ id, target_platform: platform }) }] };
+    },
+  );
+
+  server.tool(
+    "post_calendar_entry",
+    "Publish a calendar entry's media directly via Zernio to its target platform. Handles single image, single video, carousel, and mixed image+video carousel. Stores the Zernio post ID and updates status. Requires media to be attached first (add_calendar_media).",
+    {
+      id: z.number(),
+      caption: z.string().optional().describe("Override caption. Falls back to the entry's saved caption / topic title."),
+    },
+    async ({ id, caption }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB not available");
+      const { calendarEntries } = await getSchema();
+      const { eq } = await getDrizzleOps();
+      const { ENV } = await import("./_core/env");
+      const [entry] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, id));
+      if (!entry) throw new Error("Calendar entry not found");
+
+      type MediaItem = { type: "image" | "video"; url: string; name?: string };
+      let media: MediaItem[] = (entry as any).mediaItems ? JSON.parse((entry as any).mediaItems) : [];
+      if (media.length === 0 && entry.uploadedVideoUrl) {
+        media = [{ type: "video", url: entry.uploadedVideoUrl, name: entry.uploadedVideoName ?? "video" }];
+      }
+      if (media.length === 0) throw new Error("No media attached — use add_calendar_media first");
+
+      const finalCaption = caption || entry.instagramCaption || entry.topicTitle || "";
+      const baseUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+        ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+        : process.env.BASE_URL || "https://social-media-engin-production.up.railway.app";
+      const absolutize = (u: string) => (u.startsWith("http") ? u : `${baseUrl}${u}`);
+
+      const platform = ((entry as any).targetPlatform ?? "instagram") as
+        "instagram" | "twitter" | "youtube" | "linkedin" | "tiktok";
+      const { createPost, resolveAccountId } = await import("./zernioClient");
+      const override = platform === "instagram" ? ENV.zernioInstagramAccountId || undefined : undefined;
+      const accountId = await resolveAccountId(platform, override);
+      if (!accountId) throw new Error(`No active Zernio account for "${platform}". Connect it in Zernio first.`);
+
+      const result = await createPost({
+        content: finalCaption,
+        title: `calendar-${id}`,
+        mediaItems: media.map((m) => ({ type: m.type, url: absolutize(m.url) })),
+        platforms: [{ platform, accountId }],
+        publishNow: true,
+      });
+
+      const statusMap: Record<string, string> = {
+        instagram: "posted_ig", twitter: "posted_x", youtube: "posted_yt", linkedin: "posted_li", tiktok: "posted_tt",
+      };
+      await db.update(calendarEntries).set({
+        postStatus: result.ok ? (statusMap[platform] ?? "posted") : (entry as any).postStatus,
+        status: result.ok ? "posted" : entry.status,
+        ...(result.zernioPostId ? { zernioPostId: result.zernioPostId } : {}),
+        updatedAt: new Date(),
+      }).where(eq(calendarEntries.id, id));
+
+      if (!result.ok) throw new Error(result.error || "Zernio publish failed");
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        id, platform, zernio_post_id: result.zernioPostId, status: result.status,
+        platform_results: result.platformResults, message: `Published to ${platform}`,
+      }) }] };
+    },
+  );
+
+  server.tool(
+    "list_social_accounts",
+    "List the social-media accounts connected in Zernio (platform, account id, display name, active state). Use this to see which platforms can actually be published to.",
+    async () => {
+      const { listAccounts } = await import("./zernioClient");
+      const accounts = await listAccounts();
+      return { content: [{ type: "text" as const, text: JSON.stringify(accounts.map((a) => ({
+        platform: a.platform, account_id: a._id, name: a.displayName, active: a.isActive,
+      }))) }] };
+    },
+  );
+
+  server.tool(
+    "get_social_post_status",
+    "Get the current status + platform results for a published Zernio post by its post id.",
+    { zernio_post_id: z.string() },
+    async ({ zernio_post_id }) => {
+      const { getPostStatus } = await import("./zernioClient");
+      const r = await getPostStatus(zernio_post_id);
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        zernio_post_id, ok: r.ok, status: r.status, platform_results: r.platformResults, error: r.error,
+      }) }] };
+    },
+  );
+
   // =========================================================================
   // 4. AVATAR REEL PIPELINE
   // =========================================================================
@@ -1266,5 +1425,5 @@ export function registerMcpEndpoint(app: Express): void {
     res.status(200).json({ message: "Session closed" });
   });
 
-  console.log("[MCP] Server registered at /mcp — 30 tools available");
+  console.log("[MCP] Server registered at /mcp — 47 tools available");
 }

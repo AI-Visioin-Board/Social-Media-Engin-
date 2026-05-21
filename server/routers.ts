@@ -2035,6 +2035,40 @@ export const appRouter = router({
         return { success: true, mediaItems: current, entry };
       }),
 
+    // Append media to a calendar entry by URL (agent-friendly — no base64).
+    // Media already hosted (SBGPT /uploads, S3, or external) is referenced
+    // directly; Zernio fetches it server-side at publish time.
+    addMediaUrls: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        items: z.array(z.object({
+          type: z.enum(["image", "video"]),
+          url: z.string().url(),
+          name: z.string().optional(),
+        })).min(1).max(10),
+      }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { calendarEntries } = await import("../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB not available");
+        const [existing] = await db.select().from(calendarEntries).where(eq(calendarEntries.id, input.id));
+        if (!existing) throw new Error("Calendar entry not found");
+        type MediaItem = { type: "image" | "video"; url: string; name?: string };
+        const current: MediaItem[] = existing.mediaItems ? JSON.parse(existing.mediaItems) : [];
+        if (current.length + input.items.length > 10) {
+          throw new Error(`Carousel limit is 10 — entry has ${current.length}, can't add ${input.items.length}.`);
+        }
+        const merged = [...current, ...input.items.map((i) => ({ type: i.type, url: i.url, name: i.name ?? "media" }))];
+        const [entry] = await db.update(calendarEntries).set({
+          mediaItems: JSON.stringify(merged),
+          postStatus: "ready",
+          updatedAt: new Date(),
+        }).where(eq(calendarEntries.id, input.id)).returning();
+        return { success: true, mediaItems: merged, entry };
+      }),
+
     // Remove a single media item (by index) from a calendar entry.
     removeMedia: adminProcedure
       .input(z.object({ id: z.number(), index: z.number().min(0) }))
